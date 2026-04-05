@@ -1,5 +1,3 @@
-// Note: This file is inlined into 'bin/crow'.
-// So if you edit this file, you need to build twice: 'make bin/crow && make update-lkg && rm bin/crow && make bin/crow' (TODO: can I make this happen automatically?)
 public class Keen {
 	public static byte[][] stringArrayFromJavaStringArray(String[] a) {
 		byte[][] res = new byte[a.length][];

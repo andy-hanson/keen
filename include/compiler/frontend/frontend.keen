@@ -1,7 +1,7 @@
 import
 	keen/col/mut-sorted-set
 	keen/unsafe
-	../../keen/json: crowd-parse-error, expected, parse-crowd, pos
+	../../keen/json: kid-parse-error, expected, parse-kid, pos
 	../model/ast
 	../model/lsp
 	../model/model
@@ -23,29 +23,29 @@ import
 	./show-model
 
 frontend record mut, java-classes case
-	-crow-include-dir uri
+	-keen-include-dir uri
 	-common-uris common-uris
-	-common-files mut (common-module, crow-file) enum-map
+	-common-files mut (common-module, keen-file) enum-map
 	-unknown uri mut-set
 	-loading uri mut-set
 	instantiate-ctx instantiate-ctx
 	line-and-column-getters -mut line-and-column-getter[uri]
 	| Set after 'bootstrap.keen' is compiled
 	-common-types-option mut common-types?
-	-crow-files crow-file mut[uri]
-	| Number of crow-files without {module} set
-	-count-uncompiled-crow-files mut nat
-	-crowd-files crowd-file mut[uri]
+	-keen-files keen-file mut[uri]
+	| Number of keen-files without {module} set
+	-count-uncompiled-keen-files mut nat
+	-kid-files kid-file mut[uri]
 	-config-files config-file mut[uri]
 	| Key is the Java class path such as "java/lang/Object"
 	-java-class-files java-class-file mut[path]
 	-other-files other-file mut[uri]
-	| Set of crow files which are ready to compile immediately.
+	| Set of keen files which are ready to compile immediately.
 	| (Parsing and resolving imports is always done immediately.)
 	| This doesn't include files whose imports are not yet compiled.
 	| If all import uris are resolved but nothing is workable, there must be a circular import.
 	-workable-java path mut-sorted-set
-	-workable-crow uri mut-sorted-set
+	-workable-keen uri mut-sorted-set
 common-types common-types(a frontend)
 	a.common-types-option!
 ensure-java-class struct-decl(a frontend, path path)
@@ -56,10 +56,10 @@ show-ctx show-ctx(a frontend, uris-info uris-info, options show-options)
 	uris-info: uris-info
 	options: options
 
-new frontend(crow-include-dir uri)
-	common-uris = common-uris crow-include-dir
+new frontend(keen-include-dir uri)
+	common-uris = common-uris keen-include-dir
 	res frontend =
-		crow-include-dir: crow-include-dir
+		keen-include-dir: keen-include-dir
 		common-uris: common-uris
 		common-files: for _, uri in common-uris
 			# Dummy value, about to get overwritten
@@ -75,16 +75,16 @@ new frontend(crow-include-dir uri)
 		instantiate-ctx: ()
 		line-and-column-getters: ()
 		common-types-option: ()
-		crow-files: ()
-		count-uncompiled-crow-files: 0
-		crowd-files: ()
+		keen-files: ()
+		count-uncompiled-keen-files: 0
+		kid-files: ()
 		config-files: ()
 		java-class-files: ()
 		other-files: ()
 		workable-java: ()
-		workable-crow: ()
+		workable-keen: ()
 	res.common-files := for _, uri in common-uris
-		ensure-crow-file res, uri
+		ensure-keen-file res, uri
 	res
 
 |  This is initially empty and the fields fill in from top to bottom in various steps.
@@ -92,18 +92,18 @@ new frontend(crow-include-dir uri)
 | * The file is (attempted) read and parsed and gets ({ast-or-diag})
 | * Then imports are resolved ({resolved-imports})
 | * Then a {module} is built
--crow-file record mut
+-keen-file record mut
 	uri uri
-	| Uris are for {crow-file}s
+	| Uris are for {keen-file}s
 	referenced-by uri mut-set
 	config-file config-file
 	config mut config?
 	ast-or-diag mut ast-or-diag
 	| Also includes re-exports. Set once we have config.
 	resolved-imports mut mostly-resolved-import[]?
-	module mut crow-module?
+	module mut keen-module?
 
--crowd-file record mut
+-kid-file record mut
 	line-and-column-getter mut line-and-column-getter
 	parsed mut json?
 	diagnostics mut diagnostic[]
@@ -121,8 +121,8 @@ new frontend(crow-include-dir uri)
 	has-filled-in-supertypes mut bool
 	| This will be an empty option if we don't need to import this Java class as a module
 	module mut java-class-module?
-	| Uris are for {crow-file}s
-	referenced-by-crow uri mut-set
+	| Uris are for {keen-file}s
+	referenced-by-keen uri mut-set
 	| Subclasses or interface implementers must be processed after their supertypes.
 	inheritors path mut-set
 -path path(a java-class-file)
@@ -142,7 +142,7 @@ new frontend(crow-include-dir uri)
 -other-file record mut
 	uri uri
 	content mut read-file-result
-	| Uris are for {crow-file}s
+	| Uris are for {keen-file}s
 	referenced-by uri mut-set
 
 make-program-with-main program-with-main(a frontend, main main-kind, targets build-target set)
@@ -167,35 +167,35 @@ make-program program(a frontend, fully-loaded-configs uri set)
 	start = perf-now
 	finally end-make-program start
 	assert a.files-state == all-loaded
-	common-modules (common-module, crow-module) enum-map = for _, x in a.common-files
+	common-modules (common-module, keen-module) enum-map = for _, x in a.common-files
 		x.module!
 	the instantiate-ctx = a.instantiate-ctx
 	the common-types = a.common-types
 	common-funs, common-funs-diagnostics = get-common-funs common-modules
-	crow-modules crow-module[uri] = for uri, file in a.crow-files
+	keen-modules keen-module[uri] = for uri, file in a.keen-files
 		uri, file.module!
-	unused-diagnostics = detect-unused-internal crow-modules, fully-loaded-configs
-	crowd-diagnostics uri-and-diagnostic[] = for* uri, file in a.crowd-files
+	unused-diagnostics = detect-unused-internal keen-modules, fully-loaded-configs
+	kid-diagnostics uri-and-diagnostic[] = for* uri, file in a.kid-files
 		map file.diagnostics, (uri, it)
 	all-configs: for* uri, x in a.config-files
 		if config = x.config.config
 			- uri, config
-	crow-modules: crow-modules
+	keen-modules: keen-modules
 	java-modules: for* k, v in a.java-class-files
 		if m = v.module
 			- k, m
 	all-java-classes: map-values a.java-class-files, it.type
-	additional-diagnostics: common-funs-diagnostics ~~ unused-diagnostics ~~ crowd-diagnostics
+	additional-diagnostics: common-funs-diagnostics ~~ unused-diagnostics ~~ kid-diagnostics
 	line-and-column-getters: a.line-and-column-getters
 	common-funs: common-funs
 	common-types: a.common-types
 	uncommon-types: json: common-funs.json-named-new.return-type.struct-inst!
 
-get-crowd-file line-and-character-getter(a frontend, uri uri)
-	a.crowd-files[uri]!.line-and-column-getter.line-and-character-getter
+get-kid-file line-and-character-getter(a frontend, uri uri)
+	a.kid-files[uri]!.line-and-column-getter.line-and-character-getter
 get-ast file-ast(a frontend, uri uri)
-	get-ast a.crow-files[uri]!
--get-ast file-ast(a crow-file)
+	get-ast a.keen-files[uri]!
+-get-ast file-ast(a keen-file)
 	to-ast a.ast-or-diag
 line-and-character-getter line-and-character-getter(a frontend, uri uri)
 	a.line-and-column-getters[uri]!.line-and-character-getter
@@ -256,8 +256,8 @@ set-file void(a frontend, uri uri, result read-file-result)
 		as read-file-diag
 			file.parsed := result
 		add-to-workable-if-so a, path, file
-	as crow
-		file = ensure-crow-file a, uri
+	as keen
+		file = ensure-keen-file a, uri
 		file.ast-or-diag := match result
 		as array-view
 			text string-view = safe-reinterpret-cast result
@@ -266,26 +266,26 @@ set-file void(a frontend, uri uri, result read-file-result)
 			result
 		a.line-and-column-getters ~:= uri, file.ast-or-diag.line-and-column-getter
 		updated-ast-or-config a, file
-	as crowd
-		file = ensure-crowd-file a, uri
+	as kid
+		file = ensure-kid-file a, uri
 		match result
 		as array-view
 			text string-view = safe-reinterpret-cast result
 			file.line-and-column-getter := line-and-column-getter-for-text text
-			match x = parse-crowd text
+			match x = parse-kid text
 			as json
 				file.parsed := x
 				file.diagnostics := ()
-			as crowd-parse-error
+			as kid-parse-error
 				file.parsed := null
 				file.diagnostics :=
-					- range: (x.pos, x.pos + 1), kind: x.expected.parse-diag-crowd
+					- range: (x.pos, x.pos + 1), kind: parse-diag-kid x.expected
 		as read-file-diag
 			file.parsed := null
 			file.diagnostics :=
 				- (), result
 		a.line-and-column-getters ~:= uri, file.line-and-column-getter
-	as crow-config
+	as keen-config
 		config-file = ensure-config-file-for a, uri
 		config-file.config := match result
 		as array-view
@@ -299,16 +299,16 @@ set-file void(a frontend, uri uri, result read-file-result)
 			as error
 				config-for-diag uri, error
 		a.line-and-column-getters ~:= uri, config-file.config.line-and-column-getter
-		for file in values a.crow-files
+		for file in values a.keen-files
 			update-file-on-config-change a, file
 	as other
 		file = ensure-other-file a, uri
 		file.content := result
 		for referencing-uri in file.referenced-by
 			# TODO: It's is kind of inefficient to completely recompile referencing files if the content just changed.
-			mark-module-dirty a, a.crow-files[referencing-uri]!
+			mark-module-dirty a, a.keen-files[referencing-uri]!
 		for referencing-uri in file.referenced-by
-			add-to-workable-if-so a, a.crow-files[referencing-uri]!
+			add-to-workable-if-so a, a.keen-files[referencing-uri]!
 
 	if remove a.unknown, uri
 		forbid a.loading[uri]
@@ -326,11 +326,11 @@ set-file void(a frontend, uri uri, result read-file-result)
 	as config then a.line-and-column-getter
 	as read-file-diag then ()
 
--ensure-crow-file crow-file(a frontend, uri uri)
-	uri.file-type is crow
-	ensure a.crow-files, uri, of
+-ensure-keen-file keen-file(a frontend, uri uri)
+	uri.file-type is keen
+	ensure a.keen-files, uri, of
 		a.unknown ~= uri
-		a.count-uncompiled-crow-files +:= 1
+		a.count-uncompiled-keen-files +:= 1
 		config-file = ensure-config-file-for a, uri
 		uri: uri
 		referenced-by: ()
@@ -340,16 +340,16 @@ set-file void(a frontend, uri uri, result read-file-result)
 		resolved-imports: ()
 		module: ()
 
--ensure-crowd-file crowd-file(a frontend, uri uri)
-	uri.file-type is crowd
-	ensure a.crowd-files, uri, of
+-ensure-kid-file kid-file(a frontend, uri uri)
+	uri.file-type is kid
+	ensure a.kid-files, uri, of
 		a.unknown ~= uri
 		line-and-column-getter: ()
 		parsed: ()
 		diagnostics: ()
 
--ensure-config-file-for config-file(a frontend, crow-uri uri)
-	ensure-config-file a, crow-uri.parent! / keen-config-base-name
+-ensure-config-file-for config-file(a frontend, keen-uri uri)
+	ensure-config-file a, keen-uri.parent! / keen-config-base-name
 -ensure-config-file config-file(a frontend, uri uri)
 	dir = uri.parent!
 	parent config-file? = if parent-dir = dir.parent
@@ -367,7 +367,7 @@ set-file void(a frontend, uri uri, result read-file-result)
 		work-needed: work-needed
 		has-filled-in-supertypes: ()
 		module: ()
-		referenced-by-crow: ()
+		referenced-by-keen: ()
 		inheritors: ()
 	if res.work-needed < work-needed
 		res.work-needed := work-needed
@@ -375,7 +375,7 @@ set-file void(a frontend, uri uri, result read-file-result)
 	res
 
 -ensure-other-file other-file(a frontend, uri uri)
-	forbid uri.file-type == crow
+	forbid uri.file-type == keen
 	ensure a.other-files, uri, of
 		a.unknown ~= uri
 		uri, unknown, ()
@@ -392,13 +392,13 @@ set-file void(a frontend, uri uri, result read-file-result)
 	the instantiate-ctx = a.instantiate-ctx
 	the java-classes = a
 	bootstrap = a.common-files[bootstrap]
-	if remove a.workable-crow, bootstrap.uri
+	if remove a.workable-keen, bootstrap.uri
 		fa uri-and-ast = bootstrap.uri, bootstrap.config!, bootstrap.get-ast
 		String = type ensure-java-class-file a, "java/lang/String".parse-path, header-only
-		module, common-types = check-bootstrap a.crow-include-dir, a.common-uris, fa, String.only-inst
+		module, common-types = check-bootstrap a.keen-include-dir, a.common-uris, fa, String.only-inst
 		a.common-types-option := common-types
 		bootstrap.module := module
-		a.count-uncompiled-crow-files -:= 1
+		a.count-uncompiled-keen-files -:= 1
 		mark-all-non-bootstrap-modules-dirty a, bootstrap.uri # since they all use common-types
 
 	do if common-types = a.common-types-option
@@ -420,22 +420,22 @@ set-file void(a frontend, uri uri, result read-file-result)
 			()
 		as all
 			file.module := get-java-module path, file.type, header
-		for x in file.referenced-by-crow
+		for x in file.referenced-by-keen
 			file.work-needed is all
-			add-to-workable-if-so a, a.crow-files[x]!
+			add-to-workable-if-so a, a.keen-files[x]!
 		for x in file.inheritors
 			inheritor = a.java-class-files[x]!
 			unless inheritor.module
 				add-to-workable-if-so a, x, inheritor
 		continue
-	elif uri = remove-min a.workable-crow
-		file = a.crow-files[uri]!
+	elif uri = remove-min a.workable-keen
+		file = a.keen-files[uri]!
 		file.module := compile-non-bootstrap-module a, file
-		a.count-uncompiled-crow-files -:= 1
+		a.count-uncompiled-keen-files -:= 1
 		for importer in file.referenced-by
-			add-to-workable-if-so a, a.crow-files[importer]!
+			add-to-workable-if-so a, a.keen-files[importer]!
 		continue
-	elif a.files-state == all-loaded and a.count-uncompiled-crow-files != 0
+	elif a.files-state == all-loaded and a.count-uncompiled-keen-files != 0
 		fix-circular-imports a
 		continue
 	else
@@ -443,16 +443,16 @@ set-file void(a frontend, uri uri, result read-file-result)
 
 | This may not fix all circular imports, but it's run in a loop
 -fix-circular-imports void(a frontend)
-	do if _, file = find a.crow-files, !it.b.module
+	do if _, file = find a.keen-files, !it.b.module
 	cycle-builder uri mut[] = ()
 	_ = fix-circular-imports-recur a, cycle-builder, file
--fix-circular-imports-recur uri[](a frontend, cycle-builder uri mut[], file crow-file)
+-fix-circular-imports-recur uri[](a frontend, cycle-builder uri mut[], file keen-file)
 	forbid file.module
 	cycle-builder ~= file.uri
 	import-index = find-index! file.resolved-imports!, !it.is-import-workable
-	next = file.resolved-imports![import-index].crow-file!
+	next = keen-file! file.resolved-imports![import-index]
 	cycle uri[] = if contains cycle-builder, next.uri
-		cycle-builder.move-to
+		move-to cycle-builder
 	else
 		fix-circular-imports-recur a, cycle-builder, next
 	new-import = circular-import rotate-to-first cycle, file.uri
@@ -465,14 +465,14 @@ set-file void(a frontend, uri uri, result read-file-result)
 	index = index-of! values, first-value
 	values[index .. end] ~~ values[0 .. index]
 
--compile-non-bootstrap-module crow-module(a frontend, file crow-file) instantiate-ctx
+-compile-non-bootstrap-module keen-module(a frontend, file keen-file) instantiate-ctx
 	assert file.is-workable
 	assert common-types = a.common-types-option # bootstrap must be compiled first
 	ast uri-and-ast = file.uri, file.config!, file.get-ast
 	imports = fully-resolve-imports file.resolved-imports!
-	check a.crow-include-dir, a.common-uris, ast, imports, common-types
+	check a.keen-include-dir, a.common-uris, ast, imports, common-types
 
--update-file-on-config-change void(a frontend, file crow-file)
+-update-file-on-config-change void(a frontend, file keen-file)
 	do if best-config = find-config file.config-file
 	do unless config = file.config and config.config-uri == best-config.config-uri
 	file.config := best-config
@@ -493,13 +493,13 @@ set-file void(a frontend, uri uri, result read-file-result)
 		as error
 			throw unreachable # It will be a config with diagnostics in this case
 
--updated-ast-or-config void(a frontend, file crow-file)
+-updated-ast-or-config void(a frontend, file keen-file)
 	if file.config
 		recompute-resolved-imports a, file
 	else
 		forbid file.resolved-imports or file.module
 
--recompute-resolved-imports void(a frontend, file crow-file)
+-recompute-resolved-imports void(a frontend, file keen-file)
 	mark-module-dirty a, file
 	circular-import = if file.resolved-imports
 		clear-resolved-imports file
@@ -512,14 +512,14 @@ set-file void(a frontend, uri uri, result read-file-result)
 		unless has-circular-import file.resolved-imports!
 			for uri in circular-import
 				if uri != file.uri
-					other = a.crow-files[uri]!
+					other = a.keen-files[uri]!
 					ci = clear-resolved-imports other
 					assert ci # But ignore since we've already handled it
 					recompute-resolved-imports a, other
 
 	add-to-workable-if-so a, file
 
--clear-resolved-imports uri[]?(file crow-file)
+-clear-resolved-imports uri[]?(file keen-file)
 	circular-import mut uri[]? = ()
 	for import_ in file.resolved-imports!
 		if rb = import_.get-referenced-by
@@ -540,9 +540,9 @@ set-file void(a frontend, uri uri, result read-file-result)
 -add-to-workable-if-so void(a frontend, path path, file java-class-file)
 	if is-workable a, file
 		a.workable-java ~= path
--add-to-workable-if-so void(a frontend, file crow-file)
+-add-to-workable-if-so void(a frontend, file keen-file)
 	if is-workable file
-		a.workable-crow ~= file.uri
+		a.workable-keen ~= file.uri
 
 -is-workable bool(a frontend, file java-class-file)
 	match parsed = file.parsed
@@ -553,14 +553,14 @@ set-file void(a frontend, uri uri, result read-file-result)
 			true
 	as read-file-diag
 		parsed != unknown
--is-workable bool(a crow-file)
+-is-workable bool(a keen-file)
 	forbid a.module
 	a.ast-or-diag.read-file-diag != unknown and
 	a.config and
 	every a.resolved-imports!, it.is-import-workable
 -is-import-workable bool(a mostly-resolved-import)
 	match a
-	as crow-file
+	as keen-file
 		!!a.module
 	as java-class-file
 		!!a.module
@@ -590,25 +590,25 @@ set-file void(a frontend, uri uri, result read-file-result)
 		file.module := ()
 		# No need to reset files that aren't yet workable, they'll be processed eventually anyway
 		add-to-workable-if-so a, path, file
-	for uri, x in a.crow-files
+	for uri, x in a.keen-files
 		if uri != bootstrap
 			mark-module-dirty a, x
-	clear a.workable-crow
-	for uri, x in a.crow-files
+	clear a.workable-keen
+	for uri, x in a.keen-files
 		if uri != bootstrap
 			add-to-workable-if-so a, x
 
--mark-module-dirty void(a frontend, file crow-file)
+-mark-module-dirty void(a frontend, file keen-file)
 	if file.module
 		file.module := ()
-		a.count-uncompiled-crow-files +:= 1
+		a.count-uncompiled-keen-files +:= 1
 		for x in file.referenced-by
-			mark-module-dirty a, a.crow-files[x]!
+			mark-module-dirty a, a.keen-files[x]!
 
 -fully-resolve-imports resolved-import[](imports mostly-resolved-import[])
 	for file in imports
 		match file
-		as crow-file
+		as keen-file
 			match x = file.ast-or-diag
 			as file-ast
 				file.module!
@@ -630,9 +630,9 @@ set-file void(a frontend, uri uri, result read-file-result)
 			file
 
 -common-uris common-uris(include-dir uri)
-	include-crow = include-dir / "keen"
-	col = include-crow / "col"
-	private = include-crow / "private"
+	include-keen = include-dir / "keen"
+	col = include-keen / "col"
+	private = include-keen / "private"
 	for k in make-enum-map
 		match k
 		as array
@@ -642,41 +642,41 @@ set-file void(a frontend, uri uri, result read-file-result)
 		as buffer
 			col / "buffer.keen"
 		as compare
-			include-crow / "compare.keen"
+			include-keen / "compare.keen"
 		as exception
-			include-crow / "exception.keen"
+			include-keen / "exception.keen"
 		as hash
-			include-crow / "hash.keen"
+			include-keen / "hash.keen"
 		as js
-			include-crow / "js.keen"
+			include-keen / "js.keen"
 		as json
-			include-crow / "json.keen"
+			include-keen / "json.keen"
 		as misc
-			include-crow / "misc.keen"
+			include-keen / "misc.keen"
 		as mut-array
 			col / "mut-array.keen"
 		as runtime
 			private / "runtime.keen"
 		as std
-			include-crow / "std.keen"
+			include-keen / "std.keen"
 		as string
-			include-crow / "string.keen"
+			include-keen / "string.keen"
 		as symbol
-			include-crow / "symbol.keen"
+			include-keen / "symbol.keen"
 
-| For an unknown/loading file, this will still be a {crow-file} or {other-file}
+| For an unknown/loading file, this will still be a {keen-file} or {other-file}
 -mostly-resolved-import union mut
-	crow-file
+	keen-file
 	java-class-file
 	other-file
 	diag-import-file
 
 -get-referenced-by uri mut-set?(a mostly-resolved-import)
 	match a
-	as crow-file
+	as keen-file
 		a.referenced-by
 	as java-class-file
-		a.referenced-by-crow
+		a.referenced-by-keen
 	as other-file
 		a.referenced-by
 	as diag-import-file
@@ -692,7 +692,7 @@ do
 	as path
 		library-name, rest = path.first-and-rest
 		if library-name == "keen"
-			try-resolve-import-from-uri a, ast, a.crow-include-dir / path
+			try-resolve-import-from-uri a, ast, a.keen-include-dir / path
 		elif p = without-extension path, ".class"
 			ensure-java-class-file a, p, all
 		elif is-java-library library-name
@@ -722,21 +722,21 @@ do
 	ast import-or-export-ast
 	uri uri
 do
-	crow-file = of
-		ensure-crow-file a, add-extension uri, ".keen"
+	keen-file = of
+		ensure-keen-file a, add-extension uri, ".keen"
 	match ast.kind
 	as import-whole-module-ast
-		crow-file[]
+		keen-file[]
 	as array
-		crow-file[]
+		keen-file[]
 	as import-file-ast
-		if uri.file-type == crow
-			cant-import-crow-as-text
+		if uri.file-type == keen
+			cant-import-keen-as-text
 		else
 			ensure-other-file a, uri
 
 test
-	a frontend = crow-include-dir: parse-uri "test://bin/crow"
+	a frontend = keen-include-dir: parse-uri "test://bin/keen"
 	uri-a = parse-uri "test://src/a.keen"
 	set-file a, uri-a, "a"::string.to::read-file-result
 	get-file-content a, uri-a is "a"::char8[]

@@ -1,40 +1,40 @@
 .PHONY: check test-end-to-end test-end-to-end-overwrite test unit-test unit-test-java unit-test-js view-dependencies
 
 include = $(shell find include -name '*.keen')
-include_crow = $(shell find include/keen -name '*.keen')
+include_keen = $(shell find include/keen -name '*.keen')
 include_compiler = $(shell find include/compiler -name '*.keen')
-compiler_deps = $(include_crow) $(include_compiler) include/compiler/backend/java/lib/Keen.class include/compiler/backend/java/lib/KeenClassLoader.class bin/imports/date.txt bin/imports/commit-hash.txt
+compiler_deps = $(include_keen) $(include_compiler) include/compiler/backend/java/lib/Keen.class include/compiler/backend/java/lib/KeenClassLoader.class bin/imports/date.txt bin/imports/commit-hash.txt
 
 clean:
-	mv bin/crow-lkg crow-lkg
+	mv bin/keen-lkg keen-lkg
 	rm -rf bin
 	mkdir bin
-	mv crow-lkg bin/crow-lkg
+	mv keen-lkg bin/keen-lkg
 
 all: clean test
 
 test: unit-test test-diagnostics test-end-to-end
 
 unit-test: unit-test-java unit-test-js
-unit-test-java: bin/crow $(include)
-	bin/crow build include/keen-config.json --test --out bin/test
+unit-test-java: bin/keen $(include)
+	bin/keen build include/keen-config.json --test --out bin/test
 	bin/test
 	rm bin/test
-unit-test-js: bin/crow bin/java-classes.tar $(include)
-	bin/crow build include/keen-config.json --test --out bin/test.js
+unit-test-js: bin/keen bin/java-classes.tar $(include)
+	bin/keen build include/keen-config.json --test --out bin/test.js
 	bin/test.js
 	rm bin/test.js bin/test.js.map
 
-test-diagnostics: bin/crow
-	cd test/diagnostics && bash -c 'diff <(../../bin/crow check keen-config.json --no-color --all-errors 2>&1) expected.txt'
+test-diagnostics: bin/keen
+	cd test/diagnostics && bash -c 'diff <(../../bin/keen check keen-config.json --no-color --all-errors 2>&1) expected.txt'
 
-test-diagnostics-overwrite: bin/crow
-	cd test/diagnostics && ../../bin/crow check keen-config.json --no-color --all-errors 2> expected.txt || true
+test-diagnostics-overwrite: bin/keen
+	cd test/diagnostics && ../../bin/keen check keen-config.json --no-color --all-errors 2> expected.txt || true
 
-test-end-to-end: bin/crow
-	bin/crow test/end-to-end/main.keen
-test-end-to-end-overwrite: bin/crow
-	bin/crow test/end-to-end/main.keen --overwrite-output
+test-end-to-end: bin/keen
+	bin/keen test/end-to-end/main.keen
+test-end-to-end-overwrite: bin/keen
+	bin/keen test/end-to-end/main.keen --overwrite-output
 
 today = $(shell date --iso-8601 --utc)
 
@@ -51,37 +51,37 @@ include/compiler/backend/java/lib/Keen.class: include/compiler/backend/java/lib/
 include/compiler/backend/java/lib/KeenClassLoader.class: include/compiler/backend/java/lib/KeenClassLoader.java
 	javac include/compiler/backend/java/lib/KeenClassLoader.java
 
-update-lkg: bin/crow
-	mv bin/crow-lkg bin/crow-lkg-BACKUP
-	mv bin/crow bin/crow-lkg
+update-lkg: bin/keen
+	mv bin/keen-lkg bin/keen-lkg-BACKUP
+	mv bin/keen bin/keen-lkg
 	# Make sure it is self-compiled
-	make bin/crow
-	mv bin/crow bin/crow-lkg
-	make bin/crow
+	make bin/keen
+	mv bin/keen bin/keen-lkg
+	make bin/keen
 
 check:
-	bin/crow-lkg check include/keen-config.json
+	bin/keen-lkg check include/keen-config.json
 
-bin/crow: $(compiler_deps)
-	bin/crow-lkg build include/compiler/app/main.keen --out bin/crow-tmp
+bin/keen: $(compiler_deps)
+	bin/keen-lkg build include/compiler/app/main.keen --out bin/keen-tmp
 	# Avoid directly writing to the file. This avoids crashing any IDE using the old version.
-	mv bin/crow-tmp bin/crow
+	mv bin/keen-tmp bin/keen
 
 include = include/*/*.keen include/*/*/*.keen include/*/*/*/*.keen
-bin/crow.tar.xz: bin/crow $(include_crow)
-	tar --create --xz --file bin/crow.tar.xz bin/crow include/keen
+bin/keen.tar.xz: bin/keen $(include_keen)
+	tar --create --xz --file bin/keen.tar.xz bin/keen include/keen
 
-install-vscode-extension: bin/crow.vsix
-	code --install-extension bin/crow.vsix
-bin/crow.vsix: editor/vscode/* editor/vscode/node_modules
-	cd editor/vscode && ./node_modules/@vscode/vsce/vsce package --allow-missing-repository --out ../../bin/crow.vsix
+install-vscode-extension: bin/keen.vsix
+	code --install-extension bin/keen.vsix
+bin/keen.vsix: editor/vscode/* editor/vscode/node_modules
+	cd editor/vscode && ./node_modules/@vscode/vsce/vsce package --allow-missing-repository --out ../../bin/keen.vsix
 editor/vscode/node_modules:
 	cd editor/vscode && npm install
 
 bin/java-classes.tar:
 	rm -rf bin/java-classes
 	mkdir bin/java-classes
-	crow print dependencies ../keen/include/keen-config.json --format flat | \
+	bin/keen print dependencies ../keen/include/keen-config.json --format flat | \
 		grep 'java:///java' | \
 		sed 's|^java:///java/|classes/java/|' | \
 		sed 's|%24|\$$|' | \
@@ -92,18 +92,18 @@ bin/java-classes.tar:
 
 ### Optional commands ###
 
-bin/crow.js: $(compiler_deps)
-	bin/crow build include/compiler/app/main.keen --out bin/crow.js
+bin/keen.js: $(compiler_deps)
+	bin/keen build include/compiler/app/main.keen --out bin/keen.js
 
-profile-check: bin/crow
-	java -XX:StartFlightRecording=filename=profile.jfr,settings=profile -jar bin/crow check include/compiler/app/main.keen --times 30 --perf
+profile-check: bin/keen
+	java -XX:StartFlightRecording=filename=profile.jfr,settings=profile -jar bin/keen check include/compiler/app/main.keen --times 30 --perf
 	jmc
 
-profile-translate-to-java: bin/crow
-	java -XX:StartFlightRecording=filename=profile.jfr,settings=profile -jar bin/crow build include/compiler/app/main.keen --out bin/temp --times 30 --perf
+profile-translate-to-java: bin/keen
+	java -XX:StartFlightRecording=filename=profile.jfr,settings=profile -jar bin/keen build include/compiler/app/main.keen --out bin/temp --times 30 --perf
 	rm bin/temp
 	jmc
 
-view-dependencies: bin/crow
-	bin/crow print dependencies include/keen-config.json | dot -Tsvg > bin/dependencies.svg
+view-dependencies: bin/keen
+	bin/keen print dependencies include/keen-config.json | dot -Tsvg > bin/dependencies.svg
 	xdg-open bin/dependencies.svg
