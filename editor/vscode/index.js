@@ -21,7 +21,7 @@ if (logFile) fs.writeFileSync(logFile, '')
 exports.activate = context => {
 	/** @type {ServerOptions} */
 	const serverOptions = () => {
-		const child = childProcess.spawn("crow", ["lsp"], { stdio: 'pipe' })
+		const child = childProcess.spawn("keen", ["lsp"], { stdio: 'pipe' })
 		if (logFile) {
 			child.stderr.on('data', data => {
 				fs.appendFileSync(logFile, data + '\n')
@@ -33,16 +33,16 @@ exports.activate = context => {
 	/** @type {LanguageClientOptions} */
 	const clientOptions = {
 		documentSelector: [
-			{ scheme:"file", language:"crow" },
-			{ scheme:"file", language:"crowd" },
+			{ scheme:"file", language:"keen" },
+			{ scheme:"file", language:"kid" },
 		],
-		outputChannelName: "Crow language server",
+		outputChannelName: "Keen language server",
 		connectionOptions: {
 			maxRestartCount: 0,
 		},
 		initializationOptions: {},
 	}
-	client = new LanguageClient("crow", "Crow language server", serverOptions, clientOptions)
+	client = new LanguageClient("keen", "Keen language server", serverOptions, clientOptions)
 	client.start()
 }
 

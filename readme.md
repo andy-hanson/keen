@@ -1,23 +1,23 @@
-# Crow
+# Keen
 
-This readme describes how to build Crow from source.
+This readme describes how to build Keen from source.
 
-For information about the language itself, visit the [website](https://crow-lang.org/).
+For information about the language itself, visit the [website](https://keen.codes/).
 
 
 # Setup
 
-To work on Crow, you'll need these tools:
+To work on Keen, you'll need these tools:
 
 * [`git`](https://git-scm.com): Used to get this repository.
-* [`java`](https://www.java.com/en/download/manual.jsp): Used to run Crow.
+* [`java`](https://www.java.com/en/download/manual.jsp): Used to run Keen.
 * [`node`](https://nodejs.org/): Used to test JS builds and to build the VSCode extension.
 
 Then run:
 
 ```sh
-git clone https://github.com/andy-hanson/crow.git
-cd crow
+git clone https://github.com/andy-hanson/keen.git
+cd keen
 make test
 ```
 

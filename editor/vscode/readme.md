@@ -19,4 +19,4 @@ To debug the VSCode extension:
 * Run `code editor/vscode` to open vscode in the directory containing this readme.
 * Use Ctrl+Shift+D to open the debugger pane on the left. Click the green arrow to launch the client.
 * In both windows, run the command "Output: Focus on Output View".
-* In the newly opened window, in the top-right of the output view, switch from 'Tasks' to 'Crow language server'.
+* In the newly opened window, in the top-right of the output view, switch from 'Tasks' to 'Keen language server'.

@@ -3,7 +3,7 @@
 include = $(shell find include -name '*.crow')
 include_crow = $(shell find include/crow -name '*.crow')
 include_compiler = $(shell find include/compiler -name '*.crow')
-compiler_deps = $(include_crow) $(include_compiler) include/compiler/backend/java/lib/Crow.class bin/imports/date.txt bin/imports/commit-hash.txt
+compiler_deps = $(include_crow) $(include_compiler) include/compiler/backend/java/lib/Keen.class include/compiler/backend/java/lib/KeenClassLoader.class bin/imports/date.txt bin/imports/commit-hash.txt
 
 clean:
 	mv bin/crow-lkg crow-lkg
@@ -17,19 +17,19 @@ test: unit-test test-diagnostics test-end-to-end
 
 unit-test: unit-test-java unit-test-js
 unit-test-java: bin/crow $(include)
-	bin/crow build include/crow-config.json --test --out bin/test
+	bin/crow build include/keen-config.json --test --out bin/test
 	bin/test
 	rm bin/test
 unit-test-js: bin/crow bin/java-classes.tar $(include)
-	bin/crow build include/crow-config.json --test --out bin/test.js
+	bin/crow build include/keen-config.json --test --out bin/test.js
 	bin/test.js
 	rm bin/test.js bin/test.js.map
 
 test-diagnostics: bin/crow
-	cd test/diagnostics && bash -c 'diff <(../../bin/crow check crow-config.json --no-color --all-errors 2>&1) expected.txt'
+	cd test/diagnostics && bash -c 'diff <(../../bin/crow check keen-config.json --no-color --all-errors 2>&1) expected.txt'
 
 test-diagnostics-overwrite: bin/crow
-	cd test/diagnostics && ../../bin/crow check crow-config.json --no-color --all-errors 2> expected.txt || true
+	cd test/diagnostics && ../../bin/crow check keen-config.json --no-color --all-errors 2> expected.txt || true
 
 test-end-to-end: bin/crow
 	./test/end-to-end/main.crow
@@ -46,8 +46,10 @@ bin/imports/commit-hash.txt:
 	mkdir -p bin/imports
 	git rev-parse --short HEAD > bin/imports/commit-hash.txt
 
-include/compiler/backend/java/lib/Crow.class: include/compiler/backend/java/lib/*.java
-	javac include/compiler/backend/java/lib/*.java
+include/compiler/backend/java/lib/Keen.class: include/compiler/backend/java/lib/Keen.java
+	javac include/compiler/backend/java/lib/Keen.java
+include/compiler/backend/java/lib/KeenClassLoader.class: include/compiler/backend/java/lib/KeenClassLoader.java
+	javac include/compiler/backend/java/lib/KeenClassLoader.java
 
 update-lkg: bin/crow
 	mv bin/crow-lkg bin/crow-lkg-BACKUP
@@ -58,7 +60,7 @@ update-lkg: bin/crow
 	make bin/crow
 
 check:
-	bin/crow-lkg check include/crow-config.json
+	bin/crow-lkg check include/keen-config.json
 
 bin/crow: $(compiler_deps)
 	bin/crow-lkg build include/compiler/app/main.crow --out bin/crow-tmp
@@ -79,7 +81,7 @@ editor/vscode/node_modules:
 bin/java-classes.tar:
 	rm -rf bin/java-classes
 	mkdir bin/java-classes
-	crow print dependencies ../crow/include/crow-config.json --format flat | \
+	crow print dependencies ../crow/include/keen-config.json --format flat | \
 		grep 'java:///java' | \
 		sed 's|^java:///java/|classes/java/|' | \
 		sed 's|%24|\$$|' | \
@@ -103,5 +105,5 @@ profile-translate-to-java: bin/crow
 	jmc
 
 view-dependencies: bin/crow
-	bin/crow print dependencies include/crow-config.json | dot -Tsvg > bin/dependencies.svg
+	bin/crow print dependencies include/keen-config.json | dot -Tsvg > bin/dependencies.svg
 	xdg-open bin/dependencies.svg
