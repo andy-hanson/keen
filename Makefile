@@ -32,9 +32,9 @@ test-diagnostics-overwrite: bin/crow
 	cd test/diagnostics && ../../bin/crow check keen-config.json --no-color --all-errors 2> expected.txt || true
 
 test-end-to-end: bin/crow
-	./test/end-to-end/main.keen
+	bin/crow test/end-to-end/main.keen
 test-end-to-end-overwrite: bin/crow
-	./test/end-to-end/main.keen --overwrite-output
+	bin/crow test/end-to-end/main.keen --overwrite-output
 
 today = $(shell date --iso-8601 --utc)
 
