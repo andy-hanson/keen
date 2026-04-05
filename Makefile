@@ -17,19 +17,19 @@ test: unit-test test-diagnostics test-end-to-end
 
 unit-test: unit-test-java unit-test-js
 unit-test-java: bin/keen $(include)
-	bin/keen build include/keen-config.json --test --out bin/test
+	bin/keen build include/config.kid --test --out bin/test
 	bin/test
 	rm bin/test
 unit-test-js: bin/keen bin/java-classes.tar $(include)
-	bin/keen build include/keen-config.json --test --out bin/test.js
+	bin/keen build include/config.kid --test --out bin/test.js
 	bin/test.js
 	rm bin/test.js bin/test.js.map
 
 test-diagnostics: bin/keen
-	cd test/diagnostics && bash -c 'diff <(../../bin/keen check keen-config.json --no-color --all-errors 2>&1) expected.txt'
+	cd test/diagnostics && bash -c 'diff <(../../bin/keen check config.kid --no-color --all-errors 2>&1) expected.txt'
 
 test-diagnostics-overwrite: bin/keen
-	cd test/diagnostics && ../../bin/keen check keen-config.json --no-color --all-errors 2> expected.txt || true
+	cd test/diagnostics && ../../bin/keen check config.kid --no-color --all-errors 2> expected.txt || true
 
 test-end-to-end: bin/keen
 	bin/keen test/end-to-end/main.keen
@@ -60,7 +60,7 @@ update-lkg: bin/keen
 	make bin/keen
 
 check:
-	bin/keen-lkg check include/keen-config.json
+	bin/keen-lkg check include/config.kid
 
 bin/keen: $(compiler_deps)
 	bin/keen-lkg build include/compiler/app/main.keen --out bin/keen-tmp
@@ -81,7 +81,7 @@ editor/vscode/node_modules:
 bin/java-classes.tar:
 	rm -rf bin/java-classes
 	mkdir bin/java-classes
-	bin/keen print dependencies ../keen/include/keen-config.json --format flat | \
+	bin/keen print dependencies ../keen/include/config.kid --format flat | \
 		grep 'java:///java' | \
 		sed 's|^java:///java/|classes/java/|' | \
 		sed 's|%24|\$$|' | \
@@ -105,5 +105,5 @@ profile-translate-to-java: bin/keen
 	jmc
 
 view-dependencies: bin/keen
-	bin/keen print dependencies include/keen-config.json | dot -Tsvg > bin/dependencies.svg
+	bin/keen print dependencies include/config.kid | dot -Tsvg > bin/dependencies.svg
 	xdg-open bin/dependencies.svg

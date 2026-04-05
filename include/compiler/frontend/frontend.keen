@@ -192,7 +192,10 @@ make-program program(a frontend, fully-loaded-configs uri set)
 	uncommon-types: json: common-funs.json-named-new.return-type.struct-inst!
 
 get-kid-file line-and-character-getter(a frontend, uri uri)
-	a.kid-files[uri]!.line-and-column-getter.line-and-character-getter
+	if is-config uri
+		a.config-files[uri]!.config.line-and-column-getter.line-and-character-getter
+	else
+		a.kid-files[uri]!.line-and-column-getter.line-and-character-getter
 get-ast file-ast(a frontend, uri uri)
 	get-ast a.keen-files[uri]!
 -get-ast file-ast(a keen-file)
@@ -267,40 +270,41 @@ set-file void(a frontend, uri uri, result read-file-result)
 		a.line-and-column-getters ~:= uri, file.ast-or-diag.line-and-column-getter
 		updated-ast-or-config a, file
 	as kid
-		file = ensure-kid-file a, uri
-		match result
-		as array-view
-			text string-view = safe-reinterpret-cast result
-			file.line-and-column-getter := line-and-column-getter-for-text text
-			match x = parse-kid text
-			as json
-				file.parsed := x
-				file.diagnostics := ()
-			as kid-parse-error
+		if is-config uri
+			config-file = ensure-config-file-for a, uri
+			config-file.config := match result
+			as array-view
+				parse-config uri, safe-reinterpret-cast result
+			as read-file-diag
+				match result
+				as unknown
+					throw unreachable
+				as not-found
+					result
+				as error
+					config-for-diag uri, error, (), ()
+			a.line-and-column-getters ~:= uri, config-file.config.line-and-column-getter
+			for file in values a.keen-files
+				update-file-on-config-change a, file
+		else
+			file = ensure-kid-file a, uri
+			match result
+			as array-view
+				text string-view = safe-reinterpret-cast result
+				file.line-and-column-getter := line-and-column-getter-for-text text
+				match x = parse-kid text
+				as json
+					file.parsed := x
+					file.diagnostics := ()
+				as kid-parse-error
+					file.parsed := null
+					file.diagnostics :=
+						- range: (x.pos, x.pos + 1), kind: parse-diag-kid x.expected
+			as read-file-diag
 				file.parsed := null
 				file.diagnostics :=
-					- range: (x.pos, x.pos + 1), kind: parse-diag-kid x.expected
-		as read-file-diag
-			file.parsed := null
-			file.diagnostics :=
-				- (), result
-		a.line-and-column-getters ~:= uri, file.line-and-column-getter
-	as keen-config
-		config-file = ensure-config-file-for a, uri
-		config-file.config := match result
-		as array-view
-			parse-config uri, result.as-string
-		as read-file-diag
-			match result
-			as unknown
-				throw unreachable
-			as not-found
-				result
-			as error
-				config-for-diag uri, error
-		a.line-and-column-getters ~:= uri, config-file.config.line-and-column-getter
-		for file in values a.keen-files
-			update-file-on-config-change a, file
+					- (), result
+			a.line-and-column-getters ~:= uri, file.line-and-column-getter
 	as other
 		file = ensure-other-file a, uri
 		file.content := result
@@ -349,11 +353,11 @@ set-file void(a frontend, uri uri, result read-file-result)
 		diagnostics: ()
 
 -ensure-config-file-for config-file(a frontend, keen-uri uri)
-	ensure-config-file a, keen-uri.parent! / keen-config-base-name
+	ensure-config-file a, keen-uri.parent! / config-base-name
 -ensure-config-file config-file(a frontend, uri uri)
 	dir = uri.parent!
 	parent config-file? = if parent-dir = dir.parent
-		ensure-config-file a, parent-dir / keen-config-base-name
+		ensure-config-file a, parent-dir / config-base-name
 	ensure a.config-files, uri, of
 		a.unknown ~= uri
 		config: unknown, parent: parent
