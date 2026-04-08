@@ -561,13 +561,28 @@ do parser
 	else
 		res
 
--parse-loop-while-or-until loop-while-or-until-ast(start pos, is-until bool) parser
+-parse-do-while-or-until expr-ast(start pos, is-until bool) parser
 	advance
-	start: start
-	is-until: is-until
-	condition: parse-condition false
-	body: parse-indented-statements
-	after: try-parse-next-lines
+	if peek newline-same-indent
+		loop-while-or-until-body-ast start, is-until, must-parse-next-lines after-do-line
+	else
+		:: loop-while-or-until-ast
+		start: start
+		is-until: is-until
+		condition: parse-condition true
+		body: must-parse-next-lines after-do-line
+		after: ()
+
+-parse-loop-while-or-until expr-ast(start pos, is-until bool) parser
+	if peek newline-indent
+		loop-while-or-until-body-ast start, is-until, parse-indented-statements
+	else
+		:: loop-while-or-until-ast
+		start: start
+		is-until: is-until
+		condition: parse-condition false
+		body: parse-indented-statements
+		after: try-parse-next-lines
 
 -take-indent-or-fail-expr expr-ast(cb-indent expr-ast mut()) parser
 	take-indent-or-fail-generic cb-indent, it.bogus-ast
@@ -712,6 +727,8 @@ do parser
 		underscore-ast start
 	as unless_
 		parse-if start, false, allowed-block, true
+	as until_
+		parse-loop-while-or-until start, true
 	as with_
 		parse-for-or-with start, allowed-block, with_, with_
 	else
@@ -788,8 +805,12 @@ parse-single-statement-line expr-ast() parser
 			loop-ast start, must-parse-next-lines after-do-line
 		as unless_
 			parse-do-if-or-unless start, true
+		as until_
+			parse-do-while-or-until start, true
 		as with_
 			parse-do-for-or-with start, with_
+		as while_
+			parse-do-while-or-until start, false
 		else
 			add-diag-at-next-token after-do-keyword
 			skip-until-newline-no-diag
@@ -813,8 +834,10 @@ parse-single-statement-line expr-ast() parser
 		else
 			parse-trusted start, allow-everything
 	as until_
+		advance
 		parse-loop-while-or-until start, true
 	as while_
+		advance
 		parse-loop-while-or-until start, false
 	else
 		if lookahead-equals

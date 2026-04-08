@@ -50,31 +50,32 @@ to expected(a type-and-context[])
 
 # TODO:PERF see if it would be faster to just return the 'expr' and call it to get its 'type'
 # (reason it might not be: That sometimes requires delving throught it)
-expr-and-type record(expr expr, type type)
+expr-and-outer-type record(expr expr, outer-type type)
 
 check-with-modify-expected expr
 	outer expected
 	# If this returns an empty option, the expected type can't be satisfied.
 	cb-modify-expected-type type? mut(x type)
 	# This can return a modified type. E.g., if expecting a non-option, it would return the option.
-	cb-inner expr-and-type mut(x expected)
+	cb-inner expr-and-outer-type mut(x expected)
 do check-expr-ctx
-	if x = outer.opt-inferred
+	inner expected = if x = outer.opt-inferred
 		if new-expected = cb-modify-expected-type[x]
-			inner expected = expect new-expected
-			check inner, cb-inner[inner]
+			expect new-expected
 		else
-			check outer, cb-inner[infer]
+			infer
 	elif outer-types = outer.opt-choices
 		modified-types type-and-context[] = with out in build
 			for outer-type in outer-types
 				if new-expected = cb-modify-expected-type[outer-type.type]
 					out ~= new-expected, outer-type.context
-		check outer, cb-inner[if is-empty modified-types then infer else modified-types.to]
+		if is-empty modified-types then infer else modified-types.to
 	elif outer.opt-loop
-		expr cb-inner[outer]
+		throw todo
 	else
-		check outer, cb-inner[infer]
+		infer
+	res = cb-inner[inner]
+	check outer, res.outer-type, res.expr
 
 try-get-loop loop-info?(a expected)
 	a.opt-loop
@@ -410,15 +411,13 @@ inferred type(expected expected)
 		expected.opt-loop!.type
 
 check expr(expected expected, expr-type type, expr expr) check-expr-ctx
-	check expected, (expr, expr-type)
--check expr(expected expected, a expr-and-type) check-expr-ctx
-	if try-set-no-diagnostic expected, a.type
-		a.expr
+	if try-set-no-diagnostic expected, expr-type
+		expr
 	else
-		add-diag a.expr.range,
-			diag-type-conflict expected.get-expected-for-diag, type-with-container a.type
+		add-diag expr.range,
+			diag-type-conflict expected.get-expected-for-diag, type-with-container expr-type
 		set-to-bogus-if-inferring expected
-		bogus-wrong-type-expr a.expr, expected.inferred
+		bogus-wrong-type-expr expr, expected.inferred
 
 get-expected-for-diag expected-for-diag(expected expected) check-expr-ctx
 	if x = expected.opt-inferred
