@@ -2974,11 +2974,6 @@ expr union
 	local-get-and-refine-expr
 	local-set-expr
 	logical-expr
-	loop-expr
-	loop-break-expr
-	loop-continue-expr
-	loop-while-or-until-expr
-	loop-while-or-until-body-expr
 	match-enum-expr
 	match-scalar-expr
 	match-string-like-expr
@@ -2992,6 +2987,8 @@ expr union
 	try-let-expr
 	typed-expr
 	unpack-option
+	while-or-until-expr
+	while-or-until-body-expr
 do
 	range source-range()
 to json(a expr)
@@ -3047,16 +3044,6 @@ type type(a expr) available-types
 		void
 	as logical-expr
 		type a
-	as loop-expr
-		type a
-	as loop-break-expr
-		type a.loop_
-	as loop-continue-expr
-		type a.loop_
-	as loop-while-or-until-expr
-		a.after.?type else void
-	as loop-while-or-until-body-expr
-		type a
 	as match-enum-expr
 		type a
 	as match-scalar-expr
@@ -3083,6 +3070,10 @@ type type(a expr) available-types
 		type a
 	as unpack-option
 		bool
+	as while-or-until-expr
+		a.after.?type else void
+	as while-or-until-body-expr
+		type a
 
 | Iterate over this to get knowledge deduced when the expression has the given value.
 condition-knowledge record(expr expr, expr-value bool)
@@ -3180,8 +3171,6 @@ call-expr-source union
 	list-ast
 	literal-string-ast
 	logical-ast
-	loop-break-ast
-	loop-continue-ast
 	name-and-range
 	var-decl-ast
 	typed-ast
@@ -3215,10 +3204,6 @@ name-range source-range(a call-expr-source)
 		a.range
 	as logical-ast
 		a.keyword-range
-	as loop-break-ast
-		a.range
-	as loop-continue-ast
-		a.range
 	as name-and-range
 		a.range
 	as var-decl-ast
@@ -3571,58 +3556,6 @@ keyword-range source-range(a logical-expr)
 range source-range(a logical-expr)
 	a.ast.range
 
-loop-expr record force-data
-	ast loop-ast
-	type type
-	body mut expr
-to json(a loop-expr)
-range source-range(a loop-expr)
-	a.ast.range
-
-loop-break-expr record(ast loop-break-ast, loop_ loop-expr, value expr)
-to json(a loop-break-expr)
-	value: a.value.to
-range source-range(a loop-break-expr)
-	a.ast.range
-keyword-range source-range(a loop-break-expr)
-	a.ast.keyword-range
-loop-continue-expr record(ast loop-continue-ast, loop_ loop-expr)
-to json(_ loop-continue-expr)
-	null
-range source-range(a loop-continue-expr)
-	a.ast.range
-
-loop-while-or-until-body-expr record
-	ast loop-while-or-until-body-ast
-	body expr
-type type(a loop-while-or-until-body-expr) available-types
-	body-type = type a.body
-	if is-bool body-type
-		void
-	else
-		unwrap-option body-type else body-type
-to json(a loop-while-or-until-body-expr)
-	body: a.body.to
-is-until bool(a loop-while-or-until-body-expr)
-	a.ast.is-until
-range source-range(a loop-while-or-until-body-expr)
-	a.ast.range
-
-loop-while-or-until-expr record
-	ast loop-while-or-until-ast
-	condition expr
-	| Always of type 'void'
-	body expr
-	after expr?
-to json(a loop-while-or-until-expr)
-	condition: a.condition.to
-	body: a.body.to
-	after: a.after.to
-is-until bool(a loop-while-or-until-expr)
-	a.ast.is-until
-range source-range(a loop-while-or-until-expr)
-	a.ast.range
-
 match-enum-expr record
 	ast match-ast
 	matched-local local?
@@ -3783,14 +3716,40 @@ to json(a unpack-option)
 range source-range(a unpack-option)
 	a.destructure.start, a.option.end
 
+while-or-until-expr record
+	ast while-or-until-ast
+	condition expr
+	| Always of type 'void'
+	body expr
+	after expr?
+to json(a while-or-until-expr)
+	condition: a.condition.to
+	body: a.body.to
+	after: a.after.to
+is-until bool(a while-or-until-expr)
+	a.ast.is-until
+range source-range(a while-or-until-expr)
+	a.ast.range
+
+while-or-until-body-expr record
+	ast while-or-until-body-ast
+	body expr
+type type(a while-or-until-body-expr) available-types
+	body-type = type a.body
+	if is-bool body-type
+		void
+	else
+		unwrap-option body-type else body-type
+to json(a while-or-until-body-expr)
+	body: a.body.to
+is-until bool(a while-or-until-body-expr)
+	a.ast.is-until
+range source-range(a while-or-until-body-expr)
+	a.ast.range
+
 all-exprs-in-tree record(expr expr)
 some bool(a all-exprs-in-tree, f bool mut(x expr))
 	f[a.expr] or
-	some a.expr.direct-child-exprs, of x
-		some x.all-exprs-in-tree, f
-
-all-exprs-in-tree-exclusive record(expr expr)
-some bool(a all-exprs-in-tree-exclusive, f bool mut(x expr))
 	some a.expr.direct-child-exprs, of x
 		some x.all-exprs-in-tree, f
 
@@ -3837,15 +3796,9 @@ some bool(a direct-child-exprs, f bool mut(x expr))
 		f[x.value]
 	as logical-expr
 		f[x.left] or f[x.right]
-	as loop-expr
-		f[x.body]
-	as loop-break-expr
-		f[x.value]
-	as loop-continue-expr
-		()
-	as loop-while-or-until-expr
+	as while-or-until-expr
 		f[x.condition] or f[x.body] or cb-option x.after, f
-	as loop-while-or-until-body-expr
+	as while-or-until-body-expr
 		f[x.body]
 	as match-enum-expr
 		f[x.matched] or some x.cases, f[it.then_] or cb-option x.else_, f
@@ -3996,9 +3949,6 @@ diag union
 	diag-literal-not-expected
 	diag-literal-overflow
 	diag-local-not-mutable
-	diag-loop-break-or-continue-outside-loop
-	diag-loop-disallowed-body
-	diag-loop-without-break
 	diag-main-incompatible-with-target
 	diag-main-has-specs
 	diag-main-test-missing
@@ -4202,9 +4152,6 @@ diag-literal-multiple-match record(type-container type-container, types struct-i
 diag-literal-not-expected record(expected expected-for-diag)
 diag-literal-overflow record(type integral-type)
 diag-local-not-mutable record(local local)
-diag-loop-break-or-continue-outside-loop enum(break_, continue_)
-diag-loop-disallowed-body enum(finally_, try_)
-diag-loop-without-break record
 diag-main-has-specs record
 diag-main-incompatible-with-target record(target build-target)
 diag-main-test-missing record(expected-line nat)
@@ -4330,7 +4277,5 @@ auto-fun-name enum(compare, equals, hash, members, to)
 expected-for-diag union
 	expected-for-diag-choices
 	expected-for-diag-infer
-	expected-for-diag-loop
 expected-for-diag-choices record(types type[], type-container type-container)
 expected-for-diag-infer record
-expected-for-diag-loop record
