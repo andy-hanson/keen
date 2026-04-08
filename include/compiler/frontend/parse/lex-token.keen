@@ -497,18 +497,18 @@ region strings
 -take-indented-quote-part void(state lexer-state, iter string-iterator)
 	out char8 mut[] = ()
 	range-start = iter.pos
-	do loop
+	do until
 	start = iter.pos
 	match iter.peek8
 	as "\{"
 		_ = take-next iter
 		push-inside-quotes state, indented
 		emit state, quote-block-then-interpolated, range-start, start, out.move-to
-		break
+		true
 	as "\\"
 		_ = take-next iter
 		take-string-escape out, start, iter, state.diagnostics
-		continue
+		false
 	as "\n"
 		count-newlines mut nat = 0
 		new-indent mut nat32 = 0
@@ -521,21 +521,21 @@ region strings
 			emit state, quote-block-no-interpolated, range-start, start, out.move-to
 			emit-dedents state, start, iter, prev-indent - new-indent - 1
 			state.cur-indent := new-indent
-			break
+			true
 		else
 			for _ in 0 .. count-newlines
 				out ~= "\n"
 			for _ in 0::nat32 .. new-indent - prev-indent
 				out ~~= chars state.indent-kind
-			continue
+			false
 	as "\0"
 		emit state, quote-block-no-interpolated, range-start, start, out.move-to
 		emit-dedents state, start, iter, state.cur-indent - 1
 		state.cur-indent := 0
-		break
+		true
 	else
 		out ~= take-next iter
-		continue
+		false
 
 -chars char8[](a indent-kind)
 	match a
@@ -554,7 +554,7 @@ region strings
 do
 	forbid quote-kind == indented
 	out char8 mut[] = ()
-	interpolate bool = loop
+	interpolate bool = until
 		start-of-char = iter.pos
 		match iter.peek8
 		as "\""
@@ -562,18 +562,18 @@ do
 			match quote-kind
 			as bar
 				out ~= "\""
-				continue
+				()
 			as double
-				break
+				false
 			as indented
 				throw unreachable
 		as "\{"
 			_ = take-next iter
-			break true
+			true
 		as "\\"
 			_ = take-next iter
 			take-string-escape out, start-of-char, iter, state.diagnostics
-			continue
+			()
 		as "\n"
 			match quote-kind
 			as bar
@@ -585,12 +585,12 @@ do
 					_ = try-take-char8 iter2, " "
 					iter.pos := iter2.pos
 					out ~= "\n"
-					continue
+					()
 				else
-					break
+					false
 			as double
 				state.diagnostics ~= (start-of-char, iter.pos), quote-double::parse-diag-expected
-				break
+				false
 			as indented
 				throw unreachable
 		as "\0"
@@ -601,10 +601,10 @@ do
 				state.diagnostics ~= (start-of-char, iter.pos), quote-double::parse-diag-expected
 			as indented
 				throw unreachable
-			break
+			false
 		else
 			out ~= take-next iter
-			continue
+			()
 	if interpolate
 		push-inside-quotes state, quote-kind
 		emit state, quote-kind.then-interpolated, start, iter.pos - 1, out.move-to
@@ -677,11 +677,11 @@ cb-comment alias
 
 | Does not skip newlines (unless within a comment), only spaces within a line
 skip-spaces-and-comments void(iter string-iterator, cb-comment cb-comment, diagnostics parse-diagnostic mut[])
-	do loop
+	do until
 	start = iter.pos
 	if is-whitespace-non-newline iter.peek8
 		_ = take-next iter
-		continue
+		false
 	elif iter.peek8 == "#"
 		if try-take-triple-hash-then-newline iter
 			skip-rest-of-block-comment iter, diagnostics
@@ -691,9 +691,9 @@ skip-spaces-and-comments void(iter string-iterator, cb-comment cb-comment, diagn
 				()
 			skip-until-newline iter
 			cb-comment[start]
-		continue
+		false
 	else
-		break
+		true
 
 -skip-blank-lines-and-get-indent-delta int32(state lexer-state, iter string-iterator)
 	repeat-until-indent-delta state, iter, of
@@ -714,17 +714,17 @@ skip-spaces-and-comments void(iter string-iterator, cb-comment cb-comment, diagn
 		state.diagnostics ~= (pos, iter.pos), parse-diag-indent-wrong state.indent-kind
 
 -repeat-until-indent-delta int32(state lexer-state, iter string-iterator, f (pos, nat32) mut())
-	do loop
+	do until
 	start, new-indent = f[]
 	delta = new-indent.to::int32 - state.cur-indent.to
 	if delta > 1
 		state.diagnostics ~= (start, iter.pos), parse-diag-indent-too-much
 		skip-rest-of-line-and-newline iter
-		continue
+		()
 	else
 		# Ignore indent before end of file
 		state.cur-indent := if is-at-end iter then 0 else new-indent
-		break delta
+		delta
 
 | Used for completions and signature help.
 | Walks to the left skipping whitespace on the same line. Can also skip a single '.' or ','.
@@ -740,12 +740,12 @@ walk-backwards-for-position pos(source-text string-view, pos pos)
 	a == "," or a == "."
 -skip-whitespace-backwards pos(text string-view, index pos)
 	cur mut pos = index
-	do loop
+	do until
 	if cur != 0 and text[cur - 1] == " "
 		cur -:= 1
-		continue
+		()
 	else
-		break cur
+		cur
 
 skip-blank-lines void
 	iter string-iterator
@@ -753,23 +753,23 @@ skip-blank-lines void
 	cb-comment cb-comment
 	diagnostics parse-diagnostic mut[]
 do
-	do loop
+	do until
 	cb-start-of-line[]
 	before = iter.pos
 	if try-take-char8 iter, "\n"
-		continue
+		false
 	elif try-take-triple-hash-then-newline iter
 		skip-rest-of-block-comment iter, diagnostics
 		cb-comment[before]
-		continue
+		false
 	elif try-take-char8 iter, "#"
 		while try-take-char8 iter, " "
 			()
 		skip-until-newline iter
 		cb-comment[before]
-		continue
+		false
 	else
-		break
+		true
 
 -skip-rest-of-line-and-newline void(iter string-iterator)
 	skip-until-newline iter
@@ -786,17 +786,17 @@ do
 
 | Returns the end of the comment text ({iter} will be advanced further, past the '###')
 -skip-rest-of-block-comment void(iter string-iterator, diagnostics parse-diagnostic mut[])
-	do loop
+	do until
 	while try-take-char8 iter, "\t" or try-take-char8 iter, " "
 		()
 	if try-take-triple-hash-then-newline iter
-		break
+		true
 	elif iter.is-at-end
 		diagnostics ~= (iter.pos, iter.pos), block-comment-end
-		break
+		true
 	else
 		skip-rest-of-line-and-newline iter
-		continue
+		false
 
 -is-operator-char bool(a char8)
 	match a
