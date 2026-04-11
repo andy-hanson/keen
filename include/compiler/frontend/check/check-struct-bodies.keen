@@ -207,7 +207,7 @@ do check-ctx, common-types, funs-map
 		data_, false
 
 -get-purity-modifier modifier-keyword-ast?(ast struct-decl-ast) check-ctx
-	res modifier-ast mut[void] = ()
+	res mut modifier-keyword-ast? = ()
 	for modifier in ast.modifiers
 		match modifier
 		as modifier-keyword-ast
@@ -215,13 +215,14 @@ do check-ctx, common-types, funs-map
 			do unless modifier.keyword == case_
 			if purity-and-forced-from-modifier modifier.keyword
 				modifier-type-arg-invalid modifier
-				accumulate-modifier res, (), modifier, true
+				if res then add-diag-duplicate-modifier res!, modifier
+				res := modifier
 			else
 				add-diag modifier.keyword-range,
 					diag-modifier-invalid modifier.keyword, ast.body.get-decl-kind
 		as spec-use-ast
 			()
-	res[].?modifier-keyword-ast
+	res
 
 -decl-kind-for-sum-type decl-kind(a sum-type-kind)
 	match a
@@ -397,9 +398,9 @@ do check-ctx
 	modifier-asts modifier-ast[]
 	ast record-ast
 do check-ctx, types-get
-	modifiers = accumulate-record-modifiers modifier-asts
+	new-visibility = accumulate-record-modifiers modifier-asts
 	fields = check-record-fields struct, ast
-	new-visibility: record-new-visibility struct, fields, modifiers
+	new-visibility: record-new-visibility struct, fields, new-visibility
 	fields: fields
 
 -check-record-fields record-field[](struct struct-decl, ast record-ast) check-ctx, types-get
@@ -465,28 +466,25 @@ do check-ctx
 	else
 		default
 
--record-modifiers record
-	new-visibility modifier-ast?
+-add-diag-duplicate-modifier void(old modifier-ast, new modifier-ast) check-ctx
+	add-diag new.range, if new.name-or-keyword == old.name-or-keyword
+		diag-modifier-duplicate new.name-or-keyword
+	else
+		diag-modifier-conflict old.name-or-keyword, new.name-or-keyword
 
--accumulate-modifier[k] void(res modifier-ast mut[k], key k, new modifier-ast, diags bool) check-ctx, k key
-	if diags and old = res[key]
-		add-diag new.range, if new.name-or-keyword == old.name-or-keyword
-			diag-modifier-duplicate new.name-or-keyword
-		else
-			diag-modifier-conflict old.name-or-keyword, new.name-or-keyword
-	res[key] := new
-
--accumulate-record-modifiers record-modifiers(modifiers modifier-ast[]) check-ctx
-	res modifier-ast mut[symbol] = ()
+-accumulate-record-modifiers modifier-keyword-ast?(modifiers modifier-ast[]) check-ctx
+	new-visibility mut modifier-keyword-ast? = ()
 	for modifier in modifiers
 		do if modifier.modifier-keyword-ast
 		keyword = modifier.keyword
 		if is-new-visibility keyword
 			modifier-type-arg-invalid modifier
-			accumulate-modifier res, "new", modifier, true
+			if old = new-visibility
+				add-diag-duplicate-modifier old, modifier
+			new-visibility := modifier
 		elif !is-common-modifier modifier
 			add-diag modifier.keyword-range, diag-modifier-invalid keyword, record_
-	new-visibility: res["new"]
+	new-visibility
 
 -is-new-visibility bool(a modifier-keyword)
 	a == new-internal or a == new-private or a == new-public
@@ -498,14 +496,13 @@ do check-ctx
 -record-new-visibility visibility
 	record_ struct-decl
 	fields record-field[]
-	modifiers record-modifiers
+	new-visibility modifier-keyword-ast?
 do check-ctx
 	default mut = record_.visibility
 	for field in fields
 		default min:= field.visibility
-	explicit visibility-and-range? = if x = modifiers.new-visibility
-		kw = x.modifier-keyword-ast!
-		kw.keyword.visibility-from-new-visibility, kw.keyword-pos
+	explicit visibility-and-range? = if new-visibility
+		new-visibility.keyword.visibility-from-new-visibility, new-visibility.keyword-pos
 	visibility-from-default-with-diag default, explicit, record_.visibility-warning-new
 
 -visibility-from-new-visibility visibility(a modifier-keyword)
