@@ -12,24 +12,18 @@ import
 	./source-range
 	./uri
 
-is-purity-compatible bool(expected purity, actual purity)
-	actual <= expected
+mutability-range record(best-case mutability, worst-case mutability)
 
-purity-range record(best-case purity, worst-case purity)
+-combine-mutability-range mutability-range(a mutability-range, b mutability-range)
+	best-case: max a.best-case, b.best-case
+	worst-case: max a.worst-case, b.worst-case
 
--combine-purity-range purity-range(a purity-range, b purity-range)
-	best-case: worse-purity a.best-case, b.best-case
-	worst-case: worse-purity a.worst-case, b.worst-case
-
-is-purity-always-compatible bool(referencer purity, referenced purity-range)
+is-mutability-always-compatible bool(referencer mutability, referenced mutability-range)
 	referenced.worst-case <= referencer
-is-purity-always-compatible bool(referencer purity-range, referenced purity)
+is-mutability-always-compatible bool(referencer mutability-range, referenced mutability)
 	referenced <= referencer.best-case
-is-purity-possibly-compatible bool(referencer purity, referenced purity-range)
+is-mutability-possibly-compatible bool(referencer mutability, referenced mutability-range)
 	referenced.best-case <= referencer
-
-worse-purity purity(a purity, b purity)
-	max a, b
 
 max-type-params nat()
 	8
@@ -440,26 +434,26 @@ is-option bool(a struct-inst)
 is-option bool(a struct-decl)
 	is-builtin-type a, option
 
-as-lambda-type purity?(a type)
+as-lambda-type mutability?(a type)
 	if a.struct-inst then as-lambda-type a
-as-lambda-type purity?(a struct-inst)
+as-lambda-type mutability?(a struct-inst)
 	as-lambda-type a.decl
-as-lambda-type purity?(a struct-decl)
+as-lambda-type mutability?(a struct-decl)
 	a.body.builtin-type.?as-lambda-type
 
-purity-range purity-range(a type)
+mutability-range mutability-range(a type)
 	match a
 	as bogus-type
 		data_, data_
 	as type-param-index
 		data_, mut_
 	as struct-inst
-		a.purity-range
+		a.mutability-range
 
-best-case-purity purity(a type)
-	a.purity-range.best-case
-worst-case-purity purity(a type)
-	a.purity-range.worst-case
+best-case-mutability mutability(a type)
+	a.mutability-range.best-case
+worst-case-mutability mutability(a type)
+	a.mutability-range.worst-case
 
 signature-container union(spec-decl, struct-decl)
 	module-uri uri()
@@ -746,7 +740,7 @@ to integral-type?(a builtin-type)
 		nat64
 	else
 		()
-as-lambda-type purity?(a builtin-type)
+as-lambda-type mutability?(a builtin-type)
 	match a
 	as lambda-data
 		data_
@@ -814,9 +808,9 @@ struct-decl record force-data
 	n-type-params nat8
 	| Can only contain 'global', 'js', 'java'
 	late-specs mut specs?
-	| Warn: purity on the decl does not take type args into account
-	purity purity
-	purity-is-forced bool
+	| Warn: mutability on the decl does not take type args into account
+	mutability mutability
+	mutability-is-forced bool
 	sum-type-memberships mut sum-type-membership[]
 	body mut struct-body
 	-insts mut struct-insts
@@ -829,8 +823,8 @@ to-json-with-body json(a struct-decl)
 	source: a.source.to
 	visibility: a.visibility.to
 	specs: a.specs.to
-	purity: a.purity.to
-	purity-is-forced: a.purity-is-forced.to
+	mutability: a.mutability.to
+	mutability-is-forced: a.mutability-is-forced.to
 	doc-comment-references: a.doc-comment-references.to
 	sum-type-memberships: a.sum-type-memberships.to
 	body: a.body.to
@@ -844,8 +838,8 @@ new struct-decl
 	source struct-decl-source
 	visibility visibility
 	specs specs
-	purity purity
-	purity-is-forced bool
+	mutability mutability
+	mutability-is-forced bool
 	doc-comment-references doc-comment-reference[]
 	sum-type-memberships sum-type-membership[]
 	body struct-body
@@ -854,8 +848,8 @@ do
 		hash: hash
 		source: source
 		visibility: visibility
-		purity: purity
-		purity-is-forced: purity-is-forced
+		mutability: mutability
+		mutability-is-forced: mutability-is-forced
 		doc-comment-references: doc-comment-references
 		sum-type-memberships: sum-type-memberships
 		body: body
@@ -865,8 +859,8 @@ new struct-decl
 	hash nat32
 	source struct-decl-source
 	visibility visibility
-	purity purity
-	purity-is-forced bool
+	mutability mutability
+	mutability-is-forced bool
 	doc-comment-references doc-comment-reference[]
 	sum-type-memberships sum-type-membership[]
 	body struct-body
@@ -878,8 +872,8 @@ do
 		n-type-params: if can-have-type-params source
 			source.type-params.size.to
 		late-specs: ()
-		purity: purity
-		purity-is-forced: purity-is-forced
+		mutability: mutability
+		mutability-is-forced: mutability-is-forced
 		sum-type-memberships: sum-type-memberships
 		body: body
 		insts: ()
@@ -1057,10 +1051,10 @@ hash void(a struct-inst, state hash-state)
 to json(a struct-inst)
 	decl: a.decl.name.to
 	type-args: a.type-args.to
-purity-range purity-range(a struct-inst)
-	res mut purity-range = a.decl.purity, a.decl.purity
+mutability-range mutability-range(a struct-inst)
+	res mut mutability-range = a.decl.mutability, a.decl.mutability
 	for x in a.type-args
-		res combine-purity-range:= x.purity-range
+		res combine-mutability-range:= x.mutability-range
 	res
 
 spec-decl-body record # TODO:PERF just store this directly!
@@ -1076,7 +1070,7 @@ builtin-spec enum
 	global_
 	unsafe
 == bool(a builtin-spec, b builtin-spec)
-to purity?(a builtin-spec)
+to mutability?(a builtin-spec)
 	match a
 	as data_
 		data_
@@ -2142,7 +2136,7 @@ to type-container(a any-decl)
 common-funs record
 	error struct-inst
 	json-array struct-inst
-	lambda-subscript (purity, fun-decl) enum-map
+	lambda-subscript (mutability, fun-decl) enum-map
 	shared-of-mut-lambda fun-decl
 	to-array-view fun-decl
 	to-buffer-view fun-decl
@@ -2279,8 +2273,8 @@ lambda-shared struct-decl() common-types
 	common-types.lambda-shared
 lambda-mut struct-decl() common-types
 	common-types.lambda-mut
-lambda struct-decl(purity purity) common-types
-	match purity
+lambda struct-decl(mutability mutability) common-types
+	match mutability
 	as data_
 		lambda-data
 	as shared_
@@ -3326,7 +3320,7 @@ lambda-expr record
 	type struct-inst
 is-explicit-shared bool(a lambda-expr)
 	!!a.mut-type-for-explicit-shared
-purity purity(a lambda-expr)
+mutability mutability(a lambda-expr)
 	a.type.as-lambda-type!
 to json(a lambda-expr)
 	param: a.param.to
@@ -3942,7 +3936,7 @@ diag union
 	diag-it-identity
 	diag-lambda-cant-be-function-pointer
 	diag-lambda-cant-infer-param-type
-	diag-lambda-closure-purity
+	diag-lambda-closure-mutability
 	diag-lambda-multiple-match
 	diag-lambda-not-expected
 	diag-lambda-type-missing-param-type
@@ -3983,8 +3977,8 @@ diag union
 	diag-param-mutable
 	parse-diag
 	parse-diag-kid
-	diag-purity-worse-than-parent
-	diag-purity-worse-than-sum-type
+	diag-mutability-more-than-parent
+	diag-mutability-more-than-sum-type
 	diag-record-field-needs-type
 	diag-required-after
 	diag-shared-arg-is-not-lambda
@@ -4138,9 +4132,9 @@ diag-import-refers-to-nothing record(name symbol)
 diag-it-identity record
 diag-lambda-cant-be-function-pointer record
 diag-lambda-cant-infer-param-type record
-diag-lambda-closure-purity record
+diag-lambda-closure-mutability record
 	| This will only ever be 'data' or 'shared', since a 'mut' lambda allows everything
-	lambda-kind purity
+	lambda-kind mutability
 	local-name symbol
 	| If missing, the error is that the local itself is 'mut'.
 	| If present, the error is that the type is 'mut'.
@@ -4188,8 +4182,8 @@ diag-option-or-left-non-option record(actual-type type-with-container)
 diag-option-or-right-non-option record(actual-type type-with-container)
 diag-param-missing-type record
 diag-param-mutable record
-diag-purity-worse-than-parent record(parent struct-decl, child struct-inst)
-diag-purity-worse-than-sum-type record(case_ struct-decl, sum-type struct-inst)
+diag-mutability-more-than-parent record(parent struct-decl, child struct-inst)
+diag-mutability-more-than-sum-type record(case_ struct-decl, sum-type struct-inst)
 parse-diag-kid record(expected string)
 diag-record-field-needs-type record(field-name symbol)
 diag-required-after enum(assert_, forbid_, let, while_, until_, try-let)

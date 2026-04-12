@@ -18,12 +18,12 @@ modifier-type-arg-invalid void(modifier modifier-keyword-ast) check-ctx
 check-structs-initial struct-decl[](asts struct-decl-ast[]) check-ctx
 	for ast in asts
 		check-type-params ast.type-params
-		purity = get-struct-purity ast
+		mutability = get-struct-mutability ast
 		hash: next-hash
 		source: ast
 		visibility: visibility-from-explicit-top-level ast.visibility
-		purity: purity.purity
-		purity-is-forced: purity.forced
+		mutability: mutability.mutability
+		mutability-is-forced: mutability.forced
 		doc-comment-references: ()
 		sum-type-memberships: ()
 		body: struct-body-bogus
@@ -99,7 +99,7 @@ do check-ctx, types-get
 		as spec-use-ast
 			name = modifier.name.name
 			if name == "global"
-				if decl.purity == data_
+				if decl.mutability == data_
 					add-diag modifier.range, diag-global-data-type
 				- global-spec
 			elif value build-target = name.to
@@ -181,8 +181,8 @@ do check-ctx, common-types, funs-map
 	# Use the best case for the member type, because:
 	# * Union cases have the same type parameters as the union.
 	# * Interface or variant cases can't be templates anyway.
-	unless is-purity-always-compatible sum-type.purity-range, member-type.purity-range.best-case
-		add-diag diag-range, diag-purity-worse-than-sum-type member, sum-type
+	unless is-mutability-always-compatible sum-type.mutability-range, member-type.mutability-range.best-case
+		add-diag diag-range, diag-mutability-more-than-sum-type member, sum-type
 
 	do for sig in method-decls
 	types return-and-param-types =
@@ -197,25 +197,25 @@ do check-ctx, common-types, funs-map
 			add-diag diag-range, diag-method-impl-visibility member, sum-type, called
 	called
 
--purity-and-forced record(purity purity, forced bool)
--get-struct-purity purity-and-forced(ast struct-decl-ast) check-ctx
-	if modifier = get-purity-modifier ast
-		pf = purity-and-forced-from-modifier! modifier.keyword
-		if pf.purity == data_ and !pf.forced
+-mutability-and-forced record(mutability mutability, forced bool)
+-get-struct-mutability mutability-and-forced(ast struct-decl-ast) check-ctx
+	if modifier = get-mutability-modifier ast
+		pf = mutability-and-forced-from-modifier! modifier.keyword
+		if pf.mutability == data_ and !pf.forced
 			add-diag modifier.keyword-range,
 				diag-modifier-redundant-due-to-decl-kind modifier.keyword, ast.body.get-decl-kind
 		pf
 	else
 		data_, false
 
--get-purity-modifier modifier-keyword-ast?(ast struct-decl-ast) check-ctx
+-get-mutability-modifier modifier-keyword-ast?(ast struct-decl-ast) check-ctx
 	res mut modifier-keyword-ast? = ()
 	for modifier in ast.modifiers
 		match modifier
 		as modifier-keyword-ast
 			do unless is-new-visibility modifier.keyword
 			do unless modifier.keyword == case_
-			if purity-and-forced-from-modifier modifier.keyword
+			if mutability-and-forced-from-modifier modifier.keyword
 				modifier-type-arg-invalid modifier
 				if res then add-diag-duplicate-modifier res!, modifier
 				res := modifier
@@ -250,7 +250,7 @@ do check-ctx, common-types, funs-map
 	as sum-type-ast
 		decl-kind-for-sum-type a.kind
 
--purity-and-forced-from-modifier purity-and-forced?(a modifier-keyword)
+-mutability-and-forced-from-modifier mutability-and-forced?(a modifier-keyword)
 	match a
 	as data_
 		data_, false
@@ -280,7 +280,7 @@ do check-ctx, common-types, funs-map
 -is-common-modifier bool(a modifier-ast)
 	match a
 	as modifier-keyword-ast
-		a.keyword == case_ or purity-and-forced-from-modifier a.keyword
+		a.keyword == case_ or mutability-and-forced-from-modifier a.keyword
 	as spec-use-ast
 		a.name.name == "global" or a.name.name.to::build-target?
 
@@ -442,12 +442,12 @@ do check-ctx, types-get
 	else
 		add-diag name.range, name.name.diag-record-field-needs-type
 		bogus-type
-	check-reference-purity record_, source.range, member-type
+	check-reference-mutability record_, source.range, member-type
 
 	visibility = visibility-from-default-with-diag record_.visibility, visibility-ast,
 		visibility-warning-field record_, name.name
 	mutability visibility? = if mutability-ast
-		if record_.purity != mut_ and !record_.purity-is-forced
+		if record_.mutability != mut_ and !record_.mutability-is-forced
 			add-diag mutability-ast.range, diag-mut-field-not-allowed
 		visibility-from-default-with-diag visibility, mutability-ast.visibility,
 			visibility-warning-field-mutability name.name
@@ -491,9 +491,10 @@ do check-ctx
 -is-new-visibility bool(a modifier-keyword)
 	a == new-internal or a == new-private or a == new-public
 
--check-reference-purity void(struct struct-decl, range source-range, referenced-type type) check-ctx
-	unless is-purity-possibly-compatible struct.purity, referenced-type.purity-range or struct.purity-is-forced
-		add-diag range, diag-purity-worse-than-parent struct, referenced-type.struct-inst!
+-check-reference-mutability void(struct struct-decl, range source-range, referenced-type type) check-ctx
+	do unless is-mutability-possibly-compatible struct.mutability, referenced-type.mutability-range
+	do unless struct.mutability-is-forced
+	add-diag range, diag-mutability-more-than-parent struct, referenced-type.struct-inst!
 
 -record-new-visibility visibility
 	record_ struct-decl
