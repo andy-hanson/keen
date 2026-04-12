@@ -14,29 +14,29 @@ import
 | Since unions aren't mutable, we would have had to wrap it in a mut field of a record,
 | and using a single record is more performant as it avoids indirection.
 expected record mut
-	| If empty, use {opt-choices}
-	-opt-inferred mut type?
-	| If empty, this is purely inferring
-	-opt-choices type-and-context mut[]?
+	| If empty, this is purely inferring.
+	| If a single entry with no context, this is fully inferred.
+	-choices type-and-context mut[]
 infer expected()
-	(), ()
+	choices: ()
 expect expected(type type)
-	type, ()
+	choices: type.non-inferring,
 expect-with-context expected(type type-and-context)
-	(), (type,)
-to expected(choices type-and-context mut[])
-	(), choices
+	choices: type,
 -is-purely-inferring bool(a expected)
-	!a.opt-inferred and !a.opt-choices
+	is-empty a.choices
 | Purely inferring, or expecting 't' where 't' can be any type
 -is-practically-inferring bool(expected expected)
 	is-purely-inferring expected or
-		do if choice = ?only expected.opt-choices
+		do if choice = only expected.choices
+		do if is-inferring choice.context
 		type = choice.type
 		type.type-param-index and !choice.context[type.index]
 
-to expected(a type-and-context[])
-	(), a.to
+as-expected expected(a type-and-context mut[])
+	choices: a
+list-new expected(a type-and-context[])
+	choices: list-new a
 
 check-with-modify-expected expr
 	outer expected
@@ -45,20 +45,12 @@ check-with-modify-expected expr
 	# This can return a modified type. E.g., if expecting a non-option, it would return the option.
 	check-inner (expr, type) mut(x expected)
 do check-expr-ctx
-	inner expected = if x = outer.opt-inferred
-		if new-expected = modify-expected-type[x]
-			expect new-expected
-		else
-			infer
-	elif outer-types = outer.opt-choices
-		modified-types type-and-context[] = with out in build
-			do for outer-type in outer-types
-			do if new-expected = modify-expected-type[try-get-exact-non-inferring-type outer-type else outer-type.type]
-			out ~= new-expected, outer-type.context
-		if is-empty modified-types then infer else modified-types.to
-	else
-		infer
-	inner-expr, outer-type = check-inner[inner]
+	outer-types = outer.choices
+	modified-types type-and-context mut[] = with out in build
+		do for outer-type in outer-types
+		do if new-expected = modify-expected-type[try-get-exact-non-inferring-type outer-type else outer-type.type]
+		out ~= new-expected, outer-type.context
+	inner-expr, outer-type = check-inner[modified-types.as-expected]
 	check outer, outer-type, inner-expr
 
 | Final 'type' option is for any other type when it is unambiguous
@@ -69,7 +61,7 @@ choose-string-type (type, char-or-string-type?)?(range source-range, expected ex
 		must-check expected, string
 		string, string
 	choices (struct-inst, char-or-string-type) mut[] = ()
-	each-choice expected, of choice
+	for choice in expected.choices
 		each-narrowed-struct choice, of struct
 			if kind = as-char-or-string-type struct and !some choices, it.b == kind
 				choices ~= struct, kind
@@ -127,7 +119,7 @@ choose-number-type number-type?(range source-range, expected expected, text stri
 	res-float mut float-type? = ()
 	res-js mut struct-inst? = ()
 	res-json mut struct-inst? = ()
-	each-choice expected, of choice
+	for choice in expected.choices
 		each-narrowed-struct choice, of struct
 			if x = as-nat-type struct and !is-float and !is-negative
 				res-nat := max res-nat, x
@@ -242,14 +234,14 @@ choose-number-type number-type?(range source-range, expected expected, text stri
 		x == y or is-bogus y
 
 -set void(a expected, type type)
-	a.opt-inferred := type
+	clear a.choices
+	a.choices ~= non-inferring type
+
+-is-inferred bool(a expected)
+	(choice = only a.choices) and !is-inferring choice.context
 
 set-to-bogus-if-inferring void(a expected)
-	if a.opt-inferred
-		()
-	elif a.opt-choices
-		set a, bogus-type
-	else
+	unless is-inferred a
 		set a, bogus-type
 
 expected-lambda record mut
@@ -269,7 +261,7 @@ do check-expr-ctx
 	multiple struct-inst mut[] = ()
 	any-diag bool reference = false,
 	diag-range = diag-range source
-	each-choice expected, of choice
+	for choice in expected.choices
 		each-narrowed-struct choice, of struct
 			do if as-lambda-type struct
 			return-type, param-type = only2! struct.type-args
@@ -339,24 +331,21 @@ do check-ctx
 		any-diag set= true
 		()
 
--each-choice void(a expected, cb void mut(x type-and-context))
-	if x = a.opt-inferred
-		cb[non-inferring x]
-	elif x = a.opt-choices
-		for-loop x, cb
-
 try-get-inexact-non-inferring-type type?(expected expected)
-	opt-inferred expected or ?try-get-inexact-non-inferring-type ?only expected.opt-choices
+	?try-get-inexact-non-inferring-type only expected.choices
 
 match-expected-vs-return-type-no-diagnostic type-match-kind?
 	expected expected
 	candidate-return-type type-and-context
 do common-types
-	if x = expected.opt-inferred
-		# We have a particular expected type, so infer candidate-return-type's type args
-		match-types candidate-return-type, x.non-inferring, a-to-b
-	elif choices = expected.opt-choices
-		match res = none-or-one-or-many choices, of x then is-type-match-possible candidate-return-type, x, a-to-b
+	if is-purely-inferring expected
+		exact-match
+	elif x = only expected.choices
+		match-types candidate-return-type, x, a-to-b
+	else
+		res = none-or-one-or-many expected.choices, of x
+			is-type-match-possible candidate-return-type, x, a-to-b
+		match res
 		as none
 			()
 		as one
@@ -364,8 +353,6 @@ do common-types
 		as many
 			# Else don't infer any type args; multiple candidates and multiple possible return types.
 			exact-match
-	else
-		exact-match
 
 bogus expr(expected expected, ast expr-ast)
 	bogus expected, ast.range
@@ -374,7 +361,7 @@ bogus expr(expected expected, range source-range)
 	bogus-expr range, expected.inferred
 
 inferred type(expected expected)
-	expected.opt-inferred else type only! expected.opt-choices!
+	type only! expected.choices
 
 check expr(expected expected, expr-type type, expr expr) check-expr-ctx
 	if try-set-no-diagnostic expected, expr-type
@@ -386,12 +373,10 @@ check expr(expected expected, expr-type type, expr expr) check-expr-ctx
 		bogus-wrong-type-expr expr, expected.inferred
 
 get-expected-for-diag expected-for-diag(expected expected) check-expr-ctx
-	if x = expected.opt-inferred
-		expected-for-diag-choices (x,), type-container
-	elif choices = expected.opt-choices
-		expected-for-diag-choices (map choices, it.get-inferred-or-bogus), type-container
-	else
+	if is-purely-inferring expected
 		expected-for-diag-infer
+	else
+		expected-for-diag-choices (map expected.choices, it.get-inferred-or-bogus), type-container
 
 | Call this when you are certain 'type' satisfies 'expected'.
 | (But it may still be necessary to update expected with a more precise type.)_
@@ -399,24 +384,29 @@ must-check void(expected expected, actual type) common-types
 	assert try-set-no-diagnostic expected, actual
 | This may infer type parameters
 -try-set-no-diagnostic bool(expected expected, actual type) common-types
-	if x = expected.opt-inferred
-		!!(match-types x.non-inferring, actual.non-inferring, b-to-a)
-	elif choices = opt-choices expected
-		match res = none-or-one-or-many choices, of x then !!(match-types x, actual.non-inferring, b-to-a)
+	if is-purely-inferring expected
+		set expected, actual
+		true
+	# This branch is redundant to the below one, but having it seems to improve performance.
+	elif x = only expected.choices
+		if match-types x, actual.non-inferring, b-to-a
+			set expected, (try-get-inexact-non-inferring-type x else actual)
+			true
+	else
+		res = none-or-one-or-many expected.choices, of x
+			!!(match-types x, actual.non-inferring, b-to-a)
+		match res
 		as none
 			false
 		as one
 			# If we're expecting a type parameter 't' that is inferred to 'nat? exact',
 			# preserve that instead of unnecessarily narrowing.
 			# TODO: maybe we should just not have 'choices' in the case where there is a single type...
-			set expected, (res.value.try-get-inexact-non-inferring-type else actual)
+			set expected, (try-get-inexact-non-inferring-type res.value else actual)
 			true
 		as many
 			set expected, actual
 			true
-	else
-		set expected, actual
-		true
 
 try-get-exact-non-inferring-type type?(a type-and-context)
 	try-get-exact-or-inexact-non-inferring-type a, true
