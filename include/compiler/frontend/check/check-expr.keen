@@ -226,7 +226,7 @@ do
 		as call-expr
 			if x = as-call-sum-type-member-get-on-local expr and destructure.local
 				add-diag ast.option.range,
-					diag-unpack-option-unnecessary destructure.name, x.local.name, x.refined-type.struct-inst!.decl.name
+					diag-unpack-option-unnecessary destructure.name, x.local.name, x.refined-type.type-inst!.decl.name
 		else
 			()
 		expr
@@ -549,7 +549,7 @@ do check-expr-ctx
 	match a
 	as local
 		a.type
-	as struct-inst
+	as type-inst
 		a
 
 -check-it expr(ast it-ast, expected expected) check-expr-ctx
@@ -631,14 +631,14 @@ do
 	then_ = check-required-after ast.destructure.range, destructure, ast.then_, let, expected
 	let-expr ast, destructure, value-expr, then_
 
--type-for-the struct-inst?(ast type-ast) check-expr-ctx
+-type-for-the type-inst?(ast type-ast) check-expr-ctx
 	match type = type-from-ast ast
 	as bogus-type
 		()
 	as type-param-index
 		add-diag ast.range, diag-context-type-param
 		()
-	as struct-inst
+	as type-inst
 		type
 
 -check-let-the expr(ast let-the-ast, expected expected) check-expr-ctx
@@ -772,7 +772,7 @@ check-while-or-until-body expr(ast while-or-until-body-ast, expected expected) c
 		local, matched-type
 	if local then add-local local
 	# Use an arbitrary non-matchable inst as default
-	inst = matched-type.struct-inst else void
+	inst = matched-type.type-inst else void
 	decl = inst.decl
 	not-matchable = of
 		unless is-bogus matched-type
@@ -780,9 +780,9 @@ check-while-or-until-body expr(ast while-or-until-body-ast, expected expected) c
 				diag-match-on-non-matchable type-with-container matched-type
 		bogus expected, ast.matched
 	res = match body = decl.body
-	as struct-body-bogus
+	as type-body-bogus
 		not-matchable[]
-	as struct-body-extern-java
+	as type-body-extern-java
 		not-matchable[]
 	as builtin-type
 		if char-type = body.to::char-type?
@@ -825,7 +825,7 @@ check-while-or-until-body expr(ast while-or-until-body-ast, expected expected) c
 	expected expected
 	matched-local local?
 	matched expr
-	matched-enum struct-decl
+	matched-enum type-decl
 	body enum_
 do check-expr-ctx
 	remaining enum-or-flags-member mut-set = body.members.to
@@ -861,7 +861,7 @@ do check-expr-ctx
 	expected expected
 	local local?
 	matched expr
-	sum-type struct-inst
+	sum-type type-inst
 do check-expr-ctx
 	matched-local = local or as-immut-local-get matched
 	cases = check-match-sum-type-cases matched-local, sum-type, ast.cases, expected
@@ -878,9 +878,9 @@ do check-expr-ctx
 	else
 		check-match-else-required ast, expected, of then variant_::diag-match-needs-else
 	match-sum-type-expr ast, local, matched, cases, else_, expected.inferred
--list-missing-union-cases struct-inst[](union_ struct-inst, body sum-type, cases match-sum-type-case[])
+-list-missing-union-cases type-inst[](union_ type-inst, body sum-type, cases match-sum-type-case[])
 	for* member in body.listed-members
-		member-inst = instantiate-struct-inst member.member, union_.type-args
+		member-inst = instantiate-type-inst member.member, union_.type-args
 		if !some cases, it.case-type == member-inst
 			- member-inst
 
@@ -890,11 +890,11 @@ do check-expr-ctx
 
 -check-match-sum-type-cases match-sum-type-case[]
 	matched-local local?
-	matched-variant struct-inst
+	matched-variant type-inst
 	case-asts case-ast[]
 	expected expected
 do check-expr-ctx
-	seen struct-inst mut-set = ()
+	seen type-inst mut-set = ()
 	hint-size seen, case-asts.size
 	do with out in build case-asts.size
 	do for case-ast in case-asts
@@ -905,7 +905,7 @@ do check-expr-ctx
 		add-diag case-ast.name-range, res.case-type.decl.name::diag-match-case-duplicate
 
 -check-catches catch_[](asts catch-ast[], expected expected) check-expr-ctx
-	seen struct-inst mut-set = ()
+	seen type-inst mut-set = ()
 	hint-size seen, asts.size
 	do with out in build asts.size
 	do for index, ast in with-index asts
@@ -916,9 +916,9 @@ do check-expr-ctx
 		add-diag ast.keyword-range, res.caught-type.decl.name::diag-match-case-duplicate
 
 -check-catch catch_?(ast catch-ast, expected expected, require-type bool) check-expr-ctx
-	explicit-caught-type struct-inst? = if as_ = ast.as_
+	explicit-caught-type type-inst? = if as_ = ast.as_
 		the types-and-specs-map = the::expr-ctx.types-and-specs-map
-		inst-struct-from-ast as_.type-name.name, as_.type-name.range, (), type-params, yes
+		inst-type-from-ast as_.type-name.name, as_.type-name.range, (), type-params, yes
 	if require-type and !explicit-caught-type
 		add-diag ast.keyword-range, diag-catch-else-must-come-last
 	caught-type = explicit-caught-type else exception
@@ -930,7 +930,7 @@ do check-expr-ctx
 
 -check-match-sum-type-case match-sum-type-case?
 	matched-local local?
-	matched-variant struct-inst
+	matched-variant type-inst
 	member-ast case-member-ast
 	then-ast expr-ast
 	expected expected
@@ -946,17 +946,17 @@ do check-expr-ctx
 		_ = pop! refined-types
 	case-type, expr
 
--get-sum-type-case-from-name struct-inst?
-	sum-type struct-inst
+-get-sum-type-case-from-name type-inst?
+	sum-type type-inst
 	name symbol
 	name-range source-range
 do check-expr-ctx
 	listed-members = sum-type.decl.body.sum-type!.listed-members
 	the types-and-specs-map = the::expr-ctx.types-and-specs-map
-	do if sa = struct-or-alias-from-name name, name-range
-	match sa
-	as struct-alias
-		target = sa.target
+	do if type = type-or-alias-from-name name, name-range
+	match type
+	as type-alias
+		target = type.target
 		is-listed = some listed-members, it.member == target
 		has-membership = some target.decl.sum-type-memberships, it.sum-type == sum-type
 		if is-listed or has-membership
@@ -964,30 +964,30 @@ do check-expr-ctx
 		else
 			add-diag name-range, diag-match-sum-type-no-member sum-type.type-with-container, target.decl
 			()
-	as struct-decl
-		if member = find listed-members, it.member.decl == sa
-			instantiate-struct-inst member.member, sum-type.type-args
+	as type-decl
+		if member = find listed-members, it.member.decl == type
+			instantiate-type-inst member.member, sum-type.type-args
 		else
-			from-membership = first sa.sum-type-memberships, of x
-				compare-sum-types name-range, sa, x.sum-type, sum-type
+			from-membership = first type.sum-type-memberships, of x
+				compare-sum-types name-range, type, x.sum-type, sum-type
 			if from-membership
 				match from-membership
-				as struct-inst then from-membership
+				as type-inst then from-membership
 				as sum-type-case-bogus then ()
 			else
 				add-diag name-range,
-					diag-match-sum-type-no-member sum-type.type-with-container, sa
+					diag-match-sum-type-no-member sum-type.type-with-container, type
 				()
 
--instantiated-sum-type-case-or-bogus union(struct-inst, sum-type-case-bogus)
+-instantiated-sum-type-case-or-bogus union(type-inst, sum-type-case-bogus)
 -sum-type-case-bogus record
 
 | Returns instantiated case type if the declared sum-type matches the actual
 -compare-sum-types instantiated-sum-type-case-or-bogus?
 	range source-range
-	case_ struct-decl
-	declared-sum-type struct-inst
-	actual-sum-type struct-inst
+	case_ type-decl
+	declared-sum-type type-inst
+	actual-sum-type type-inst
 do check-ctx, common-types
 	do if declared-sum-type.decl == actual-sum-type.decl
 	with-type-context-for case_.n-type-params, of inferring-context
@@ -1056,7 +1056,7 @@ do check-expr-ctx
 	else_ = check-match-else-required ast, expected, of then integral::diag-match-needs-else
 	match-scalar-expr ast, integral-type, matched-local, matched, cases, else_, expected.inferred
 
--get-matchable-string-like-from-record string-like-type?(inst struct-inst) common-types
+-get-matchable-string-like-from-record string-like-type?(inst type-inst) common-types
 	if inst == char32-array
 		char32-array
 	elif inst == char8-array
@@ -1077,7 +1077,7 @@ do check-expr-ctx
 	do if spec_ = get-spec-from-common-module ast.keyword-range, "equal", compare else
 		bogus expected, ast.range
 
-	matched-type = struct-inst! type-not-json matched
+	matched-type = type-inst! type-not-json matched
 	equals = check-spec-and-get-last-impl ast.keyword-range, instantiate-spec spec_, matched-type
 	seen string mut-set = ()
 	cases match-string-like-case[] = with out in build

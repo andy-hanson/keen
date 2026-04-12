@@ -60,11 +60,11 @@ choose-string-type (type, char-or-string-type?)?(range source-range, expected ex
 	do unless is-practically-inferring expected else
 		must-check expected, string
 		string, string
-	choices (struct-inst, char-or-string-type) mut[] = ()
+	choices (type-inst, char-or-string-type) mut[] = ()
 	for choice in expected.choices
-		each-narrowed-struct choice, of struct
-			if kind = as-char-or-string-type struct and !some choices, it.b == kind
-				choices ~= struct, kind
+		each-narrowed-type choice, of type
+			if kind = as-char-or-string-type type and !some choices, it.b == kind
+				choices ~= type, kind
 	if is-empty choices
 		if x = try-get-inexact-non-inferring-type expected
 			x, ()
@@ -106,7 +106,7 @@ choose-number-type number-type?(range source-range, expected expected, text stri
 	is-float = contains text, "." or (contains text, "e" and !starts-with text, "0x")
 	is-negative = text[0] == "-"
 	do unless is-practically-inferring expected else
-		res number-type, type struct-inst = if is-float
+		res number-type, type type-inst = if is-float
 			float64, float64
 		elif is-negative
 			int64, int64
@@ -117,26 +117,26 @@ choose-number-type number-type?(range source-range, expected expected, text stri
 	res-nat mut nat-type? = ()
 	res-int mut int-type? = ()
 	res-float mut float-type? = ()
-	res-js mut struct-inst? = ()
-	res-json mut struct-inst? = ()
+	res-js mut type-inst? = ()
+	res-json mut type-inst? = ()
 	for choice in expected.choices
-		each-narrowed-struct choice, of struct
-			if x = as-nat-type struct and !is-float and !is-negative
+		each-narrowed-type choice, of type
+			if x = as-nat-type type and !is-float and !is-negative
 				res-nat := max res-nat, x
-			elif x = as-int-type struct and !is-float
+			elif x = as-int-type type and !is-float
 				res-int := max res-int, x
-			elif x = as-float-type struct
+			elif x = as-float-type type
 				res-float := max res-float, x
-			elif is-js-any struct
-				res-js := struct
-			elif is-json struct
-				res-json := struct
+			elif is-js-any type
+				res-js := type
+			elif is-json type
+				res-json := type
 	total = (!!res-nat).to + (!!res-int).to + (!!res-float).to + (!!res-js).to + (!!res-json).to
 	if total == 0
 		add-diag range, diag-literal-not-expected get-expected-for-diag expected
 		()
 	else
-		res number-type, type struct-inst = if res-nat
+		res number-type, type type-inst = if res-nat
 			res-nat!.to::integral-type, res-nat!.to
 		elif res-int
 			res-int!.to::integral-type, res-int!.to
@@ -154,39 +154,39 @@ choose-number-type number-type?(range source-range, expected expected, text stri
 	as float32 then float32
 	as float64 then float64
 
--is-json bool(a struct-inst) check-ctx
+-is-json bool(a type-inst) check-ctx
 	a.decl.name == "json" and a.decl.uri == common-uris[json]
 
--each-narrowed-struct void(a type-and-context, f void mut(x struct-inst)) common-types
+-each-narrowed-type void(a type-and-context, f void mut(x type-inst)) common-types
 	match type = a.type
 	as bogus-type
 		()
 	as type-param-index
 		if is-inferring a.context and inferred = a.context[type.index]
-			each-narrowed-struct inferred.type.non-inferring, f
-	as struct-inst
+			each-narrowed-type inferred.type.non-inferring, f
+	as type-inst
 		match body = type.decl.body
 		as builtin-type
 			if body == option
-				each-narrowed-struct (type.unwrap-option!, a.context), f
+				each-narrowed-type (type.unwrap-option!, a.context), f
 			else
 				f[type]
 		as sum-type
 			if body.kind == union_
 				for m in body.listed-members
 					# TODO:PERF It would probably help to have all instantiated members precomputed
-					inst = instantiate-struct-inst m.member, type.type-args
-					each-narrowed-struct (inst, a.context), f
+					inst = instantiate-type-inst m.member, type.type-args
+					each-narrowed-type (inst, a.context), f
 			else
 				# This is only used for the expected type for a literal,
 				# so don't worry about interface/variant since literals can't implement those
 				f[type]
 		else
 			# NOTE: no need to handle 'builtin-widens' here, since 'choose-number-type' handles that.
-			# Also, 'each-narrowed-struct' is only used for literals and lambdas,
+			# Also, 'each-narrowed-type' is only used for literals and lambdas,
 			# so no need to consider buffer from buffer-view (since there are no literal buffers).
 			f[if elem = as-array-view type then array[elem] else type]
--can-widen-to type-match-kind?(narrow struct-inst, wide struct-inst) common-types
+-can-widen-to type-match-kind?(narrow type-inst, wide type-inst) common-types
 	# 'narrow' can widen to 'wide' if 'wide' is 'narrow?', or 'wide' is a sum-type containing 'narrow', or transitive
 	match body = wide.decl.body
 	as builtin-type
@@ -196,7 +196,7 @@ choose-number-type number-type?(range source-range, expected expected, text stri
 				bogus-match
 			as type-param-index
 				()
-			as struct-inst
+			as type-inst
 				min convert-to-option-or-union, is-or-can-widen-to narrow, w
 		else
 			narrow-body = narrow.decl.body
@@ -205,11 +205,11 @@ choose-number-type number-type?(range source-range, expected expected, text stri
 		if body.kind == union_
 			min convert-to-option-or-union, first body.listed-members, of x
 				# TODO:PERF It would probably help to have all instantiated members precomputed
-				narrow 'is-or-can-widen-to instantiate-struct-inst x.member, wide.type-args
+				narrow 'is-or-can-widen-to instantiate-type-inst x.member, wide.type-args
 		else
 			min convert-to-option-or-union, first narrow.decl.sum-type-memberships, of x
 				# TODO:PERF It would probably help to have all instantiated members precomputed
-				st = instantiate-struct-inst x.sum-type, narrow.type-args
+				st = instantiate-type-inst x.sum-type, narrow.type-args
 				# TODO:PERF could have a simpler recursion since we already know we're looking for a sum-type.
 				# Or could just cache all implemented interfaces
 				st 'is-or-can-widen-to wide
@@ -218,15 +218,15 @@ choose-number-type number-type?(range source-range, expected expected, text stri
 			convert-array-view-or-numeric
 		elif as-buffer-view wide and as-buffer narrow and narrow.type-args 'can-match wide.type-args
 			convert-array-view-or-numeric
--is-or-can-widen-to type-match-kind?(narrow struct-inst, wide struct-inst) common-types
+-is-or-can-widen-to type-match-kind?(narrow type-inst, wide type-inst) common-types
 	if narrow == wide
 		exact-match
 	else
 		narrow 'can-widen-to wide
--as-array-view type?(a struct-inst) common-types
+-as-array-view type?(a type-inst) common-types
 	if a.decl == array-view
 		only! a.type-args
--as-buffer-view type?(a struct-inst) common-types
+-as-buffer-view type?(a type-inst) common-types
 	if a.decl == buffer-view
 		only! a.type-args
 -can-match bool(a type-args, b type-args)
@@ -245,7 +245,7 @@ set-to-bogus-if-inferring void(a expected)
 		set a, bogus-type
 
 expected-lambda record mut
-	lambda-decl struct-decl
+	lambda-decl type-decl
 	| Missing for purely inferred lambdas
 	return-type type-and-context?
 	| Fully inferred, not in type-context.
@@ -258,16 +258,16 @@ do check-expr-ctx
 	declared-param = ?type-from-destructure param-ast
 	do unless declared-param == bogus-type
 	res mut expected-lambda? = ()
-	multiple struct-inst mut[] = ()
+	multiple type-inst mut[] = ()
 	any-diag bool reference = false,
 	diag-range = diag-range source
 	for choice in expected.choices
-		each-narrowed-struct choice, of struct
-			do if as-lambda-type struct
-			return-type, param-type = only2! struct.type-args
+		each-narrowed-type choice, of type
+			do if as-lambda-type type
+			return-type, param-type = only2! type.type-args
 			do if actual-param = lambda-param-type diag-range, declared-param, (param-type, choice.context), any-diag
 			prev = res
-			res := struct.decl, (return-type, choice.context), actual-param
+			res := type.decl, (return-type, choice.context), actual-param
 			if prev
 				if is-empty multiple
 					multiple ~= get-inferred-or-bogus prev
@@ -295,7 +295,7 @@ diag-range source-range(a lambda-source)
 		a.first-it.range
 	as lambda-ast
 		a.keyword-range
--get-inferred-or-bogus struct-inst(a expected-lambda)
+-get-inferred-or-bogus type-inst(a expected-lambda)
 	a.lambda-decl[a.return-type!.get-inferred-or-bogus, a.instantiated-param-type]
 
 ###
@@ -312,7 +312,7 @@ If the user wrote `xs nat?[] = for x in xs ...`, they presumably want the body t
 		do if inferred = type-context[type.index]
 		do unless inferred.kind == exact
 		type-context[type.index] := exact, inferred.type
-	as struct-inst
+	as type-inst
 		()
 
 -lambda-param-type type?
@@ -423,7 +423,7 @@ try-get-inexact-non-inferring-type type?(a type-and-context)
 			inferred.type
 		else
 			type
-	as struct-inst
+	as type-inst
 		if is-empty type.type-args
 			type
 		else
@@ -441,7 +441,7 @@ try-get-inexact-non-inferring-type type?(a type-and-context)
 			inferred.type
 		else
 			bogus-type
-	as struct-inst
+	as type-inst
 		new-type-args = make-type-args type.type-args, of arg
 			replace-uninferred-with-bogus (arg, a.context)
 		type.decl[new-type-args]
@@ -455,7 +455,7 @@ try-get-inexact-non-inferring-type type?(a type-and-context)
 			a.context[type.index]
 		else
 			exact, a.type
-	as struct-inst
+	as type-inst
 		if is-empty type.type-args
 			exact, a.type
 		else
@@ -474,7 +474,7 @@ get-inferred-or-bogus type(a type-and-context)
 			a.context[type.index].?type else bogus-type
 		else
 			type
-	as struct-inst
+	as type-inst
 		new-type-args = make-type-args type.type-args, of x
 			get-inferred-or-bogus (x, a.context)
 		type.decl[new-type-args]
@@ -494,7 +494,7 @@ infer-type-args-from-lambda-parameter-type void
 	declared-lambda-parameter-type type
 do
 	expected-type = expected.type
-	do if struct-inst expected-type and as-lambda-type expected-type
+	do if type-inst expected-type and as-lambda-type expected-type
 	_, param-type = only2! expected-type.type-args
 	infer-type-args-bidirectional (param-type, expected.context), declared-lambda-parameter-type.non-inferring
 
@@ -509,7 +509,7 @@ infer-type-args-bidirectional void(a type-and-context, b type-and-context)
 	elif tb = is-inferring-non-inferred-type-param b
 		if ta = try-get-inexact-non-inferring-type a
 			b.context[tb.index] := exact, ta
-	elif a-type.struct-inst and b-type.struct-inst and a-type.decl == b-type.decl
+	elif a-type.type-inst and b-type.type-inst and a-type.decl == b-type.decl
 		for i in 0::nat .. a-type.type-args.size
 			infer-type-args-bidirectional (a-type.type-args[i], a.context), (b-type.type-args[i], b.context)
 
@@ -572,7 +572,7 @@ do common-types
 			match-types-no-b-context a, b-inferred.type, inner-conv
 		else
 			exact-match
-	as struct-inst
+	as type-inst
 		match ta = a.type
 		as bogus-type
 			()
@@ -594,8 +594,8 @@ do common-types
 				exact-match
 			else
 				exact-match
-		as struct-inst
-			match-struct-insts ta, tb, conv, of x, y, conv2
+		as type-inst
+			match-type-insts ta, tb, conv, of x, y, conv2
 				match-types (x, a.context), (y, b.context), conv2
 
 | Returns new inference value for 'a'.
@@ -615,13 +615,13 @@ do common-types
 		else
 			# We haven't inferred anything about 'b', so it could match
 			exact-match, a
-	as struct-inst
+	as type-inst
 		match ta = a.type
 		as bogus-type
 			()
 		as type-param-index
 			()
-		as struct-inst
+		as type-inst
 			if ta.decl == tb.decl
 				res = zip-type-args-and-match ta.type-args, tb.type-args, of x, y
 					?a match-types-no-a-context (exact, x), (y, b.context), conv
@@ -660,22 +660,22 @@ do common-types
 				exact-match
 		else
 			if b == a.type then exact-match
-	as struct-inst
+	as type-inst
 		match b
 		as bogus-type
 			bogus-match
 		as type-param-index
 			if is-option ta.decl and conv == b-to-a
 				min convert-to-option-or-union, match-types-no-b-context (ta.type-args.only!, a.context), b, conv
-		as struct-inst
-			match-struct-insts ta, b, conv, of x, y, conv2
+		as type-inst
+			match-type-insts ta, b, conv, of x, y, conv2
 				match-types-no-b-context (x, a.context), y, conv2
 
 -match-type-args alias
 	type-match-kind? mut(x type, y type, conv implicit-conversions)
--match-struct-insts type-match-kind?
-	sa struct-inst
-	sb struct-inst
+-match-type-insts type-match-kind?
+	sa type-inst
+	sb type-inst
 	conv implicit-conversions
 	match-inner type-match-kind? mut(x type, y type, conv implicit-conversions)
 do common-types
@@ -688,12 +688,12 @@ do common-types
 		as exact
 			()
 		as a-to-b
-			match-struct-insts-a-to-b sa, sb, of x, y then match-inner[x, y, conv]
+			match-type-insts-a-to-b sa, sb, of x, y then match-inner[x, y, conv]
 		as b-to-a
-			match-struct-insts-a-to-b sb, sa, of y, x then match-inner[x, y, conv]
--match-struct-insts-a-to-b type-match-kind?
-	sa struct-inst
-	sb struct-inst
+			match-type-insts-a-to-b sb, sa, of y, x then match-inner[x, y, conv]
+-match-type-insts-a-to-b type-match-kind?
+	sa type-inst
+	sb type-inst
 	match-after-unwrap type-match-kind? mut(x type, y type)
 do common-types
 	match body = sb.decl.body
@@ -706,7 +706,7 @@ do common-types
 	as sum-type
 		if body.kind == union_
 			min convert-to-option-or-union, first body.listed-members, of x
-				member = instantiate-struct-inst x.member, sb.type-args
+				member = instantiate-type-inst x.member, sb.type-args
 				match-after-unwrap[sa, member]
 		else
 			()
@@ -728,7 +728,7 @@ do common-types
 		as type-param-index
 			if ta == b
 				exact-match, a
-		as struct-inst
+		as type-inst
 			can-widen-a = match conv
 			as exact
 				a.kind == allow-wider
@@ -738,7 +738,7 @@ do common-types
 				false
 			if can-widen-a and is-option b
 				min-kind convert-to-option-or-union, match-types-no-context a, b.unwrap-option!, conv
-	as struct-inst
+	as type-inst
 		match b
 		as bogus-type
 			bogus-match, a
@@ -752,7 +752,7 @@ do common-types
 				true
 			if can-widen-b and is-option ta
 				min-kind convert-to-option-or-union, match-types-no-context (a.kind, ta.unwrap-option!), b, conv
-		as struct-inst
+		as type-inst
 			if ta.decl == b.decl
 				if ta.type-args == b.type-args
 					# Need to choose the new inference kind based on 'a.kind' and 'conv'

@@ -1,0 +1,173 @@
+import
+	../../model/ast
+	../../model/model
+	./check-ctx
+	./instantiate
+	./get-common-funs
+
+funs-out alias
+	fun-decl builder
+
+add-funs-for-type void(out funs-out, type type-decl) check-ctx, common-types
+	inst = instantiated-with-own-type-params type
+	match body = type.body
+	as type-body-bogus
+		()
+	as type-body-extern-java
+		throw unreachable
+	as builtin-type
+		()
+	as enum_
+		add-funs-for-enum out, type, body
+	as flags_
+		add-funs-for-flags out, type, body
+	as record_
+		add-funs-for-record out, type, inst, body
+	as sum-type
+		add-funs-for-sum-type out, type, inst, body
+	add-funs-for-sum-type-memberships out, type, inst
+
+-add-funs-for-sum-type-memberships void(out funs-out, type type-decl, inst type-inst) check-ctx, common-types
+	for x in type.sum-type-memberships
+		if can-convert-back x.sum-type.decl
+			add-funs-for-sum-type-member out, type, x.sum-type, inst
+
+-add-funs-for-sum-type-member void
+	out funs-out
+	source-type type-decl
+	sum-type type-inst
+	case-type type-inst
+do check-ctx, common-types
+	params = make-params (sum-type,)
+	out ~= fun-for-type source-type, option[case-type], params, sum-type-member-get
+
+-can-convert-back bool(a type-decl)
+	can-convert-back a.body.sum-type!.kind
+-can-convert-back bool(a sum-type-kind)
+	match a
+	as interface_
+		false
+	as java-interface
+		false
+	as union_
+		true
+	as variant_
+		true
+
+add-funs-for-var void(out funs-out, var var-decl) check-ctx, common-types
+	out ~=
+		hash: next-hash
+		source: var
+		visibility: var.visibility
+		return-type: var.type
+		params: ()
+		specs: global-unsafe-specs
+		doc-comment-references: ()
+		body: var-get var
+	out ~=
+		hash: next-hash
+		source: var
+		visibility: var.visibility
+		return-type: void
+		params: make-params (var.type,)
+		specs: global-unsafe-specs
+		doc-comment-references: ()
+		body: var-set var
+
+-fun-for-type fun-decl
+	type type-decl
+	return-type type
+	params destructure[]
+	body fun-body
+do check-ctx
+	hash: next-hash
+	source: type
+	visibility: type.visibility
+	return-type: return-type
+	params: params
+	specs: type.specs
+	doc-comment-references: ()
+	body: body
+
+-add-funs-for-enum void(out funs-out, type type-decl, enum_ enum_) check-ctx
+	inst = type.only-inst
+	for member in enum_.members
+		out ~= enum-or-flags-constructor type.visibility, inst, member
+
+-add-funs-for-flags void(out funs-out, type type-decl, flags_ flags_) check-ctx, common-types
+	inst = type.only-inst
+	out ~= fun-for-type type, inst, ().make-params, none
+	out ~= fun-for-type type, inst, (inst,).make-params, negate
+	out ~= fun-for-type type, inst, (inst, inst).make-params, union_
+	out ~= fun-for-type type, inst, (inst, inst).make-params, intersect
+	out ~= fun-for-type type, bool, (inst, inst).make-params, subscript::flags-function
+	for member in flags_.members
+		out ~= enum-or-flags-constructor type.visibility, inst, member
+
+-enum-or-flags-constructor fun-decl(visibility visibility, enum_ type-inst, member enum-or-flags-member) check-ctx
+	hash: next-hash
+	source: member
+	visibility: visibility
+	return-type: enum_
+	params: ()
+	specs: enum_.decl.specs
+	doc-comment-references: ()
+	body: create-enum-or-flags member
+
+-add-funs-for-record void(out funs-out, type type-decl, inst type-inst, record_ record_) check-ctx, common-types
+	out ~= record-constructor type, record_, inst, false
+	out ~= record-constructor type, record_, inst, true
+	for field in record_.fields
+		add-funs-for-record-field out, type, inst, field
+
+-record-constructor fun-decl(type type-decl, record_ record_, inst type-inst, nominal_ bool) check-ctx
+	hash: next-hash
+	source: type
+	visibility: record_.new-visibility
+	return-type: inst
+	params: for x in record_.fields
+		make-param x.name, x.type
+	specs: specs type
+	doc-comment-references: ()
+	body: create-record nominal_
+
+-add-funs-for-record-field void
+	out funs-out
+	type type-decl
+	record-type type
+	field record-field
+do check-ctx, common-types
+	out ~=
+		hash: next-hash
+		source: field
+		visibility: field.visibility
+		return-type: field.type
+		params: make-params (record-type,)
+		specs: type.specs
+		doc-comment-references: ()
+		body: record-field-get field
+
+	if set-visibility = field.mutability
+		out ~=
+			hash: next-hash
+			source: field
+			visibility: set-visibility
+			return-type: void
+			params:
+				- make-param "a", record-type
+				- make-param field.name, field.type
+			specs: type.specs
+			doc-comment-references: ()
+			body: record-field-set field
+
+-add-funs-for-sum-type void
+	out funs-out
+	type type-decl
+	inst type-inst
+	sum-type sum-type
+do check-ctx, common-types
+	if can-convert-back type and !is-empty sum-type.listed-members
+		for x in sum-type.listed-members
+			add-funs-for-sum-type-member out, type, inst, x.member
+	for index, method in with-index sum-type.methods
+		out ~= fun-for-method type, inst, index, method
