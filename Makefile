@@ -17,9 +17,7 @@ test: unit-test test-diagnostics test-end-to-end
 
 unit-test: unit-test-java unit-test-js
 unit-test-java: bin/keen $(include)
-	bin/keen build include/config.kid --test --out bin/test
-	bin/test
-	rm bin/test
+	bin/keen test include/config.kid
 unit-test-js: bin/keen bin/java-classes.tar $(include)
 	bin/keen build include/config.kid --test --out bin/test.js
 	bin/test.js
