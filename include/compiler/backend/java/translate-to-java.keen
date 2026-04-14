@@ -1609,31 +1609,30 @@ do java-refs
 	emit-and-continue out, x.input
 	input-type = x.input.type
 	must-pop input-type
-	in-array local-index? = match x.input-kind
+	input-kind = input-kind x
+	in-array local-index? = match input-kind
 	as array
 		begin-synthetic-local out, input-type
 	as range
 		()
 
-	range-fields = if x.input-kind == range
+	range-fields = if input-kind == range
 		x.input.type.body.low-record!.fields
 
 	empty-out-elem = is-empty-type x.out-element
 	output-kind = output-kind x, a.type
 	is-void bool = match output-kind
-	as array
-		false
-	as void
-		true
+	as array then false
+	as void then true
 
-	integral-type low-type = match input-kind x
+	integral-type low-type = match input-kind
 	as array
 		nat32
 	as range
 		x.in-element
 	java-index-type = java-primitive-type! as-runtime-type integral-type
 
-	match x.input-kind
+	match input-kind
 	as array
 		iconst out, 0
 	as range
@@ -1641,7 +1640,7 @@ do java-refs
 		getfield out, record-field input-type, range-fields[0]
 	cur = begin-synthetic-local out, integral-type
 
-	match x.input-kind
+	match input-kind
 	as array
 		get-array-size out, x.in-element, in-array!
 	as range
@@ -1665,7 +1664,7 @@ do java-refs
 	# If non-empty: assign out-array to a non-empty array
 	unless is-void
 		xload out, java-index-type, end
-		match x.input-kind
+		match input-kind
 		as array
 			()
 		as range
@@ -1676,7 +1675,7 @@ do java-refs
 		xstore out, type.as-runtime-type, out-array
 		must-pop type
 
-	out-offset local-index? = match x.input-kind
+	out-offset local-index? = match input-kind
 	as array
 		()
 	as range
@@ -1694,7 +1693,7 @@ do java-refs
 				xsub out, java-index-type
 			unchecked-to-nat32 out, integral-type
 			pushed nat32
-		match x.input-kind
+		match input-kind
 		as array
 			unless is-empty-type x.in-element
 				aload out, in-array!
@@ -1730,13 +1729,18 @@ do java-refs
 			end-synthetic-local input-type, in-array
 
 -compare-integrals void(out code-builder, type java-primitive-type)
-	match type
-	as T_LONG
+	if integral-is-64-bit type
 		lcmp out
-	as T_INT
-		isub out
 	else
-		throw unreachable
+		isub out
+
+-integral-is-64-bit bool(a java-runtime-type)
+	match java-primitive-type! a
+	as T_LONG then true
+	as T_INT then false
+	as T_SHORT then false
+	as T_BYTE then false
+	else then throw unreachable
 
 -emit-match-union void(out code-builder, pos expr-pos, type low-type, a match-union-low-expr) java-expr-ctx
 	emit-and-continue out, a.matched
@@ -1845,30 +1849,17 @@ do java-expr-ctx
 		case-jumps, else_, sorted-cases
 
 -xsub void(out code-builder, type java-runtime-type)
-	match java-primitive-type! type
-	as T_INT
-		isub out
-	as T_LONG
+	if integral-is-64-bit type
 		lsub out
 	else
-		throw unreachable
+		isub out
 
 -checked-to-nat32 void(out code-builder, integral-type low-type) java-refs
-	match java-primitive-type! integral-type.as-runtime-type
-	as T_LONG
+	if integral-is-64-bit as-runtime-type integral-type
 		invokestatic out, keen-nat32-from-nat64
-	as T_INT
-		()
-	else
-		throw unreachable
 -unchecked-to-nat32 void(out code-builder, integral-type low-type)
-	match java-primitive-type! integral-type.as-runtime-type
-	as T_LONG
+	if integral-is-64-bit as-runtime-type integral-type
 		l2i out
-	as T_INT
-		()
-	else
-		throw unreachable
 
 | Caller should push two integrals 'cur' and 'end' on the stack before calling this.
 -loop-non-empty-range void
@@ -1892,13 +1883,7 @@ do java-expr-ctx
 	cur-and-end = of
 		xload out, ir, cur
 		xload out, ir, end
-	is-64-bit bool = match java-primitive-type! ir
-	as T_LONG
-		true
-	as T_INT
-		false
-	else
-		throw unreachable
+	is-64-bit bool = integral-is-64-bit ir
 
 	loop_ = can-jump-back-to-here out, cur-stack-frame
 	loop-body[]
@@ -1919,17 +1904,14 @@ do java-expr-ctx
 	handle-pos out, pos, type # TODO:PERF then there is a double jump in some cases, improve?
 
 -increment-integral void(out code-builder, local nat, integral-type low-type)
-	java-type = as-runtime-type integral-type
+	java-type = java-primitive-type! as-runtime-type integral-type
 	xload out, java-type, local
-	match java-primitive-type! java-type
-	as T_LONG
+	if integral-is-64-bit java-type
 		lconst out, 1
 		ladd out
-	as T_INT
+	else
 		iconst out, 1
 		iadd out
-	else
-		throw unreachable
 	xstore out, java-type, local
 
 -get-local void(out code-builder, local low-local) expr-ctx
