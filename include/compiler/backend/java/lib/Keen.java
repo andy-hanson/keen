@@ -1,4 +1,8 @@
 public class Keen {
+	public static void throw_(Throwable a) throws Throwable {
+		throw a;
+	}
+
 	public static byte[][] stringArrayFromJavaStringArray(String[] a) {
 		byte[][] res = new byte[a.length][];
 		for (int i = 0; i < res.length; i++)
