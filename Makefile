@@ -50,7 +50,6 @@ include/compiler/backend/java/lib/KeenClassLoader.class: include/compiler/backen
 	javac include/compiler/backend/java/lib/KeenClassLoader.java
 
 update-lkg: bin/keen
-	mv bin/keen-lkg bin/keen-lkg-BACKUP
 	mv bin/keen bin/keen-lkg
 	# Make sure it is self-compiled
 	make bin/keen
