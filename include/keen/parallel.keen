@@ -8,6 +8,7 @@ import
 	java/util/concurrent/ExecutorService
 	./bool
 	./col/array
+	./col/buffer
 	./col/mut-array
 	./col/collection
 	./col/sort
@@ -19,6 +20,9 @@ import
 	./number
 	./private/runtime
 	./range
+	./random/random
+	./random/secure-random
+	./random/util
 	./string
 	./test-util
 	./unsafe
@@ -166,41 +170,56 @@ test
 +parallel[col] col parallel-collection(a col)
 	a,
 | For each element of {a}, runs {f} in parallel. Then awaits them all.
-+for-loop[out-elem, in-col, in-elem] out-elem[]
++for-loop[out-col, out-elem, in-col, in-elem] out-col
 	a in-col parallel-collection
 	f out-elem shared(elem in-elem)
-do out-elem shared, in-elem shared, (in-col, in-elem) some, in-col size
-	promises out-elem future[] = for x in a.collection
+do out-elem shared, in-elem shared, (out-col, out-elem) list-new, in-col size, (in-col, in-elem) some
+	array in-elem[] = for x in a.collection then x
+	permutation = random-permutation a.collection.size
+	futures out-elem future[] = for index in permutation
 		with in parallel
-			f[x]
-	for x in promises
+			f[array[index]]
+	results out-elem[] = for x in futures
 		trusted if js
 			# Can't do `x await`, since that will fail if the input is not a Promise.
 			# This is tricky because we may have implicitly awaited the Promise already.
 			reinterpret-cast await as-js x
 		else
 			await x
+	trusted list-new undo-permutation results, permutation
 test
 	xs nat[] = for x in parallel 0::nat .. 5
 		x * 2
 	xs is (0, 2, 4, 6, 8)
 
 | Same as the above but returning 'void'.
-+for-loop[in-col, in-elem] void
-	a in-col parallel-collection
-	f void shared(elem in-elem)
-do (in-col, in-elem) some, in-col size, in-elem shared
-	promises void future[] = for x in a.collection
++for-loop[col, elem] void
+	a col parallel-collection
+	f void shared(elem elem)
+do elem shared, col size, (col, elem) some
+	array elem[] = for x in a.collection then x
+	permutation = random-permutation a.collection.size
+	futures void future[] = for index in permutation
 		with in parallel
-			f[x]
-	for x in promises
+			f[array[index]]
+	for x in futures
 		await x
+
+-random-permutation nat[](size nat)
+	shuffle (0 .. size).to, basic-prng trusted next secure-random
+| Unsafe because permutation must contain all indices in 0 .. n exactly once
+-undo-permutation[t] t[](a t[], permutation nat[]) unsafe
+	a.size is permutation.size
+	res t buffer = uninitialized-buffer permutation.size
+	for i in  0 .. permutation.size
+		res[permutation[i]] := a[i]
+	cast-immutable res
 
 | Runs {f} in parallel for each element of {a} and returns elements for which it was {true}.
 +filter[out-col, in-col, elem, builder] out-col
 	a in-col parallel-collection
 	f bool shared(elem elem)
-do (in-col, elem) some, in-col size, (out-col, elem) list-new, elem shared
+do (out-col, elem) list-new, elem shared, in-col size, (in-col, elem) some
 	bools bool[] = for-loop a, f
 	do with out in build
 	for i, x in with-index a.collection
