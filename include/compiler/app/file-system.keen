@@ -31,7 +31,6 @@ import
 	java/security/CodeSource
 	java/security/ProtectionDomain
 	java/util/Arrays
-	java/util/Collection
 	java/util/Collections
 	java/util/EnumSet
 	java/util/jar/Attributes
@@ -40,7 +39,6 @@ import
 	java/util/jar/Manifest
 	java/util/List
 	java/util/stream/Stream
-	java/util/zip/ZipEntry
 	java/util/zip/ZipOutputStream
 	../frontend/frontend
 	../model/model
@@ -84,9 +82,9 @@ write-file void(path file-path, content string, permissions permissions, overwri
 	do trusted
 	if java
 		args = java-permissions permissions
-		values Enum buffer = map args, it.reinterpret-cast
-		perms EnumSet = values.reinterpret-cast::(Object buffer).asList.reinterpret-cast::Collection.copyOf
-		_ = setPosixFilePermissions path.to-java-path, perms.reinterpret-cast
+		values Enum buffer = map args, it.identity
+		perms EnumSet = values.reinterpret-cast::(Object buffer).asList.copyOf
+		_ = setPosixFilePermissions path.to-java-path, perms
 	elif js
 		_ = call-property fs, "chmodSync", path.to, permissions.to::nat.to::float.to
 	else
@@ -123,24 +121,17 @@ write-jar void(path file-path, files java-compiled-class[]) global
 	_ = putValue attr, "Main-Class", "Main"
 	file-out FileOutputStream = path.to,
 	finally close file-out
-	buf-out BufferedOutputStream = file-out.reinterpret-cast::OutputStream,
-	out-out = buf-out.reinterpret-cast::OutputStream
-	write out-out, "#!/usr/bin/java -jar\n"::char8[].to
-	jar-out JarOutputStream = out-out, manifest
+	buf-out BufferedOutputStream = file-out,
+	write buf-out::OutputStream, "#!/usr/bin/java -jar\n"::char8[].safe-reinterpret-cast::int8[].cast-mutable
+	jar-out JarOutputStream = buf-out, manifest
 	for file in files
-		entry JarEntry = file.path.to,
-		putNextEntry jar-out, entry.reinterpret-cast::ZipEntry
-		write jar-out.reinterpret-cast::OutputStream, file.bytes.safe-reinterpret-cast.cast-mutable
-		closeEntry jar-out.reinterpret-cast::ZipOutputStream
-	finish jar-out.reinterpret-cast::ZipOutputStream
+		putNextEntry jar-out, (file.path.to,)::JarEntry
+		write jar-out, file.bytes.safe-reinterpret-cast.cast-mutable
+		closeEntry jar-out
+	finish jar-out
 	flush buf-out
 	change-permissions path, all.user-only
 	end-write-jar start
-
--to int8 buffer(a char8[])
-	map a, it.wrap-to
--wrap-to int8(a char8)
-	a.to::nat8.wrap-to
 
 files-in-directory-recursive file-path[](dir-path file-path) global
 	for* path in get-paths-in-dir dir-path
