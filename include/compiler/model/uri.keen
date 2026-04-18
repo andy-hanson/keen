@@ -194,8 +194,10 @@ without-extension file-path?(a file-path, extension string)
 		""
 get-extension symbol(a file-path)
 	a.to::path.get-extension
-get-extension symbol(a uri)
+extension symbol(a uri)
 	a.to::string.get-extension
+is-extensionless bool(a uri)
+	a.extension == ""
 -alter-extension symbol(a symbol, old-extension string, new-extension string)
 	"{without-extension! a, old-extension}{new-extension}"
 alter-extension file-path(a file-path, old-extension string, new-extension string)
@@ -242,7 +244,7 @@ parse-uri-with-cwd uri(cwd uri, text string)
 	elif looks-like-uri text
 		parse-uri text
 	else
-		resolve-uri-from-dir cwd, text.parse-rel-path else throw todo
+		resolve-uri-from-dir cwd, parse-rel-path text else throw todo
 -looks-like-absolute-path bool(a string)
 	starts-with a, "/" or a.is-windows-path
 -looks-like-uri bool(a string)
@@ -265,6 +267,7 @@ is-windows-path-start bool(a string-view)
 	a.size == 2 and a[0].is-letter and a[1] == ":"
 
 test
+	file-a uri = "file:///a",
 	file-ab uri = "file:///a/b",
 	file-xy uri = "file:///x/y",
 	file-abxy uri = "file:///a/b/x/y",
@@ -272,6 +275,8 @@ test
 	parse-uri-with-cwd file-ab, "file:///x/y" is file-xy
 	parse-uri-with-cwd file-ab, "x/y" is file-abxy
 	parse-uri-with-cwd file-ab, "../x/y" is file-axy
+	parse-uri-with-cwd file-ab, "." is file-ab
+	parse-uri-with-cwd file-ab, ".." is file-a
 
 parse-uri-with-cwd uri(cwd file-path, text string)
 	parse-uri-with-cwd cwd.to::uri, text
@@ -319,21 +324,29 @@ test
 	(1, ("a",))::rel-path.show is "../a"
 	(2, ("a",))::rel-path.show is "../../a"
 parse-rel-path rel-path(text string)
-	n-parents mut = 0
-	cur mut string-view = text.to
-	do until
-	if cur.size >= 2 and cur[0] == "." and cur[1].is-slash
-		cur := cur[2 .. end]
-		()
-	elif cur.size >= 3 and cur[0] == "." and cur[1] == "." and cur[2].is-slash
-		n-parents +:= 1
-		cur := cur[3 .. end]
-		()
+	match text
+	as "."
+		0, ("",)
+	as ".."
+		1, ("",)
 	else
-		forbid cur.size >= 1 and cur[0] == "/" else todo
-		n-parents, cur.to.parse-path
+		n-parents mut = 0
+		cur mut string-view = text.to
+		do until
+		if cur.size >= 2 and cur[0] == "." and cur[1].is-slash
+			cur := cur[2 .. end]
+			()
+		elif cur.size >= 3 and cur[0] == "." and cur[1] == "." and cur[2].is-slash
+			n-parents +:= 1
+			cur := cur[3 .. end]
+			()
+		else
+			forbid cur.size >= 1 and cur[0] == "/" else todo
+			n-parents, cur.to.parse-path
 test
 	"".parse-rel-path is (0, ("",))
+	".".parse-rel-path is (0, ("",))
+	"..".parse-rel-path is (1, ("",))
 	"a".parse-rel-path is (0, ("a",))
 	"./a".parse-rel-path is (0, ("a",))
 	"../a".parse-rel-path is (1, ("a",))
@@ -391,7 +404,7 @@ test
 		out ~~= encode-as-hex a.to
 
 -is-uri-safe-char bool(a char8)
-	a.is-ascii-identifier-char or a == "-" or a == "." or a == "~"
+	is-ascii-identifier-char a or a == "-" or a == "." or a == "~"
 
 encode-as-hex char8[](a nat8)
 	(a >> 4).encode-as-hex-digit, (a & 0xf).encode-as-hex-digit
@@ -401,7 +414,7 @@ encode-as-hex char8[](a nat8)
 		"0"::char8.to + a 'to
 	else
 		"a"::char8.to + (a - 10) 'to
-	res.decode-hex-digit! is a
+	decode-hex-digit res is a
 	res
 
 add-extension file-path(a file-path, extension symbol)
@@ -429,7 +442,7 @@ test
 # TODO: these were in testUri.d. These should probably be broken up to go near the relevant functions
 test
 	a = parse-uri "file:///a"
-	a.to::string is "file:///a"
+	to::string a is "file:///a"
 	b = parse-uri "file:///b"
 	a is a
 	a <=> b is less
@@ -437,22 +450,22 @@ test
 	a-x = a / "x"
 	a / "x" is a-x
 	a-y = a / "y"
-	a-y.to::string is "file:///a/y"
+	to::string a-y is "file:///a/y"
 
 	z-w = parse-uri-with-cwd a-x, "/z/w.keen"
-	z-w.to::string is "file:///z/w.keen"
-	z-w.base-name is "w.keen"
-	z-w.get-extension is ".keen"
+	to::string z-w is "file:///z/w.keen"
+	base-name z-w is "w.keen"
+	extension z-w is ".keen"
 	a-x-z-w = parse-uri-with-cwd a-x, "./z/w"
-	a-x-z-w.to::string is "file:///a/x/z/w"
+	to::string a-x-z-w is "file:///a/x/z/w"
 	parse-uri-with-cwd a-x, "z/w" is a-x-z-w
 	parse-uri-with-cwd a-x, "../y" is a-y
 
 	keen-lang = parse-uri "http://keen.codes"
 	parse-uri-with-cwd a-x, "http://keen.codes" is keen-lang
 
-	keen-lang.parent is ()
-	keen-lang.get-extension is ".codes"
+	parent keen-lang is ()
+	extension keen-lang is ".codes"
 
 test
 	verify-file "file:///home/keen/a.txt", "/home/keen/a.txt", ("home", "keen", "a.txt")
@@ -462,39 +475,39 @@ test
 		"c:", "users", "user", "a.txt"
 
 	a-uri = parse-uri "file:///C%3A/Users/User/a"
-	a-uri.to::string is "file:///c%3a/users/user/a"
-	a-uri.is-windows-path is true
+	to::string a-uri is "file:///c%3a/users/user/a"
+	is-windows-path a-uri is true
 	boo-uri = a-uri / "BOO"
-	boo-uri.to::string is "file:///c%3a/users/user/a/boo"
-	boo-uri.is-windows-path is true
+	to::string boo-uri is "file:///c%3a/users/user/a/boo"
+	is-windows-path boo-uri is true
 
 	a = parse-file-path "C:\\Users\\User\\a"
 	"c:/users/user/a".parse-file-path is a
-	a.is-windows-path is true
+	is-windows-path a is true
 	boo = a / "BOO"
-	boo.to::string is "c:/users/user/a/boo"
-	boo.is-windows-path is true
+	to::string boo is "c:/users/user/a/boo"
+	is-windows-path boo is true
 
 	a-txt = parse-file-path "/foo/a.txt"
-	a-txt.is-windows-path is false
+	is-windows-path a-txt is false
 	a-f00d-json = alter-extension a-txt, ".txt", ".f00d.json"
-	a-f00d-json.to::string is "/foo/a.f00d.json"
+	to::string a-f00d-json is "/foo/a.f00d.json"
 
 	a-f00d-keen = alter-extension a-f00d-json, ".json", ".keen"
-	a-f00d-keen.to::string is "/foo/a.f00d.keen"
+	to::string a-f00d-keen is "/foo/a.f00d.keen"
 
 -verify-file void(uri string, file-path string, components string[])
 	verify-file uri, uri, file-path, file-path, components
 -verify-file void(uri-in string, uri-out string, file-path-in string, file-path-out string, components string[])
 	uri = parse-uri uri-in
 	file-path = parse-file-path file-path-in
-	uri.as-file-path! is file-path
-	file-path.to::uri is uri
+	as-file-path uri is file-path
+	to::uri file-path is uri
 
-	file-path.to.test-components is components
+	test-components file-path.to is components
 
-	uri.to::string is uri-out
-	file-path.to::string is file-path-out
+	to::string uri is uri-out
+	to::string file-path is file-path-out
 
 -test-components string[](a path)
 	to reverse with::string[] out in build

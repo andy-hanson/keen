@@ -116,7 +116,7 @@ parse-command-inner command(cwd file-path, args string[])
 -diag union
 	build-out-bad-file-extension
 	expected-keen-uri
-	expected-keen-or-keen-config-uri
+	expected-keen-or-dir-uri
 	expected-nat
 	expected-paths
 	needs-single-path
@@ -131,7 +131,7 @@ parse-command-inner command(cwd file-path, args string[])
 	unexpected-before
 -build-out-bad-file-extension record
 -expected-keen-uri record(actual string)
--expected-keen-or-keen-config-uri record(actual string)
+-expected-keen-or-dir-uri record(actual string)
 -expected-nat record(tag symbol?, actual string)
 -expected-paths record(tag string?)
 -needs-single-path record(actual nat)
@@ -154,8 +154,8 @@ parse-command-inner command(cwd file-path, args string[])
 		"Build output must be a '.js' or extensionless file."
 	as expected-keen-uri
 		"Expected path to a '.keen' file, instead got {quoted a.actual}."
-	as expected-keen-or-keen-config-uri
-		"Expected path to a '.keen' or '.keen-config' file, instead got {quoted a.actual}."
+	as expected-keen-or-dir-uri
+		"Expected path to a '.keen' file or directory, instead got {quoted a.actual}."
 	as expected-nat
 		if tag = a.tag
 			"Expected argument to '--{tag}' to be a natural number, instead got {quoted a.actual}."
@@ -202,7 +202,7 @@ do
 	as check
 		options = parse-check-options diags, args.named
 		expect-empty-after-dash-dash diags, args.after
-		paths = parse-root-uris cwd, diags, args.nameless
+		paths = parse-keen-or-dir-uris cwd, diags, args.nameless
 		::check-command
 		root-uris: paths
 		times: times options
@@ -255,21 +255,21 @@ do
 		bogus
 	else
 		uri = parse-uri-with-cwd cwd, args[0]
-		if kc = keen-or-config uri
-			match kc
+		if kd = keen-or-dir uri
+			match kd
 			as keen
 				if all and line
 					diags ~= test-line-number-invalid
-				main-kind-tests-at-uri all, uri, line
-			as config
+				main-kind-tests all, (uri,), line
+			as dir
 				if line
 					diags ~= test-line-number-invalid
-				main-kind-tests-in-config all, uri
+				main-kind-tests all, (uri,), line
 		else
-			diags ~= expected-keen-or-keen-config-uri args[0]
+			diags ~= expected-keen-or-dir-uri args[0]
 			bogus
 -bogus main-kind()
-	main-kind-tests-at-uri (), (), ()
+	main-kind-tests (), (), ()
 
 -parse-main-uri uri(cwd file-path, diags diags, args string array-view)
 	if arg = only args
@@ -295,25 +295,25 @@ do
 		diags ~= expected-keen-uri arg
 	uri
 
--parse-keen-or-keen-config-uri uri(cwd file-path, diags diags, arg string)
+-parse-keen-or-dir-uri uri(cwd file-path, diags diags, arg string)
 	uri = parse-uri-with-cwd cwd, arg
-	unless keen-or-config uri
-		diags ~= expected-keen-or-keen-config-uri arg
+	unless keen-or-dir uri
+		diags ~= expected-keen-or-dir-uri arg
 	uri
--keen-or-config enum(keen, config)
--keen-or-config keen-or-config?(uri uri)
+-keen-or-dir enum(keen, dir)
+-keen-or-dir keen-or-dir?(uri uri)
 	if is-keen uri
 		keen
-	elif is-config uri
-		config
+	elif is-extensionless uri
+		dir
 	else
 		()
 
--parse-root-uris uri[](cwd file-path, diags diags, args string array-view)
+-parse-keen-or-dir-uris uri set(cwd file-path, diags diags, args string array-view)
 	if is-empty args
 		diags ~= expected-paths ()
 	for arg in args
-		parse-keen-or-keen-config-uri cwd, diags, arg
+		parse-keen-or-dir-uri cwd, diags, arg
 
 -parse-perf-test-command command-kind(cwd file-path, diags diags, args parsed-command)
 	expect-empty-after-dash-dash diags, args.after
@@ -328,7 +328,7 @@ do
 			else
 				diags ~= unexpected-part tag
 		:: perf-test-parse-command
-		root-uris: parse-root-uris cwd, diags, args.nameless[1 .. end]
+		root-uris: parse-keen-or-dir-uris cwd, diags, args.nameless[1 .. end]
 		times: times
 	else
 		()
@@ -347,7 +347,7 @@ do
 		do if is-empty args.named
 		print-tokens-command parse-main-uri cwd, diags, args.nameless[1 .. end]
 	as dependencies
-		uris = parse-root-uris cwd, diags, args.nameless[1 .. end]
+		uris = parse-keen-or-dir-uris cwd, diags, args.nameless[1 .. end]
 		do if format print-dependencies-format =
 			if is-empty args.named
 				dot
@@ -356,7 +356,7 @@ do
 		print-dependencies-command uris, format
 	as model
 		do if is-empty args.named
-		print-model-command parse-root-uris cwd, diags, args.nameless[1 .. end]
+		print-model-command parse-keen-or-dir-uris cwd, diags, args.nameless[1 .. end]
 	as low-model
 		do if is-empty args.named
 		print-low-model-command parse-main-uri cwd, diags, args.nameless[1 .. end]
@@ -442,7 +442,7 @@ parse-line-and-column line-and-column?(a string)
 		uri: parse-main-uri cwd, diags, args.nameless
 		program-args: ()
 	res-out single-build-output[] = if is-empty out
-		if default = default-executable-path-for-main main, cwd
+		if default = default-executable-path-for-main main
 			-
 				path: default
 				kind: java
@@ -543,21 +543,11 @@ parse-line-and-column line-and-column?(a string)
 		diags ~= parse-file-path arg
 		cwd / "bogus"
 
--default-executable-path-for-main file-path?(main main-kind, cwd file-path)
-	if file = as-file-path main-uri-for-all-args main
-		unless file.base-name == config-base-name
-			without-extension! file, ".keen"
-	else
-		cwd / "main"
-
--main-uri-for-all-args uri(a main-kind)
-	match a
-	as main-kind-main-function
-		uri a
-	as main-kind-tests-in-config
-		config-uri a
-	as main-kind-tests-at-uri
-		keen-uri a
+-default-executable-path-for-main file-path?(main main-kind)
+	do if main-kind-main-function main
+	do if file = as-file-path main.uri
+	do unless file.base-name == config-base-name
+	without-extension! file, ".keen"
 
 -help-all-text string()
 	commands = join for name in members::command-name[]

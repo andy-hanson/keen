@@ -127,35 +127,28 @@ output-error void(text string) main-ctx
 	else
 		out ~= x
 
--load-all-files-for-main void(main main-kind) main-ctx
-	match main
-	as main-kind-main-function
-		load-all-files (main.uri,)
-	as main-kind-tests-in-config
-		load-all-files-for-config main.config-uri
-	as main-kind-tests-at-uri
-		load-all-files (main.keen-uri,)
-
-load-all-files-for-config void(config-uri uri) main-ctx
-	assert config-file = as-file-path config-uri else
-		output-error "Can't list test files at non-file URI {config-uri}"
+-load-all-files-for-dir void(dir-uri uri) main-ctx
+	assert dir-path = as-file-path dir-uri else
+		output-error "Can't list files at non-file URI {dir-uri}"
 		exit
-	for file in files-for-config reader, config-file
-		load-single-file server, reader, file.to
+	for file in files-in-directory-recursive reader, dir-path
+		if is-keen file
+			load-single-file server, reader, file.to
 	load-until-no-unknown-uris server, reader
 
 -files-for-config file-path[](reader file-reader, config-file file-path)
 	files = files-in-directory-recursive reader, config-file.parent!
 	filter files, it.file-type == keen
 
--load-all-files void(root-uris uri[]) main-ctx
+# This is exposed for use by the site
+load-all-files void(root-uris uri set) main-ctx
 	start = perf-now
 	finally end-load-all-files start
 	for uri in root-uris
-		if is-config uri
-			load-all-files-for-config uri
-		else
+		if is-keen uri
 			load-single-file server, reader, uri
+		else
+			load-all-files-for-dir uri
 	load-until-no-unknown-uris server, reader
 
 -read-file-locally read-file-result-params(reader file-reader, uri uri)
@@ -251,7 +244,7 @@ load-all-files-for-config void(config-uri uri) main-ctx
 			print-error "Can't read file"
 	as print-low-model-command
 		main = main-kind-main-function command.main, ()
-		load-all-files-for-main main
+		load-all-files root-uris main
 		program = check-main-and-print-diags main, ()
 		print "{json-of-low-model server, java, program}"
 	as print-dependencies-command
@@ -272,7 +265,7 @@ load-all-files-for-config void(config-uri uri) main-ctx
 		print "{keen-version this-executable}"
 
 -do-and-watch void(main main-kind, watch bool, f void mut()) main-ctx
-	load-all-files-for-main main
+	load-all-files root-uris main
 	f[]
 	do if watch
 	log "watching for changes..."
@@ -385,12 +378,12 @@ do global
 		output-error show-diagnostics server, program
 	program
 
--check-and-print-diags program(roots uri[]) main-ctx
+-check-and-print-diags program(roots uri set) main-ctx
 	check-and-print-diags roots, ()
--check-and-print-diags program(roots uri[], options show-diags-options) main-ctx
+-check-and-print-diags program(roots uri set, options show-diags-options) main-ctx
 	load-all-files roots
-	keen-configs uri set = filter roots, it.is-config
-	program = get-program server, keen-configs
+	dirs uri set = filter roots, !it.is-keen
+	program = get-program server, dirs
 	unless is-empty program.diagnostics
 		output-error show-diagnostics server, program, options
 	program

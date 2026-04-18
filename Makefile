@@ -17,17 +17,17 @@ test: unit-test test-diagnostics test-end-to-end
 
 unit-test: unit-test-java unit-test-js
 unit-test-java: bin/keen $(include)
-	bin/keen test include/config.kid
+	bin/keen test include
 unit-test-js: bin/keen bin/java-classes.tar $(include)
-	bin/keen build include/config.kid --test --out bin/test.js
+	bin/keen build include --test --out bin/test.js
 	bin/test.js
 	rm bin/test.js bin/test.js.map
 
 test-diagnostics: bin/keen
-	cd test/diagnostics && bash -c 'diff <(../../bin/keen check config.kid --no-color --all-errors 2>&1) expected.txt'
+	cd test/diagnostics && bash -c 'diff <(../../bin/keen check . --no-color --all-errors 2>&1) expected.txt'
 
 test-diagnostics-overwrite: bin/keen
-	cd test/diagnostics && ../../bin/keen check config.kid --no-color --all-errors 2> expected.txt || true
+	cd test/diagnostics && ../../bin/keen check . --no-color --all-errors 2> expected.txt || true
 
 test-end-to-end: bin/keen
 	bin/keen test/end-to-end/main.keen
@@ -57,7 +57,7 @@ update-lkg: bin/keen
 	make bin/keen
 
 check:
-	bin/keen-lkg check include/config.kid
+	bin/keen-lkg check include
 
 bin/keen: $(compiler_deps)
 	bin/keen-lkg build include/compiler/app/main.keen --out bin/keen-tmp

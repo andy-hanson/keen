@@ -2568,16 +2568,7 @@ range-for-diag uri-and-range(a main-fun)
 	as main-fun-void
 		a.fun.decl.range
 	as test-selector
-		match a
-		as test-selector-all
-			# We don't get diagnostics for this
-			throw unreachable
-		as config
-			a.config-uri!.top-of-file
-		as uri
-			a.top-of-file
-		as test_
-			a.range
+		range-for-diag a
 can-run-in-target bool(a main-fun, target build-target)
 	match a
 	as main-fun-nat64-of-args
@@ -2588,16 +2579,21 @@ can-run-in-target bool(a main-fun, target build-target)
 		match a
 		as test-selector-all
 			true
-		as config
-			true
-		as uri
+		as test-selector-some
 			true
 		as test_
 			can-include-test a, target
 
-| All tests, tests in a particular config, tests in a single file, or a single test
-test-selector union(test-selector-all, config, uri, test_)
-test-selector-all record(main-config config)
+test-selector union(test-selector-all, test-selector-some, test_)
+	range uri-and-range()
+test-selector-all record(range uri-and-range)
+test-selector-some record
+	range uri-and-range
+	files uri set
+	dirs uri set
+
+subscript bool(a test-selector-some, uri uri)
+	a.files[uri] or some a.dirs, of dir then is-ancestor-of dir, uri
 
 program record
 	all-configs config[uri]
@@ -2619,8 +2615,6 @@ json type-inst() uncommon-types
 available-types spec common-types, uncommon-types
 line-and-character-getters line-and-character-getters(a program)
 	a.line-and-column-getters.line-and-character-getters
-config-at-uri config(a program, uri uri)
-	a.all-configs[uri]!
 module-at-uri keen-module(a program, uri uri)
 	a.keen-modules[uri]!
 java-module-at-uri java-class-module?(a program, uri uri)
@@ -2664,26 +2658,22 @@ some bool(a program-diagnostics, f bool mut(x uri-and-diagnostic))
 		some module.ast.parse-diagnostics, f[(module.uri, it.range), it.kind] or
 		some module.check-diagnostics, f[module.uri, it]
 
-each-test void(a program, target build-target, selector test-selector, cb void mut(x test_))
-	match selector
+tests record(program program, selector test-selector, target build-target)
+size nat(a tests)
+	sum a, of _ then 1
+some bool(a tests, f bool mut(x test_))
+	match selector = a.selector
 	as test-selector-all
-		for _, m in a.keen-modules
-			for x in m.tests
-				if can-include-test x, target
-					cb[x]
-	as config
-		for _, m in a.keen-modules
-			if m.config == selector
-				for x in m.tests
-					if can-include-test x, target
-						cb[x]
-	as uri
-		for x in tests module-at-uri a, selector
-			if can-include-test x, target
-				cb[x]
+		some a.program.keen-modules, of _, m
+			some m.tests, of test_
+				can-include-test test_, a.target and f[test_]
+	as test-selector-some
+		some a.program.keen-modules, of _, m
+			selector[m.uri] and some m.tests, of test_
+				can-include-test test_, a.target and f[test_]
 	as test_
-		assert can-include-test selector, target
-		cb[selector]
+		assert can-include-test selector, a.target
+		f[selector]
 
 -can-include-test bool(a test_, target build-target)
 	specs-allow-target a.specs, target
@@ -2711,8 +2701,6 @@ config record
 	line-and-column-getter line-and-column-getter
 	include config-import-uris
 	extern config-extern-uris
-== bool(a config, b config)
-	trusted a.config-uri == b.config-uri
 default-config config()
 	(), (), (), (), ()
 config-for-diag config(uri uri, diag diag, range source-range, line-and-column-getter line-and-column-getter)
