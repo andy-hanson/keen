@@ -1,0 +1,264 @@
+import
+	keen/format/binary
+	keen/unsafe
+	../../lib/private/parse-util
+	../model/uri
+	../util/java-bytecode-types
+	../util/perf
+
+parsed-java-class-header record
+	content nat8 array-view
+	constants constants
+	access class-access
+	this-class path
+	super-class path?
+	interfaces path[]
+	start-of-fields nat
+supertypes path[](a parsed-java-class-header)
+	a.interfaces ~~ a.super-class.from-option
+
+bogus-java-class-header parsed-java-class-header(path path)
+	content: 0, 0, 0, 0, 0, 0 # 0 fields, 0 methods, 0 attributes (and 2 bytes per '0')
+	constants: ()
+	access: public
+	this-class: path
+	super-class: ()
+	interfaces: ()
+	start-of-fields: 0
+parse-java-class parsed-java-class-header(content nat8 array-view)
+	start = perf-now
+	finally end-parse-java-class start
+	reader = begin content
+	reader.take32 is 0xcafebabe
+	version = take32 reader
+	assert version >= 69
+	constants = read-constant-pool reader
+	access class-access = reader.take16.to!
+	this-class = read-class-reference reader, constants
+	super-class = read-optional-class-reference reader, constants
+	interfaces = read-array reader, of then read-class-reference reader, constants
+	content: content
+	constants: constants
+	access: access
+	this-class: this-class
+	super-class: super-class
+	interfaces: interfaces
+	start-of-fields: index reader
+
+parsed-java-class-body record
+	fields parsed-field[]
+	methods parsed-method[]
+parse-java-class-body parsed-java-class-body(header parsed-java-class-header)
+	reader = begin header.content
+	skip-next-n reader, header.start-of-fields
+	constants = constants header
+	fields = read-array reader, of then read-field reader, constants
+	methods = read-array reader, of then read-method reader, constants
+	_ = read-attributes reader, constants
+	assert is-at-end reader
+	fields, methods
+
+-read-array[t] t[](reader nat8 array-iterator, f t mut())
+	for _ in 0 .. reader.take16
+		f[]
+
+parsed-field record
+	access-flags field-access-flags
+	name symbol
+	type java-type
+	attributes read-attribute[]
+-read-field parsed-field(reader nat8 array-iterator, constants constants)
+	access-flags: reader.take16.to!
+	name: read-utf8-reference reader, constants 'to
+	type: parse-type read-utf8-reference reader, constants
+	attributes: read-attributes reader, constants
+
+-constants record
+	| These are both indexed by constant pool indices. Thus some entries are unused,
+	constant-strings string-view[]
+	constant-classes path[]
+new constants()
+	(), ()
+
+parsed-method record
+	access-flags method-access-flags
+	name symbol
+	descriptor method-descriptor
+-read-method parsed-method(reader nat8 array-iterator, constants constants)
+	access-flags method-access-flags = reader.take16.to!
+	name symbol = read-utf8-reference reader, constants 'to
+	descriptor = parse-method-descriptor read-utf8-reference reader, constants
+	_ = read-attributes reader, constants
+	access-flags: access-flags
+	name: name
+	descriptor: descriptor
+
+method-descriptor record
+	return-type java-type
+	param-types java-type[]
+| 'path' is a class path such as "java/lang/Object"
+java-type union(void, java-primitive-type, java-array-type, path)
+	show string()
+java-array-type record(element java-type)
+show string(_ void)
+	"void"
+show string(a java-array-type)
+	"{a.element.show}[]"
+
+-parse-method-descriptor method-descriptor(a string-view)
+	iter string-iterator = begin a
+	take-next iter is "("
+	param-types java-type[] = with out in build
+		until try-take-char8 iter, ")"
+			out ~= read-type iter
+	return-type = read-type iter
+	assert is-at-end iter
+	return-type, param-types
+-wrap-arrays java-type(type java-type, arrays nat)
+	if arrays == 0 then type else wrap-arrays type.java-array-type, arrays - 1
+-parse-type java-type(a string-view)
+	match char = a[0]
+	as L
+		a[end - 1] is ";"
+		as-path a[1 .. end - 1]
+	as "["
+		java-array-type parse-type a[1 .. end]
+	else
+		single-char-type char
+-read-type java-type(iter string-iterator)
+	arrays mut = 0
+	do until
+	char = take-next iter
+	match char
+	as L
+		start = copy iter
+		until iter.peek8 == ";"
+			_ = take-next iter
+		path = as-path (start 'slice iter)
+		_ = take-next iter
+		wrap-arrays path, arrays
+	as "["
+		arrays +:= 1
+		()
+	else
+		wrap-arrays char.single-char-type, arrays
+
+-single-char-type java-type(a char8)
+	match a
+	as B
+		T_BYTE
+	as C
+		T_CHAR
+	as D
+		T_DOUBLE
+	as F
+		T_FLOAT
+	as I
+		T_INT
+	as J
+		T_LONG
+	as S
+		T_SHORT
+	as V
+		()::void
+	as Z
+		T_BOOLEAN
+	else
+		throw unreachable
+
+-read-attribute record
+	attribute-name symbol
+-read-attributes read-attribute[](reader nat8 array-iterator, constants constants)
+	read-array reader, of
+		read-attribute reader, constants
+-read-attribute read-attribute(reader nat8 array-iterator, constants constants)
+	attribute-name = read-utf8-reference reader, constants
+	skip-next-n reader, reader.take32
+	attribute-name: attribute-name.to
+
+-read-utf8-reference string-view(reader nat8 array-iterator, constants constants)
+	constants.constant-strings[reader.take16]
+-read-class-reference path(reader nat8 array-iterator, constants constants)
+	read-optional-class-reference! reader, constants
+-read-optional-class-reference path?(reader nat8 array-iterator, constants constants)
+	index = take16 reader
+	unless index == 0
+		constants.constant-classes[index]
+
+# https://docs.oracle.com/javase/specs/jvms/se21/html/jvms-4.html#jvms-4.4
+-read-constant-pool constants(reader nat8 array-iterator)
+	constants-pool-count = take16 reader
+	constant-pool-index mut nat16 = 1
+	constant-strings-builder string-view buffer = n-of constants-pool-count, ()
+	constant-classes nat16 buffer = n-of constants-pool-count, 0
+	while constant-pool-index < constants-pool-count
+		kind = take-next reader
+		constant-pool-index +:= match kind
+		as 1
+			# CONSTANT_Utf8_info
+			bytes = take-next-n reader, reader.take16
+			# Java does not really use standard UTF8, but this shouldn't matter for method and type names
+			constant-strings-builder[constant-pool-index] := safe-reinterpret-cast bytes
+			1
+		as 3
+			# CONSTANT_Integer_info
+			skip-next-n reader, 4
+			1
+		as 4
+			# CONSTANT_Float_info
+			skip-next-n reader, 4
+			1
+		as 5
+			# CONSTANT_Long_info
+			skip-next-n reader, 8
+			2
+		as 6
+			# CONSTANT_Double_info
+			skip-next-n reader, 8
+			2
+		as 7
+			# CONSTANT_Class_info
+			constant-classes[constant-pool-index] := take16 reader
+			1
+		as 8
+			# CONSTANT_String_info
+			skip-next-n reader, 2
+			1
+		as 9
+			# CONSTANT_Fieldref_info
+			skip-next-n reader, 4
+			1
+		as 10
+			# CONSTANT_Methodref_info
+			skip-next-n reader, 4
+			1
+		as 11
+			# CONSTANT_InterfaceMethodref_info
+			skip-next-n reader, 4
+			1
+		as 12
+			# CONSTANT_NameAndType_info
+			skip-next-n reader, 4
+			1
+		as 15
+			# CONSTANT_MethodHandle_info
+			skip-next-n reader, 3
+			1
+		as 16
+			# CONSTANT_MethodType_info
+			skip-next-n reader, 2
+			1
+		as 18
+			# CONSTANT_InvokeDynamic_info
+			skip-next-n reader, 4
+			1
+		else
+			log-error "Unexpected constant kind {kind}"
+			throw todo
+	constant-pool-index is constants-pool-count
+	constant-strings: trusted cast-immutable constant-strings-builder
+	constant-classes: for x in constant-classes
+		if x == 0
+			as-path ""
+		else
+			as-path constant-strings-builder[x]

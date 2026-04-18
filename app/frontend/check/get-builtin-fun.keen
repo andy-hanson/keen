@@ -1,0 +1,254 @@
+import
+	../../model/model
+	../../model/source-range
+	../../model/uri
+	../../util/enum-map
+	./check-ctx
+
+get-builtin-fun fun-body(fun fun-decl) check-ctx
+	try-get-builtin-fun fun else
+		add-diag fun.name-range.range, diag-auto-fun-wrong-name
+		fun-body-bogus
+
+-try-get-builtin-fun fun-body?(fun fun-decl) check-ctx
+	the common-uris = common-uris
+	if uri = fun.uri and the::check-context.keen-lib 'is-ancestor-of uri
+		try-get-builtin-fun fun.name, fun.return-type, map fun.params, it.type
+
+-type-at type(params type[], index nat)
+	if index < params.size then params[index] else bogus-type
+
+-try-get-builtin-fun builtin-fun?(name symbol, rt type, params type[]) common-uris
+	arity = params.size
+	p0 = type-at params, 0
+	p1 = type-at params, 1
+	p2 = type-at params, 2
+	is-binary-float32 = arity == 2 and is-float32 rt and is-float32 p0 and is-float32 p1
+	is-binary-float64 = arity == 2 and is-float64 rt and is-float64 p0 and is-float64 p1
+	is-binary-float32-or-64 = is-binary-float32 or is-binary-float64
+	is-binary-js = arity == 2 and is-js-any rt and is-js-any p0 and is-js-any p1
+	match name
+	as "+"
+		if is-binary-js
+			plus::js-fun
+		elif is-binary-float32-or-64
+			binary arity, add-float
+	as "-"
+		binary arity, if is-binary-float32-or-64
+			sub-float
+	as "*"
+		binary arity, if is-binary-float32-or-64
+			mul-float
+	as "=="
+		do if is-bool rt
+		do if arity == 2
+		if is-js-any p0 and is-js-any p1
+			eq-eq-eq::js-fun
+		else
+			binary arity, if is-number-like p0 and p1 == p0
+				equal-exact
+	as "<=>"
+		binary arity, if is-comparison rt and is-number-like p0  and p1 == p0
+			compare
+	as "&"
+		binary arity, if rt.as-integral-type
+			bitwise-and
+	as "~"
+		unary arity, if rt.as-integral-type
+			bitwise-not
+	as "|"
+		binary arity, if rt.as-integral-type
+			bitwise-or
+	as "^"
+		binary arity, if rt.as-integral-type
+			bitwise-xor
+	as array-get
+		if is-type-param-0 rt and is-type-param-0-array-or-buffer p0 and is-nat64 p1
+			binary arity, array-get
+	as array-set
+		if arity == 3 and is-void rt and is-type-param-0-buffer p0 and is-nat64 p1 and is-type-param-0 p2
+			ternary arity, array-set
+	as bits-of
+		unary arity, if is-nat32 rt and is-float32 p0
+			bits-of-float32
+		elif is-nat64 rt and is-float64 p0
+			bits-of-float64
+	as call
+		if is-js-any rt and arity >= 1 and every params, it.is-js-any
+			call::js-fun
+	as call-new
+		if is-js-any rt and arity >= 1 and every params, it.is-js-any
+			call-new::js-fun
+	as call-property
+		if is-js-any rt and arity >= 2 and every params, it.is-js-any
+			call-property::js-fun
+	as call-property-spread
+		if arity == 3  and is-js-any rt and is-js-any p0 and is-js-any p1 and is-js-any-array p2
+			call-property-spread::js-fun
+	as eval
+		if is-js-any rt and arity == 1 and is-js-any p0
+			eval::js-fun
+	as false
+		if is-bool rt
+			constant arity, false
+	as float-equal
+		binary arity, if is-float32-or-64 p0
+			equal-float-ieee
+	as float-less
+		binary arity, if is-float32-or-64 p0
+			less-float-ieee
+	as from-bits
+		unary arity, if is-float32 rt and is-nat32 p0
+			float32-from-bits
+		elif is-float64 rt and is-nat64 p0
+			float64-from-bits
+	as gc-safe-value
+		constant arity, builtin-fun-constant-gc-safe-value
+	as get
+		if is-type-param-0-option rt and is-weak-ref p0
+			unary arity, weak-ref-get
+	as infinity
+		if is-float32-or-64 rt
+			constant arity, infinity
+	as instanceof
+		if arity == 2 and is-bool rt and is-js-any p0 and is-js-any p1
+			instanceof::js-fun
+	as is-empty-type
+		builtin-fun-is-empty-type
+	as java
+		builtin-fun-is-target java
+	as js
+		builtin-fun-is-target js
+	as await
+		if arity == 1 and is-js-any rt and is-js-any p0
+			await::js-fun
+	as js-global
+		if is-js-any rt and arity == 0
+			js-global::js-fun
+	as nan
+		if is-float32-or-64 rt
+			constant arity, trusted nan::float64
+	as new
+		if is-option rt
+			constant arity, builtin-fun-constant-empty-option
+		elif is-void rt
+			constant arity, builtin-fun-constant-gc-safe-value
+		elif is-weak-ref rt
+			if arity == 0
+				constant arity, builtin-fun-constant-gc-safe-value
+			elif is-type-param-0 p0
+				unary arity, weak-ref-new
+	as null
+		if arity == 0 and is-js-any rt
+			null::js-fun
+	as js-import
+		if arity == 1 and is-js-any rt and is-js-any p0
+			import_::js-fun
+	as reference-equal
+		if is-bool rt and is-type-param-0 p0 and is-type-param-0 p1
+			binary arity, equal-exact
+	as reinterpret-cast
+		if is-type-param-0 rt and is-type-param-1 p0
+			unary arity, reinterpret-cast
+	as set-subscript
+		if arity == 3 and is-void rt and is-js-any p0 and is-js-any p1 and is-js-any p2
+			set-subscript::js-fun
+	as size
+		if is-nat64 rt and as-array-or-buffer p0
+			unary arity, array-size
+	as subscript
+		if arity == 2 and is-js-any rt and is-js-any p0 and is-js-any p1
+			subscript::js-fun
+		elif as-lambda-type p0
+			binary arity, call-lambda
+	as to
+		unary arity, if is-float32 rt
+			if is-float64 p0
+				to-float32-from-float64
+		elif is-float64 rt
+			if is-int64 p0
+				to-float64-from-int64
+			elif is-nat64 p0
+				to-float64-from-nat64
+			elif is-float32 p0
+				to-float64-from-float32
+		elif is-char-or-integral rt and is-bool-char-or-integral p0
+			wrap-convert-integral
+	as true
+		if is-bool rt
+			constant arity, true
+	as truncate-to
+		if is-float64 p0
+			unary arity, truncate-to-int64-from-float64
+	as typeof
+		if arity == 1 and is-js-any rt and is-js-any p0
+			typeof::js-fun
+	as undefined
+		if arity == 0 and is-js-any rt
+			undefined::js-fun
+	as uninitialized-buffer
+		unary arity, if as-buffer rt and is-nat64 p0
+			uninitialized-buffer
+	as unsafe-bit-shift-left
+		if as-integral-type rt and p0 == rt and p1 == rt
+			binary arity, unsafe-bit-shift-left
+	as unsafe-bit-shift-right
+		if as-integral-type rt and p0 == rt and p1 == rt
+			binary arity, unsafe-bit-shift-right
+	as unsafe-div
+		binary arity, if is-binary-float32 or is-binary-float64 or as-integral-type rt
+			unsafe-div
+	as unsafe-mod
+		if is-float64 rt
+			binary arity, unsafe-mod-float64
+		elif is-nat64 rt
+			binary arity, unsafe-mod-nat64
+	as wrap-add
+		binary arity, if as-integral-type rt
+			wrap-add
+	as wrap-mul
+		binary arity, if as-integral-type rt
+			wrap-mul
+	as wrap-sub
+		binary arity, if as-integral-type rt
+			wrap-sub
+	as wrap-to
+		if as-integral-type rt and as-integral-type p0
+			unary arity, wrap-convert-integral
+	else
+		()
+
+-is-comparison bool(a type) common-uris
+	do if a.type-inst
+	a.decl.uri == (the::common-uris)[compare] and a.decl.name == "comparison"
+
+-is-bool-char-or-integral bool(a type)
+	is-bool a or is-char-or-integral a
+
+-is-number-like bool(a type)
+	is-bool a or is-char-or-integral a or is-float32-or-64 a
+
+-constant builtin-fun-constant?(arity nat, value builtin-fun-constant)
+	if arity == 0 then value
+-unary builtin-unary?(arity nat, kind builtin-unary?)
+	if arity == 1 then kind
+-binary builtin-binary?(arity nat, kind builtin-binary?)
+	if arity == 2 then kind
+-ternary builtin-ternary?(arity nat, kind builtin-ternary?)
+	if arity == 3 then kind
+
+-is-float32-or-64 bool(a type)
+	is-float32 a or is-float64 a
+
+-is-js-any-array bool(a type)
+	(t = as-array a) and is-js-any t
+-is-type-param-0-buffer bool(a type)
+	(t = as-buffer a) and is-type-param-0 t
+-is-type-param-0-array-or-buffer bool(a type)
+	(t = as-array-or-buffer a) and is-type-param-0 t
+-is-type-param-0-option bool(a type)
+	(t = unwrap-option a) and is-type-param-0 t
+-is-type-param-0 bool(a type)
+	a == (0,)::type-param-index
+-is-type-param-1 bool(a type)
+	a == (1,)::type-param-index

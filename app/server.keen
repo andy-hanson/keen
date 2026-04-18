@@ -1,0 +1,525 @@
+import
+	keen/col/mut-queue
+	../bin/imports/date.txt as build-date string
+	../bin/imports/commit-hash.txt as commit-hash string
+	./backend/js/source-map
+	./backend/java/translate-to-java
+	./backend/js/translate-to-js
+	./cli/command
+	./lower/lower
+	./frontend/frontend
+	./frontend/get-diagnostic-severity
+	./frontend/lang
+	./frontend/show-diag
+	./frontend/show-model
+	./ide/get-code-lenses
+	./ide/get-completion
+	./ide/get-definition
+	./ide/get-folding-ranges
+	./ide/get-hover
+	./ide/get-implementation
+	./ide/get-inlay-hints
+	./ide/get-rename
+	./ide/get-references
+	./ide/get-signature-help
+	./ide/get-tokens
+	./model/ast
+	./model/low-model
+	./model/lsp
+	./model/model
+	./model/parse-diag
+	./model/source-range
+	./model/uri
+	./util/exit-code
+	./util/java-bytecode-types
+	./util/perf
+	./util/util
+
+handle-one-lsp-message exit-code?
+	server server
+	message-in lsp-in-message
+	read-file-locally read-file-result-params mut(uri uri)
+	output void mut(x lsp-out-message)
+do
+	start = perf-now
+	finally end-handle-one-lsp-message start
+	buffered-messages lsp-in-message mut-queue = ()
+	buffered-messages ~= message-in
+	do until
+	message = dequeue! buffered-messages
+	action = handle-lsp-message server, message
+	for out-message in action.out-messages
+		if u = out-message.lsp-out-notification.?unknown-uris
+			for uri in u.unknownUris
+				buffered-messages ~= read-file-locally[uri]
+		else
+			output[out-message]
+	if exit = action.exit-code
+		exit
+	elif is-empty buffered-messages
+		()::exit-code?
+
+handle-lsp-message lsp-out-action(server server, message lsp-in-message)
+	match message
+	as lsp-in-notification
+		handle-lsp-notification server, message
+	as lsp-in-request
+		handle-lsp-request server, message
+	as lsp-in-response
+		()
+
+-handle-lsp-notification lsp-out-action(server server, a lsp-in-notification)
+	match a
+	as cancel-request-params
+		# Ignore because according to documentation,
+		# "A request that got canceled still needs to return from the server and send a response back"
+		()
+	as did-change-text-document-params
+		change-file server, a.textDocument.uri, a.contentChanges
+		handle-file-changed server
+	as did-close-text-document-params
+		()
+	as did-open-text-document-params
+		set-file server, a.textDocument.uri, a.textDocument.text
+		handle-file-changed server
+	as did-save-text-document-params
+		()
+	as exit-params
+		(), ok
+	as initialized-params
+		initialized-action
+	as read-file-result-params
+		set-file server, a.uri, match a.type
+		as ok
+			a.content
+		as not-found
+			not-found
+		as error
+			error
+		handle-file-changed server
+	as set-trace-params
+		# TODO: implement this
+		()
+
+-handle-file-changed lsp-out-action(server server)
+	match files-state server
+	as has-unknown
+		(server.flush-all-unknown-uris.unknown-uris,), ()
+	as has-loading
+		()
+	as all-loaded
+		program = get-program server, ()
+		messages lsp-out-message mut[] = ()
+		exit-code mut exit-code? = ()
+		for request in server.lsp-state.pending-requests
+			action = handle-lsp-request-with-program server, program, request
+			messages ~~= action.out-messages
+			if e = action.exit-code
+				# TODO: If exit-code is already set, use the worse exit code?
+				exit-code := e
+		clear server.lsp-state.pending-requests
+		notify-diagnostics messages, server, program
+		messages.move-to, exit-code
+
+-handle-lsp-request lsp-out-action(server server, request lsp-in-request)
+	res lsp-out-result? = match params = request.params
+	as build-js-script-params
+		()
+	as code-lens-params
+		()
+	as completion-params
+		()
+	as definition-params
+		()
+	as document-highlight-params
+		()
+	as execute-command-params
+		()
+	as folding-range-params
+		folding-ranges server, params.textDocument.uri
+	as hover-params
+		()
+	as implementation-params
+		()
+	as initialize-params
+		initialize-result initialize-capabilities
+	as inlay-hint-params
+		()
+	as reference-params
+		()
+	as rename-params
+		()
+	as perf-report-params
+		perf-report-result perf-report
+	as semantic-tokens-params
+		encoded-tokens server, params.textDocument.uri
+	as shutdown-params
+		null-lsp-out-result
+	as signature-help-params
+		()
+	as type-definition-params
+		()
+	if res
+		single-response request, res
+	else
+		respond-with-program server, request
+
+-initialize-capabilities json()
+	textDocumentSync: 2
+	codeLensProvider: true
+	completionProvider:
+		triggerCharacters:
+			- "."
+	definitionProvider: true
+	documentHighlightProvider: true
+	executeCommandProvider:
+		commands:
+			- "run-test"
+	foldingRangeProvider: true
+	hoverProvider: true
+	implememtationProvider: true
+	inlayHintProvider: true
+	referencesProvider: true
+	renameProvider: true
+	semanticTokensProvider:
+		full: true
+		legend: get-tokens-legend
+	signatureHelpProvider:
+		triggerCharacters:
+			- ","
+	typeDefinitionProvider: true
+
+folding-ranges folding-range-result(server server, uri uri)
+	match file-type uri
+	as keen
+		folding-ranges-of-ast get-ast server.frontend, uri
+	as kid
+		()
+	else
+		throw unreachable
+
+-single-response lsp-out-action(request lsp-in-request, response lsp-out-result)
+	((message-for-response request, response),), ()
+-message-for-response lsp-out-message(request lsp-in-request, result lsp-out-result)
+	lsp-out-response request.id, result
+
+-respond-with-program lsp-out-action(server server, request lsp-in-request)
+	if server.files-state == all-loaded
+		handle-lsp-request-with-program server, (get-program server, ()), request
+	else
+		server.lsp-state.pending-requests ~= request
+		()
+
+-handle-lsp-request-with-program lsp-out-action
+	server server
+	program program
+	request lsp-in-request
+do
+	the show-ctx = get-show-ctx server, true
+	program-with-main = of main main-kind, target build-target
+		program-with-main-from-program server.frontend, program, main, (target,)
+	respond = of x lsp-out-result
+		single-response request, x
+	match params = request.params
+	as build-js-script-params
+		main-kind main-kind = match params.main-kind
+		as main
+			main-kind-main-function params.uri, ()
+		as tests
+			main-kind-tests false, (params.uri,), ()
+		pwm = program-with-main[main-kind, js]
+		diags = show-diagnostics server, pwm, params.diagnosticsOnlyForUris.?to
+		script string? = unless has-fatal-diagnostics pwm
+			build-to-js server, pwm, no-sanity-checks, () 'js
+		respond[build-js-script-result diags, script]
+	as code-lens-params
+		respond[get-code-lenses program, params]
+	as completion-params
+		respond[if res = get-completion program, params then res]
+	as definition-params
+		respond[ranges-result get-definition program, params]
+	as document-highlight-params
+		respond[if res = get-document-highlights program, params then res]
+	as execute-command-params
+		execute-command server, program, request, params
+	as folding-range-params
+		throw unreachable
+	as hover-params
+		respond[if res = get-hover program, params then res]
+	as implementation-params
+		respond[ranges-result get-implementation program, params]
+	as initialize-params
+		throw unreachable
+	as inlay-hint-params
+		respond[get-inlay-hints program, server.lsp-state.test-states, params]
+	as perf-report-params
+		throw unreachable
+	as reference-params
+		respond[ranges-result get-references program, params]
+	as rename-params
+		respond[if res = get-rename program, params then res]
+	as semantic-tokens-params
+		throw unreachable
+	as shutdown-params
+		throw unreachable
+	as signature-help-params
+		respond[if res = get-signature-help program, params then res]
+	as type-definition-params
+		respond[ranges-result get-type-definition program, params]
+
+-execute-command lsp-out-action
+	server server
+	program program
+	request lsp-in-request
+	params execute-command-params
+do
+	match params
+	as run-test
+		main-kind = main-kind-tests false, (params.where.uri,), params.where.line
+		pwm = program-with-main-from-program server.frontend, program, main-kind, (java,)
+		writes write mut[] = ()
+		exit = run-from-lsp server, pwm, (), of pipe, text
+			writes ~= pipe, text
+		server.lsp-state.test-states[params.where] := (exit, writes.move-to)
+		message0 = message-for-response request, null-lsp-out-result
+		message1 lsp-out-message = lsp-out-request 1, inlay-hint-refresh
+		(message0, message1), ()
+
+run-from-lsp exit-code
+	_ server
+	program program-with-main
+	_ uri[]? # diagnostics-only-for-uris
+	write-cb void mut(pipe pipe, text string)
+do
+	do unless has-fatal-diagnostics program else
+		write-cb[err, "Can't run due to compile errors"]
+		error
+	# TODO: load it in and run as a Java program. We should probably sandbox it too!
+	()
+	throw todo
+
+server record mut
+	settings server-settings
+	lsp-state lsp-state
+	frontend frontend
+show-options show-options(a server)
+	a.settings.show-options
+uris-info uris-info(a server)
+	cwd: a.settings.cwd
+	keen-lib: a.settings.keen-lib
+server-settings record
+	keen-lib uri
+	cwd uri
+	show-options show-options
+new server(settings server-settings) global, unsafe
+	clear-object-memoizers
+	settings: settings
+	lsp-state: ()
+	frontend: settings.keen-lib,
+
+lsp-state record mut
+	uris-with-diagnostics mut uri[]
+	pending-requests lsp-in-request mut[]
+	test-states test-states
+-new lsp-state()
+	(), (), ()
+
+keen-version json(this-executable file-path)
+	path: this-executable.to
+	built-on: build-date.to
+	commit-hash: commit-hash.to
+
+-content-changed void(server server)
+	clear server.lsp-state.test-states
+
+set-file void(server server, uri uri, result read-file-result)
+	content-changed server
+	set-file server.frontend, uri, result
+set-file void(server server, uri uri, result string)
+	set-file server, uri, result.to::nat8[]
+change-file void(server server, uri uri, changes text-document-content-change-event[])
+	content-changed server
+	change-file server.frontend, uri, changes
+
+files-state files-state(server server)
+	files-state server.frontend
+flush-all-unknown-uris uri[](server server)
+	flush-all-unknown-uris server.frontend
+
+show-diagnostics string(server server, program program)
+	show-diagnostics-common server, program.as-program-with-opt-main, ()
+show-diagnostics string(server server, program program-with-main)
+	show-diagnostics-common server, program.as-program-with-opt-main, ()
+show-diagnostics string(server server, program program-with-main, only-for-uris uri set?)
+	show-diagnostics-common server, program.as-program-with-opt-main,
+		only-for-uris: only-for-uris
+		show-options:
+			color: true
+		show-all-diagnostics: false
+show-diagnostics string(server server, program program, options show-diags-options)
+	show-diagnostics-common server, program.as-program-with-opt-main, options
+-show-diagnostics-common string
+	server server
+	program program-with-opt-main
+	options show-diags-options
+do
+	the show-ctx = get-show-ctx server, !options.show-color
+	the common-types = program.program.common-types
+	show-diagnostics program, options
+
+get-program program(server server, fully-loaded-dirs uri set)
+	make-program server.frontend, fully-loaded-dirs
+
+get-program-for-main program-with-main(server server, main main-kind, targets build-target set)
+	make-program-with-main server.frontend, main, targets
+
+print-ast (string, json)(server server, uri uri)
+	file = get-ast server.frontend, uri
+	the show-ctx = get-show-ctx server
+	- show-parse-diagnostics uri, file.parse-diagnostics
+	- file.to
+
+json-of-model json(_ server, program program, uris uri set)
+	modules json[] = for uri in uris then to module-at-uri program, uri
+	modules.only else modules.to
+
+json-of-low-model json(server server, target build-target, program program-with-main)
+	the show-ctx = get-show-ctx server
+	lower target, program 'to
+
+json-for-print-ide-at-pos json
+	server server
+	program program
+	where uri-line-and-column
+	kind print-ide-at-pos-kind
+do
+	the show-ctx = get-show-ctx server, true
+	params text-document-position-params =
+		textDocument: uri: where.uri
+		position: to-line-and-character server.frontend.line-and-column-getters[where.uri]!, where.pos
+	match kind
+	as completion
+		to get-completion program, (params,)
+	as definition
+		to get-definition program, (params,)
+	as document-highlights
+		to get-document-highlights program, (params,)
+	as hover
+		to get-hover program, (params,)
+	as implementation
+		to get-implementation program, (params,)
+	as rename
+		to get-rename program, (params, "new-name")
+	as references
+		to get-references program, (params,)
+	as signature-help
+		to get-signature-help program, (params,)
+	as type-definition
+		to get-type-definition program, (params,)
+
+json-for-print-ide-whole-file json
+	server server
+	program program
+	uri uri
+	kind print-ide-whole-file-kind
+do
+	the show-ctx = get-show-ctx server, true
+	match kind
+	as code-lenses
+		to get-code-lenses program, textDocument: uri: uri
+	as folding-ranges
+		to folding-ranges server, uri
+	as inlay-hints
+		to get-inlay-hints program, server.lsp-state.test-states,
+			textDocument: uri: uri
+			range: top-of-file
+	as semantic-tokens
+		decoded-tokens server, uri
+
+decoded-tokens json(server server, uri uri)
+	json-of-decoded-tokens encoded-tokens server, uri
+encoded-tokens semantic-tokens(server server, uri uri)
+	match file-type uri
+	as keen
+		tokens-of-ast get-ast server.frontend, uri
+	as kid
+		tokens-of-kid get-kid-file server.frontend, uri
+	else
+		throw unreachable
+
+build-to-java java-compiled-class[](server server, program program-with-main, prefix string)
+	the show-ctx = get-show-ctx server, true
+	low-program = lower java, program
+	translate-to-java-classes low-program, prefix
+
+build-to-js js-and-map
+	server server
+	program program-with-main
+	sanity-checks sanity-checks
+	source-map-name string?
+do
+	forbid has-fatal-diagnostics program
+	the show-ctx = get-show-ctx server, true
+	low-program = lower js, program
+	translate-to-js low-program, sanity-checks, source-map-name
+
+get-show-ctx show-ctx(server server)
+	get-show-ctx server, false
+get-show-ctx show-ctx(server server, force-no-color bool)
+	options = if force-no-color then server.show-options.without-color else server.show-options
+	show-ctx server.frontend, server.uris-info, options
+
+-notify-diagnostics void(res lsp-out-message mut[], server server, program program)
+	diags = sorted-diagnostics program.as-program-with-opt-main
+	state = server.lsp-state
+	new-uris uri set = for x in diags then x.uri
+	all uri-and-diagnostics[] =
+		-- diags
+		-- for* uri in state.uris-with-diagnostics
+			unless new-uris[uri]
+				- uri, ()
+	state.uris-with-diagnostics := new-uris.to
+	the show-ctx = get-show-ctx server
+	the common-types = program.common-types
+	for ud in all
+		res ~= publish-diagnostics-params ud.uri, for x in ud.diagnostics
+			range: (line-and-character-getter server.frontend, ud.uri)[x.range]
+			severity: to-lsp-diagnostic-severity x.kind.get-diagnostic-severity
+			message: show-diag x.kind
+
+-to-lsp-diagnostic-severity lsp-diagnostic-severity(a diagnostic-severity)
+	match a
+	as lint
+		Hint
+	as warning
+		Warning
+	as check-error
+		Error
+	as name-not-found
+		Error
+	as import-error
+		Error
+	as common-missing
+		Error
+	as parse-error
+		Error
+
+-initialized-action lsp-out-action()
+	methods string[] =
+		- "textDocument/codeLens"
+		- "textDocument/completion"
+		- "textDocument/definition"
+		- "textDocument/documentHighlight"
+		- "textDocument/foldingRange"
+		- "textDocument/hover"
+		- "textDocument/implementation"
+		- "textDocument/inlayHint"
+		- "textDocument/rename"
+		- "textDocument/references"
+		- "textDocument/semanticTokens/full"
+		- "textDocument/signatureHelp"
+		- "textDocument/typeDefinition"
+		- "workspace/executeCommand"
+	out-messages: for method in methods
+		register-capability method, method
+	exit-code: ()

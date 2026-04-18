@@ -1,0 +1,823 @@
+import
+	keen/bits
+	keen/string/unicode
+	keen/unsafe
+	../../../lib/parse
+	../../../lib/private/parse-util
+	../../model/ast
+	../../model/parse-diag
+	../../model/source-range
+	../../util/perf
+	./token
+	./token-util
+
+tokens record
+	tokens-starts-ends token-start-end[]
+	datas token-data[]
+token-start-end record(value nat64)
+new token-start-end(token token, start pos, end pos)
+	value: token.to::nat64 << 48 | start::nat64 << 24 | end
+token token(a token-start-end)
+	trusted reinterpret-cast (a.value >> 48).to::nat8
+range source-range(a token-start-end)
+	a.start, a.end
+start pos(a token-start-end)
+	(a.value >> 24) & 0xffffff 'to
+end pos(a token-start-end)
+	a.value & 0xffffff 'to
+to json(a tokens)
+	size = a.tokens-starts-ends.size
+	for i in 0 .. size
+		x = a.tokens-starts-ends[i]
+		match data_ = a.datas[i]
+		as no-token-data
+			token: x.token.to, start: x.start.to, end: x.end.to
+		else
+			token: x.token.to, start: x.start.to, end: x.end.to, data_: data_.to
+
+token-data union(no-token-data, symbol, string)
+to json(a token-data)
+no-token-data record
+to json(a no-token-data)
+
+lex-tokens tokens(source string-view, diagnostics parse-diagnostic mut[])
+	assert source.size < (1 << 24) # Check that 24 bits is enough for pos
+	perf-start = perf-now
+	finally end-tokens perf-start
+	state lexer-state = source, diagnostics
+	iter string-iterator = begin source
+
+	# Skip initial blank lines so they don't get a token
+	delta = skip-blank-lines-and-get-indent-delta state, iter
+	if delta != 0
+		state.diagnostics ~= (0, iter.pos), parse-diag-indent-too-much
+		state.cur-indent := 0
+
+	until iter.is-at-end
+		skip-spaces-and-comments iter, it.noop, diagnostics
+		do unless is-at-end iter
+		start = iter.pos
+		match take-next iter
+		as "\n"
+			emit-newline state, iter, start
+		as "~"
+			if peek-space-after-binary-operator iter or iter.peek8 == "~"
+				emit-operator state, start, iter, if try-take-char8 iter, "~" then "~~" else "~"
+			else
+				emit-operator-prefix state, start, iter, "~"
+		as "@"
+			emit state, at, start, iter.pos
+		as "!"
+			if try-take-char8 iter, "="
+				emit-operator state, start, iter, "!="
+			elif name = try-take-keen-identifier iter
+				emit state, name-after-bang, start, iter.pos, name
+			else
+				emit state, bang, start, iter.pos
+		as "%"
+			emit-operator state, start, iter, "%"
+		as "^"
+			emit-operator state, start, iter, "^"
+		as "&"
+			emit-operator state, start, iter, "&"
+		as "*"
+			emit-operator state, start, iter, if try-take-char8 iter, "*" then "**" else "*"
+		as "("
+			emit state, paren-left, start, iter.pos
+		as ")"
+			emit state, paren-right, start, iter.pos
+		as "["
+			emit state, bracket-left, start, iter.pos
+		as "]"
+			emit state, bracket-right, start, iter.pos
+		as "\{"
+			emit state, brace-left, start, iter.pos
+		as "\}"
+			emit state, brace-right, start, iter.pos
+			if q = pop-inside-quotes state
+				take-string-part state, iter, iter.pos, q
+		as "-"
+			if is-digit iter.peek8
+				take-number-after-sign state, start, iter
+			elif try-take-char8 iter, "-"
+				emit state, list-dash-dash, start, iter.pos
+			elif peek-space-after-binary-operator iter
+				if prev-is-newline state and iter.peek8 != "="
+					emit state, list-dash, start, iter.pos
+				else
+					emit-operator state, start, iter, "-"
+			else
+				emit-operator-prefix state, start, iter, "-"
+		as "="
+			if try-take-char8 iter, "="
+				emit-operator state, start, iter, "=="
+			else
+				emit state, equal, start, iter.pos
+		as "+"
+			if is-digit iter.peek8
+				take-number-after-sign state, start, iter
+			else
+				emit-operator state, start, iter, "+"
+		as "|"
+			if prev-is-newline state and is-whitespace iter.peek8
+				take-string-part state, iter, start, bar
+			else
+				emit-operator state, start, iter, "|"
+		as ":"
+			if try-take-char8 iter, "="
+				emit state, colon-equal, start, iter.pos
+			elif try-take-char8 iter, ":"
+				emit state, colon2, start, iter.pos
+			else
+				emit state, colon, start, iter.pos
+		as "'"
+			if name = try-take-keen-identifier iter
+				emit state, name-after-tick, start, iter.pos, name
+			else
+				state.diagnostics ~= (start, iter.pos), "'".parse-diag-unexpected-character
+		as "\""
+			take-string-part state, iter, start, double
+		as ","
+			emit state, comma, start, iter.pos
+		as "<"
+			emit-operator state, start, iter, if try-take-char8 iter, "="
+				if try-take-char8 iter, ">" then "<=>" else "<="
+			elif try-take-char8 iter, "<"
+				"<<"
+			else
+				"<"
+		as ">"
+			emit-operator state, start, iter, if try-take-char8 iter, "="
+				">="
+			elif try-take-char8 iter, ">"
+				">>"
+			else
+				">"
+		as "."
+			if try-take-char8 iter, "."
+				emit-operator state, start, iter, ".."
+			else
+				emit state, dot, start, iter.pos
+		as "$"
+			emit state, dollar, start, iter.pos
+		as "/"
+			emit-operator state, start, iter, "/"
+		as "?"
+			if try-take-char8 iter, "["
+				emit state, question-bracket, start, iter.pos
+			elif name = try-take-keen-identifier iter
+				emit state, name-after-question, start, iter.pos, name
+			else
+				emit state, question, start, iter.pos
+		as "0" then number state, iter
+		as "1" then number state, iter
+		as "2" then number state, iter
+		as "3" then number state, iter
+		as "4" then number state, iter
+		as "5" then number state, iter
+		as "6" then number state, iter
+		as "7" then number state, iter
+		as "8" then number state, iter
+		as "9" then number state, iter
+		else
+			iter.pos := start
+			lex-identifier-like state, iter, start
+
+	emit-newline state, iter, iter.pos
+	finish state
+
+-peek-space-after-binary-operator bool(iter string-iterator)
+	# Ensure that `x -= 1` or `x -:= 1` parses '-' as an operator
+	is-whitespace iter.peek8 or iter.peek8 == "=" or iter.peek8 == ":"
+
+-number void(state lexer-state, iter string-iterator)
+	iter.pos -:= 1
+	take-number-after-sign state, iter.pos, iter
+
+-lexer-state record mut
+	# For performance, we handle growable arrays inline here rather than through an indirection like mut[]
+	n-tokens mut nat
+	tokens-starts-ends mut token-start-end buffer
+	data_ mut token-data buffer
+	indent-kind indent-kind
+	cur-indent mut nat32
+	n-inside-quotes mut nat
+	inside-quotes mut quote-kind buffer
+	diagnostics parse-diagnostic mut[]
+-finish tokens(a lexer-state)
+	a.tokens-starts-ends[0 .. a.n-tokens].to, a.data_[0 .. a.n-tokens].to
+-new lexer-state(source string-view, diagnostics parse-diagnostic mut[])
+	expected-n-tokens = max source.size / 4, 1
+	n-tokens: 0
+	tokens-starts-ends: trusted uninitialized-buffer expected-n-tokens
+	data_: trusted uninitialized-buffer expected-n-tokens
+	indent-kind: detect-indent-kind source.begin
+	cur-indent: 0
+	n-inside-quotes: 0
+	inside-quotes: trusted uninitialized-buffer 4
+	diagnostics: diagnostics
+-emit void(a lexer-state, token token, start pos, end pos)
+	emit a, token, start, end, no-token-data
+-emit void(a lexer-state, token token, start pos, end pos, data_ token-data)
+	if a.n-tokens == a.tokens-starts-ends.size
+		do trusted
+		a.tokens-starts-ends := increase-capacity a.tokens-starts-ends
+		a.data_ := increase-capacity a.data_
+	a.tokens-starts-ends[a.n-tokens] := token, start, end
+	a.data_[a.n-tokens] := data_
+	a.n-tokens +:= 1
+-increase-capacity[t] t buffer(a t buffer) unsafe
+	res t buffer = uninitialized-buffer a.size  * 2
+	copy-from res[0 .. a.size], a
+	res
+-prev-token token?(a lexer-state)
+	unless a.n-tokens == 0
+		a.tokens-starts-ends[a.n-tokens - 1].token
+-prev-is-newline bool(a lexer-state)
+	if p = a.prev-token
+		is-newline-token p
+	else
+		true
+-push-inside-quotes void(a lexer-state, q quote-kind)
+	if a.n-inside-quotes == a.inside-quotes.size
+		a.inside-quotes := trusted increase-capacity a.inside-quotes
+	a.inside-quotes[a.n-inside-quotes] := q
+	a.n-inside-quotes +:= 1
+-pop-inside-quotes quote-kind?(a lexer-state)
+	unless a.n-inside-quotes == 0
+		a.n-inside-quotes -:= 1
+		a.inside-quotes[a.n-inside-quotes]
+
+-lex-identifier-like void(state lexer-state, iter string-iterator, start pos)
+	if symbol = try-take-keen-identifier iter
+		if try-take-just-colon iter
+			emit state, name-colon, start, iter.pos, symbol
+		else
+			match token = token-for-symbol symbol
+			as name
+				emit-name-like-token state, iter, start, symbol, false
+			as region_
+				skip-until-newline iter
+				emit state, region_, start, iter.pos
+			as for_
+				emit state, (if try-take iter, "*" then for-star else for_), start, iter.pos
+			as operator-binary
+				emit state, token, start, iter.pos, symbol
+			as quote-keyword
+				before-newline = iter.pos
+				if try-take-char8 iter, "\n"
+					end-all-quotes state, iter
+					delta = get-indent-delta-after-quote state, iter
+					if delta == 1
+						take-indented-quote-part state, iter
+					else
+						emit state, quote-keyword, start, iter.pos
+						emit-newline-inner state, iter, before-newline, delta
+				else
+					# This will eventually trigger a parse error
+					emit state, quote-keyword, start, iter.pos
+			as reserved
+				emit state, reserved, start, iter.pos, symbol
+			else
+				emit state, token, start, iter.pos
+	else
+		char = must-take-one-unicode-char iter
+		state.diagnostics ~= (start, iter.pos), char.parse-diag-unexpected-character
+		# Skip to end of line to avoid excessive diagnostics
+		until iter.is-at-end or iter.peek8 == "\n"
+			_ = take-next iter
+
+-emit-newline void(state lexer-state, iter string-iterator, start pos)
+	end-all-quotes state, iter
+	emit-newline-inner state, iter, start, skip-blank-lines-and-get-indent-delta state, iter
+-emit-newline-inner void(state lexer-state, iter string-iterator, start pos, delta int32)
+	if delta == 0
+		emit-newline-same-indent state, start, iter
+	elif delta < 0
+		emit-dedents state, start, iter, delta.abs
+	else
+		emit state, newline-indent, start, iter.pos
+-emit-newline-same-indent void(state lexer-state, start pos, iter string-iterator)
+	if is-at-end iter
+		unless p = prev-token state and p == end-of-file
+			emit state, end-of-file, start, iter.pos
+	else
+		emit state, newline-same-indent, start, iter.pos
+-emit-dedents void(state lexer-state, start pos, iter string-iterator, amount nat32)
+	for _ in 0::nat32 .. amount
+		emit state, newline-dedent, start, start
+	emit-newline-same-indent state, start, iter
+-end-all-quotes void(state lexer-state, iter string-iterator)
+	while quote-kind = pop-inside-quotes state
+		state.diagnostics ~= (iter.pos, iter.pos), close-interpolated::parse-diag-expected
+		emit state, brace-right, iter.pos, iter.pos
+		take-string-part state, iter, iter.pos, quote-kind
+
+-emit-operator-prefix void(out lexer-state, start pos, iter string-iterator, value symbol)
+	check-after-operator out, start, iter, value
+	emit out, operator-prefix, start, iter.pos, value
+-emit-operator void(out lexer-state, start pos, iter string-iterator, value symbol)
+	check-after-operator out, start, iter, value
+	emit-name-like-token out, iter, start, value, true
+-check-after-operator void(out lexer-state, start pos, iter string-iterator, value symbol)
+	if is-operator-char iter.peek8
+		# Imports often have './' or '/.', so ignore it
+		unless value == ".." and iter.peek8 == "/" or value == "/" and iter.peek8 == "."
+			out.diagnostics ~= (start, iter.pos + 1), parse-diag-operator-needs-space value, iter.peek8.to
+	elif iter.peek8 == "=" and iter.peek8-next == "="
+		out.diagnostics ~= (start, iter.pos + 2), parse-diag-operator-needs-space value, "=="
+-emit-name-like-token void(out lexer-state, iter string-iterator, start pos, value symbol, is-operator bool)
+	v mut = value
+	regular-token = if is-operator then operator-binary else name
+	token = match peek8 iter
+	as "="
+		if iter.peek8-next == "="
+			regular-token
+		else
+			_ = take-next iter
+			v := "{value}="
+			if is-operator then operator-equals else name-equals
+	as "!"
+		if regular-token == name
+			_ = take-next iter
+			name-bang
+		else
+			regular-token
+	as ":"
+		if iter.peek8-next == "="
+			_ = take-next iter
+			_ = take-next iter
+			if is-operator then operator-colon-equals else name-colon-equals
+		else
+			regular-token
+	else
+		regular-token
+	emit out, token, start, iter.pos, v
+
+-try-take-just-colon bool(a string-iterator)
+	if a.peek8 == ":" and a.peek8-next != ":" and a.peek8-next != "="
+		_ = take-next a
+		true
+
+-token-for-symbol token(a symbol)
+	match a
+	as "abstract"
+		reserved
+	as "alias"
+		alias_
+	as "and"
+		and_
+	as "as"
+		as_
+	as "assert"
+		assert_
+	as "builtin"
+		builtin_
+	as "case"
+		case_
+	as "catch"
+		catch_
+	as "class"
+		reserved
+	as "data"
+		data_
+	as "do"
+		do_
+	as "elif"
+		elif_
+	as "else"
+		else_
+	as "enum"
+		enum_
+	as "export"
+		export_
+	as "finally"
+		finally_
+	as "flags"
+		flags_
+	as "for"
+		for_
+	as "force-data"
+		force-data_
+	as "force-shared"
+		force-shared_
+	as "forbid"
+		forbid_
+	as "global"
+		global_
+	as "if"
+		if_
+	as "import"
+		import_
+	as "in"
+		in_
+	as "interface"
+		interface_
+	as "is"
+		operator-binary
+	as "it"
+		it_
+	as "match"
+		match_
+	as "mut"
+		mut_
+	as "no-std"
+		no-std_
+	as "of"
+		of_
+	as "or"
+		or_
+	as "pure"
+		pure_
+	as "quote"
+		quote-keyword
+	as "record"
+		record_
+	as "region"
+		region_
+	as "shared"
+		shared_
+	as "spec"
+		spec_
+	as "test"
+		test_
+	as "the"
+		the_
+	as "then"
+		then_
+	as "thread-local"
+		thread-local_
+	as "throw"
+		throw_
+	as "trusted"
+		trusted_
+	as "try"
+		try_
+	as "unless"
+		unless_
+	as "union"
+		union_
+	as "until"
+		until_
+	as "variant"
+		variant_
+	as "while"
+		while_
+	as "with"
+		with_
+	as "_"
+		underscore
+	else
+		name
+
+-take-number-after-sign void(out lexer-state, start pos, iter string-iterator)
+	try
+		if starts-with iter, "0b" or starts-with iter, "0o" or starts-with iter, "0x"
+			_ = take-nat iter
+		else
+			_ = take-float iter
+	catch as inner-parse-error
+		out.diagnostics ~= (iter.pos, iter.pos), parse-diag-number-invalid
+	emit out, literal-number, start, iter.pos
+
+region strings
+
+-take-string-part void(state lexer-state, iter string-iterator, start pos, kind quote-kind)
+	if kind == indented
+		take-indented-quote-part state, iter
+	else
+		take-non-indented-string-part state, iter, start, kind
+
+-take-indented-quote-part void(state lexer-state, iter string-iterator)
+	out char8 mut[] = ()
+	range-start = iter.pos
+	do until
+	start = iter.pos
+	match iter.peek8
+	as "\{"
+		_ = take-next iter
+		push-inside-quotes state, indented
+		emit state, quote-block-then-interpolated, range-start, start, out.move-to
+		true
+	as "\}"
+		out ~= take-next iter
+		state.diagnostics ~= (start, start + 1), parse-diag-closing-brace-needs-escape
+		false
+	as "\\"
+		_ = take-next iter
+		take-string-escape out, start, iter, state.diagnostics
+		false
+	as "\n"
+		count-newlines mut nat = 0
+		new-indent mut nat32 = 0
+		while try-take-char8 iter, "\n"
+			count-newlines +:= 1
+			new-indent := take-indent-amount-after-newline iter, state.indent-kind, of pos
+				state.diagnostics ~= (pos, iter.pos), state.indent-kind.parse-diag-indent-wrong
+		prev-indent = state.cur-indent
+		if new-indent < prev-indent
+			emit state, quote-block-no-interpolated, range-start, start, out.move-to
+			emit-dedents state, start, iter, prev-indent - new-indent - 1
+			state.cur-indent := new-indent
+			true
+		else
+			for _ in 0 .. count-newlines
+				out ~= "\n"
+			for _ in 0::nat32 .. new-indent - prev-indent
+				out ~~= chars state.indent-kind
+			false
+	as "\0"
+		emit state, quote-block-no-interpolated, range-start, start, out.move-to
+		emit-dedents state, start, iter, state.cur-indent - 1
+		state.cur-indent := 0
+		true
+	else
+		out ~= take-next iter
+		false
+
+-chars char8[](a indent-kind)
+	match a
+	as tabs
+		"\t"
+	as spaces-2
+		"  "
+	as spaces-4
+		"    "
+
+-take-non-indented-string-part void
+	state lexer-state
+	iter string-iterator
+	start pos
+	quote-kind quote-kind
+do
+	forbid quote-kind == indented
+	out char8 mut[] = ()
+	interpolate bool = until
+		start-of-char = iter.pos
+		match iter.peek8
+		as "\""
+			_ = take-next iter
+			match quote-kind
+			as bar
+				out ~= "\""
+				()
+			as double
+				false
+			as indented
+				throw unreachable
+		as "\{"
+			_ = take-next iter
+			true
+		as "\}"
+			out ~= take-next iter
+			state.diagnostics ~= (start-of-char, start-of-char + 1), parse-diag-closing-brace-needs-escape
+			()
+		as "\\"
+			_ = take-next iter
+			take-string-escape out, start-of-char, iter, state.diagnostics
+			()
+		as "\n"
+			match quote-kind
+			as bar
+				iter2 = copy iter
+				while is-whitespace iter2.peek8
+					_ = take-next iter2
+				if iter2.peek8 == "|"
+					_ = take-next iter2
+					_ = try-take-char8 iter2, " "
+					iter.pos := iter2.pos
+					out ~= "\n"
+					()
+				else
+					false
+			as double
+				state.diagnostics ~= (start-of-char, iter.pos), quote-double::parse-diag-expected
+				false
+			as indented
+				throw unreachable
+		as "\0"
+			match quote-kind
+			as bar
+				()
+			as double
+				state.diagnostics ~= (start-of-char, iter.pos), quote-double::parse-diag-expected
+			as indented
+				throw unreachable
+			false
+		else
+			out ~= take-next iter
+			()
+	if interpolate
+		push-inside-quotes state, quote-kind
+		emit state, quote-kind.then-interpolated, start, iter.pos - 1, out.move-to
+	else
+		emit state, quote-kind.no-interpolated, start, iter.pos, out.move-to
+
+-take-string-escape void(out char8 mut[], start pos, iter string-iterator, diagnostics parse-diagnostic mut[])
+	match take-char8-or-nul iter
+	as "\\"
+		out ~= "\\"
+	as "\{"
+		out ~= "\{"
+	as "\}"
+		out ~= "\}"
+	as "0"
+		out ~= "\0"
+	as "\""
+		out ~= "\""
+	as "n"
+		out ~= "\n"
+	as "r"
+		out ~= "\r"
+	as "t"
+		out ~= "\t"
+	as "u"
+		take-unicode-escape out, start, iter, diagnostics, 2
+	as "U"
+		take-unicode-escape out, start, iter, diagnostics, 4
+	as "x"
+		take-unicode-escape out, start, iter, diagnostics, 1
+	else
+		string-escape-error out, start, iter, diagnostics
+
+-take-unicode-escape void
+	out char8 mut[]
+	start pos
+	iter string-iterator
+	diagnostics parse-diagnostic mut[]
+	n-bytes nat
+do
+	try
+		full-char mut nat32 = 0
+		for _ in 0::nat .. n-bytes
+			assert x = take-char-escape iter else invalid-unicode-character 0
+			full-char := (full-char << 8) | x.to
+		out ~~= full-char.to::char32.to::string.to
+	catch as invalid-unicode-character
+		string-escape-error out, start, iter, diagnostics
+
+-string-escape-error void
+	out char8 mut[]
+	start pos
+	iter string-iterator
+	diagnostics parse-diagnostic mut[]
+do
+	diagnostics ~= (start, iter.pos), parse-diag-invalid-string-escape string-from iter, start
+	out ~~= "�"::char8[]
+
+-take-char-escape nat8?(a string-iterator)
+	if digit0 = try-take-hex-digit a and digit1 = try-take-hex-digit a
+		(digit0 << 4) | digit1
+
+-try-take-hex-digit nat8?(a string-iterator)
+	if x = decode-hex-digit a.peek8
+		_ = take-next a
+		x
+
+region whitespace (including comments)
+
+cb-comment alias
+	void mut(pos pos)
+
+| Does not skip newlines (unless within a comment), only spaces within a line
+skip-spaces-and-comments void(iter string-iterator, cb-comment cb-comment, diagnostics parse-diagnostic mut[])
+	do until
+	start = iter.pos
+	if is-whitespace-non-newline iter.peek8
+		_ = take-next iter
+		false
+	elif iter.peek8 == "#"
+		if try-take-triple-hash-then-newline iter
+			skip-rest-of-block-comment iter, diagnostics
+			cb-comment[start]
+		else
+			while try-take-char8 iter, " "
+				()
+			skip-until-newline iter
+			cb-comment[start]
+		false
+	else
+		true
+
+-skip-blank-lines-and-get-indent-delta int32(state lexer-state, iter string-iterator)
+	repeat-until-indent-delta state, iter, of
+		start mut = pos iter
+		new-indent mut nat32 = 0
+		cb-start-of-line = of
+			start := iter.pos
+			new-indent := take-indent-amount-after-newline state, iter
+		skip-blank-lines iter, cb-start-of-line, it.noop, state.diagnostics
+		start, new-indent
+
+-get-indent-delta-after-quote int32(state lexer-state, iter string-iterator)
+	repeat-until-indent-delta state, iter, of
+		iter.pos, until
+			amount = take-indent-amount-after-newline state, iter
+			unless try-take-char8 iter, "\n"
+				amount
+
+-take-indent-amount-after-newline nat32(state lexer-state, iter string-iterator)
+	take-indent-amount-after-newline iter, state.indent-kind, of pos
+		state.diagnostics ~= (pos, iter.pos), parse-diag-indent-wrong state.indent-kind
+
+-repeat-until-indent-delta int32(state lexer-state, iter string-iterator, f (pos, nat32) mut())
+	do until
+	start, new-indent = f[]
+	delta = new-indent.to::int32 - state.cur-indent.to
+	if delta > 1
+		state.diagnostics ~= (start, iter.pos), parse-diag-indent-too-much
+		skip-rest-of-line-and-newline iter
+		()
+	else
+		# Ignore indent before end of file
+		state.cur-indent := if is-at-end iter then 0 else new-indent
+		delta
+
+| Used for completions and signature help.
+| Walks to the left skipping whitespace on the same line. Can also skip a single '.' or ','.
+walk-backwards-for-position pos(source-text string-view, pos pos)
+	index mut pos = pos
+	index := skip-whitespace-backwards source-text, index
+	if index != 0 and is-comma-or-dot source-text[index - 1]
+		index -:= 1
+		index := skip-whitespace-backwards source-text, index
+		index -:= 1
+	index.to
+-is-comma-or-dot bool(a char8)
+	a == "," or a == "."
+-skip-whitespace-backwards pos(text string-view, index pos)
+	cur mut pos = index
+	do until
+	if cur != 0 and text[cur - 1] == " "
+		cur -:= 1
+		()
+	else
+		cur
+
+skip-blank-lines void
+	iter string-iterator
+	cb-start-of-line void mut()
+	cb-comment cb-comment
+	diagnostics parse-diagnostic mut[]
+do
+	do until
+	cb-start-of-line[]
+	before = iter.pos
+	if try-take-char8 iter, "\n"
+		false
+	elif try-take-triple-hash-then-newline iter
+		skip-rest-of-block-comment iter, diagnostics
+		cb-comment[before]
+		false
+	elif try-take-char8 iter, "#"
+		while try-take-char8 iter, " "
+			()
+		skip-until-newline iter
+		cb-comment[before]
+		false
+	else
+		true
+
+-skip-rest-of-line-and-newline void(iter string-iterator)
+	skip-until-newline iter
+	_ = try-take-char8 iter, "\n"
+
+-try-take-triple-hash-then-newline bool(iter string-iterator)
+	iter2 = copy iter
+	if try-take iter2, "###"
+		while try-take-char8 iter2, " "
+			()
+		if try-take-char8 iter2, "\n" or iter2.is-at-end
+			iter.pos := iter2.pos
+			true
+
+| Returns the end of the comment text ({iter} will be advanced further, past the '###')
+-skip-rest-of-block-comment void(iter string-iterator, diagnostics parse-diagnostic mut[])
+	do until
+	while try-take-char8 iter, "\t" or try-take-char8 iter, " "
+		()
+	if try-take-triple-hash-then-newline iter
+		true
+	elif iter.is-at-end
+		diagnostics ~= (iter.pos, iter.pos), block-comment-end
+		true
+	else
+		skip-rest-of-line-and-newline iter
+		false
+
+-is-operator-char bool(a char8)
+	match a
+	as "." then true
+	as "~" then true
+	as "!" then true
+	as "<" then true
+	as ">" then true
+	as "|" then true
+	as "^" then true
+	as "&" then true
+	as "+" then true
+	as "-" then true
+	as "*" then true
+	as "/" then true
+	as "%" then true
+	else then false

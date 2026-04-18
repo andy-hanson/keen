@@ -1,0 +1,605 @@
+import
+	keen/parse
+	../../lib/json: try-take-number, try-take-quoted-string
+	../../lib/private/parse-util
+	../frontend/parse/lex-tokens
+	../model/ast
+	../model/lsp
+	../model/source-range
+	../util/util
+
+tokens-of-kid semantic-tokens(line-and-character-getter line-and-character-getter)
+	# For Kid, we will just retokenize the whole file
+	the tokens-builder = line-and-character-getter,
+	iter string-iterator = begin line-and-character-getter.source-text
+	until iter.is-at-end
+		start = iter.pos
+		if try-take-number iter
+			emit number, (start, iter.pos)
+		elif try-take-quoted-string iter
+			emit string, (start, iter.pos)
+		elif try-take-keen-identifier iter
+			end = iter.pos
+			if try-take-char8 iter, ":"
+				emit parameter, (start, end)
+		else
+			# Just skip past anything else
+			_ = take-next iter
+	finish
+
+tokens-of-ast semantic-tokens(file file-ast)
+	the tokens-builder = file.line-and-character-getter,
+	add-doc-comment-tokens file.doc-comment
+	for ast in ast-in-order file
+		match ast
+		as fun-decl-ast
+			add-fun-tokens ast
+		as imports-or-exports-ast
+			add-import-tokens ast
+		as spec-decl-ast
+			add-spec-tokens ast
+		as type-alias-ast
+			add-type-alias-tokens ast
+		as type-decl-ast
+			add-type-tokens ast
+		as test-ast
+			add-test-tokens ast
+		as var-decl-ast
+			add-var-decl-tokens ast
+	add-last-tokens
+	finish
+
+| Used to lex the tokens that appear between AST nodes for syntax highlighting.
+lex-tokens-between-asts void
+	source string-view
+	range source-range
+	cb-comment void mut(x source-range)
+	cb-keyword void mut(x source-range)
+do
+	end = range.end
+	iter string-iterator = begin source[range.start .. end]
+	until iter.is-at-end
+		skip-for-tokens iter, of pos
+			cb-comment[range.start + pos, range.start + iter.pos]
+		unless iter.is-at-end
+			start = iter.pos
+			until iter.is-at-end or ignore-char-for-tokens iter.peek8
+				_ = take-next iter
+			cb-keyword[range.start + start, range.start + iter.pos]
+
+-ignore-char-for-tokens bool(a char8)
+	is-whitespace a or a == "\\" or a == "#" or is-non-keyword-punctuation a
+
+| Skip mundane punctuation instead of highlighting it as a keyword
+-is-non-keyword-punctuation bool(a char8)
+	a == "." or a == "," or a == "(" or a == ")" or a == "[" or a == "]"
+
+-skip-for-tokens void(iter string-iterator, cb-comment cb-comment)
+	do until
+	start = iter.pos
+	unless iter.is-at-end
+		while is-non-keyword-punctuation iter.peek8
+			_ = take-next iter
+	unless iter.is-at-end
+		skip-spaces-and-comments iter, cb-comment, ()
+	unless iter.is-at-end
+		if iter.peek8 == "\\"
+			# Non-comment '\', skip this too
+			_ = take-next iter
+	unless iter.is-at-end
+		skip-blank-lines iter, it.noop, cb-comment, ()
+	iter.pos == start
+
+json-of-decoded-tokens json(a semantic-tokens)
+	map::json[] a.decode-semantic-tokens, it.to 'to
+
+get-tokens-legend json()
+	tokenTypes: members::token-type[].to
+
+token record
+	line nat32
+	character nat32
+	length nat32
+	type token-type
+to json(a token)
+decode-semantic-tokens record(inner semantic-tokens)
+to token[](a decode-semantic-tokens)
+	map a, it.identity
+size nat(a decode-semantic-tokens)
+	a.inner.data_.size / 5
+some bool(a decode-semantic-tokens, f bool mut(x token))
+	line mut nat32 = 0
+	character mut nat32 = 0
+	i mut = 0
+	data_ = a.inner.data_
+	do until
+	do unless i == data_.size else false
+	delta-line nat32 = data_[i].to
+	delta-character nat32 = data_[i + 1].to
+	length nat32 = data_[i + 2].to
+	type token-type = data_[i + 3].to!
+	# data_[i + 4] would be modifiers, but we don't use those
+	if delta-line == 0
+		character +:= delta-character
+	else
+		line +:= delta-line
+		character := delta-character
+	if f[line, character, length, type]
+		true
+	else
+		i +:= 5
+		()
+
+| https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#semanticTokenTypes
+token-type enum
+	comment
+	enum_
+	enumMember
+	function_
+	interface_
+	keyword
+	namespace
+	number
+	parameter
+	property
+	string
+	type
+	typeParameter
+	variable
+-to token-type?(a nat64)
+-to nat(a token-type)
+-members token-type[]()
+show string(a token-type)
+	a.to
+to string(a token-type)
+	match a
+	as comment
+		"comment"
+	as enum_
+		"enum"
+	as enumMember
+		"enumMember"
+	as function_
+		"function"
+	as interface_
+		"interface"
+	as keyword
+		"keyword"
+	as namespace
+		"namespace"
+	as number
+		"number"
+	as parameter
+		"parameter"
+	as property
+		"property"
+	as string
+		"string"
+	as type
+		"type"
+	as typeParameter
+		"typeParameter"
+	as variable
+		"variable"
+to json(a token-type)
+	a.to::string.to
+
+-tokens-builder record mut
+	source string-view
+	line-and-character-getter line-and-character-getter
+	encoded nat mut[]
+	prev-pos mut pos
+	prev-line-and-character mut line-and-character
+-new tokens-builder(line-and-character-getter line-and-character-getter)
+	source: line-and-character-getter.source-text
+	line-and-character-getter: line-and-character-getter
+	encoded: ()
+	prev-pos: 0
+	prev-line-and-character: 0, 0
+-source string-view() tokens-builder
+	the::tokens-builder.source
+-finish semantic-tokens() tokens-builder
+	data_: the::tokens-builder.encoded.move-to
+
+-emit void(type token-type, range source-range) tokens-builder
+	do unless range.length == 0 # This can happen for missing names
+	advance-to range.start
+	assert range.end <= source.size.to
+	the::tokens-builder.prev-pos := range.end
+	add-inner range, type
+
+-advance-to void(pos pos) tokens-builder
+	add-tokens-between (the::tokens-builder.prev-pos, pos)
+	the::tokens-builder.prev-pos := pos
+
+-add-last-tokens void() tokens-builder
+	advance-to source.size.to
+
+-add-inner void(range source-range, type token-type) tokens-builder
+	a = the::tokens-builder
+	lc-range = a.line-and-character-getter[range]
+	start = lc-range.start
+	end = lc-range.end
+	if start.line == end.line
+		add-single-line-token a, start, end.character - start.character, type
+	else
+		first-length = (line-length-in-characters a.line-and-character-getter, start.line) - start.character
+		add-single-line-token a, start, first-length, type
+		for line in start.line + 1 .. end.line
+			add-single-line-token a, (line, 0), (line-length-in-characters a.line-and-character-getter, line), type
+		add-single-line-token a, (end.line, 0), end.character, type
+
+-add-single-line-token void
+	a tokens-builder
+	pos line-and-character
+	length nat
+	type token-type
+do
+	assert a.prev-line-and-character < pos or a.prev-line-and-character == (0, 0)
+	delta-line nat, delta-character nat = if pos.line == a.prev-line-and-character.line
+		0, pos.character - a.prev-line-and-character.character
+	else
+		pos.line - a.prev-line-and-character.line, pos.character
+	a.encoded ~~= (delta-line, delta-character, length, type.to, 0)::nat[]
+	a.prev-line-and-character := pos
+
+-add-tokens-between void(range source-range) tokens-builder
+	on-comment = of comment-range source-range
+		assert range-contains range, comment-range
+		add-inner comment-range, comment
+	lex-tokens-between-asts source, range, on-comment, of keyword-range
+		assert range-contains range, keyword-range
+		add-inner keyword-range, keyword
+
+-add-doc-comment-tokens void(a doc-comment-ast) tokens-builder
+	do unless is-empty a
+	range = a.range!
+	pos mut = range.start
+	for x in a.references
+		emit comment, (pos, x.range.start)
+		emit variable, x.range
+		pos := x.range.end
+	emit comment, (pos, range.end)
+
+-add-import-tokens void(a imports-or-exports-ast) tokens-builder
+	for import-or-export in a.paths
+		emit namespace, import-or-export.path-range
+		match kind = import-or-export.kind
+		as import-whole-module-ast
+			()
+		as array
+			for name in kind
+				emit variable, name.range
+		as import-file-ast
+			emit variable, kind.name.range
+
+-add-spec-tokens void(a spec-decl-ast) tokens-builder
+	add-doc-comment-tokens a.doc-comment
+	emit interface_, a.name.range
+	add-type-params-tokens a.type-params
+	add-modifier-tokens a.modifiers
+	for x in a.sigs
+		add-signature-tokens x
+
+-add-signature-tokens void(a signature-ast) tokens-builder
+	add-doc-comment-tokens a.doc-comment
+	emit function_, a.name-range
+	add-sig-return-type-and-params-tokens a.return-type, a.params
+
+-add-sig-return-type-and-params-tokens void(return-type type-ast, params destructure-ast[]) tokens-builder
+	add-type-tokens return-type
+	add-params-tokens params
+
+-add-params-tokens void(params destructure-ast[]) tokens-builder
+	for param in params
+		add-param-destructure-tokens param
+
+-add-type-tokens void(a type-ast) tokens-builder
+	match a
+	as bogus-type-ast
+		()
+	as fun-type-ast
+		add-type-tokens a.return-type
+		add-param-destructure-tokens a.param
+	as map-type-ast
+		add-type-tokens a.value
+		add-type-tokens a.key
+	as name-and-range
+		emit type, a.range
+	as suffix-name-type-ast
+		add-type-tokens a.left
+		emit type, a.name.range
+	as suffix-special-type-ast
+		add-type-tokens a.left
+		emit type, a.suffix-range
+	as tuple-type-ast
+		for t in a.members
+			add-type-tokens t
+
+-add-type-params-tokens void(a name-and-range[]) tokens-builder
+	for type-param in a
+		emit typeParameter, type-param.range
+
+-add-type-alias-tokens void(a type-alias-ast) tokens-builder
+	add-doc-comment-tokens a.doc-comment
+	emit type, a.name.range
+	add-type-params-tokens a.type-params
+	add-type-tokens a.target
+
+-add-type-tokens void(a type-decl-ast) tokens-builder
+	add-doc-comment-tokens a.doc-comment
+	emit type, a.name.range
+	add-type-params-tokens a.type-params
+	match body = a.body
+	as builtin-type-ast
+		add-modifier-tokens a.modifiers
+	as enum-ast
+		add-enum-or-flags-tokens a, body.params, body.members
+	as flags-ast
+		add-enum-or-flags-tokens a, body.params, body.members
+	as record-ast
+		add-record-tokens a, body.params, body.fields
+	as sum-type-ast
+		for type in body.types
+			add-type-tokens type
+		add-modifier-tokens a.modifiers
+		for sig in body.methods
+			add-signature-tokens sig
+
+-add-record-tokens void(a type-decl-ast, params destructure-ast[]?, members record-field-ast[]) tokens-builder
+	?add-params-tokens params
+	add-modifier-tokens a.modifiers
+	for x in members
+		add-doc-comment-tokens x.doc-comment
+		emit property, x.name.range
+		?add-type-tokens x.type
+
+-add-modifier-tokens void(a modifier-ast[]) tokens-builder
+	for mod in a
+		match mod
+		as modifier-keyword-ast
+			?add-type-tokens mod.type-arg
+		as spec-use-ast
+			?add-type-tokens mod.type-arg
+			emit interface_, mod.name.range
+
+-add-enum-or-flags-tokens void
+	a type-decl-ast
+	params destructure-ast[]?
+	members enum-or-flags-member-ast[]
+do tokens-builder
+	?add-params-tokens params
+	add-modifier-tokens a.modifiers
+	for member in members
+		add-doc-comment-tokens member.doc-comment
+		emit enumMember, member.name-range
+		?emit number, member.value.?range
+
+-add-var-decl-tokens void(a var-decl-ast) tokens-builder
+	add-doc-comment-tokens a.doc-comment
+	emit variable, a.name.range
+	add-type-params-tokens a.type-params
+	add-type-tokens a.type
+	add-modifier-tokens a.modifiers
+	?add-expr-tokens a.initializer
+
+-add-fun-tokens void(a fun-decl-ast) tokens-builder
+	add-doc-comment-tokens a.doc-comment
+	emit function_, a.name.range
+	add-type-params-tokens a.type-params
+	add-sig-return-type-and-params-tokens a.return-type, a.params
+	add-modifier-tokens a.modifiers
+	?add-expr-tokens a.body
+
+-add-test-tokens void(a test-ast) tokens-builder
+	add-doc-comment-tokens a.doc-comment
+	?add-expr-tokens a.body
+
+-add-expr-tokens void(a expr-ast) tokens-builder
+	match a
+	as assert-or-forbid-ast
+		add-expr-tokens a.condition
+		?add-expr-tokens a.thrown.?expr
+		?add-expr-tokens a.after
+	as assignment-ast
+		add-expr-tokens a.left
+		add-expr-tokens a.right
+	as assignment-call-ast
+		add-expr-tokens a.left
+		emit function_, a.fun-name.range
+		add-expr-tokens a.right
+	as bogus-ast
+		()
+	as call-ast
+		prefix = of
+			add-name-for-call a
+			add-exprs-tokens a.args
+		name-in-middle = of
+			add-expr-tokens a.args[0]
+			if a.fun-name.name != "is"
+				add-name-for-call a
+			add-exprs-tokens a.args[1 .. end]
+		match a.style
+		as dot
+			name-in-middle[]
+		as dot-question
+			name-in-middle[]
+		as infix
+			name-in-middle[]
+		as prefix
+			prefix[]
+		as question-name
+			prefix[]
+	as call-subscript-ast
+		add-expr-tokens a.left
+		add-expr-tokens a.right
+	as call-named-ast
+		for name, arg in zip a.names, a.args
+			emit parameter, name.range
+			add-expr-tokens arg
+	as finally-ast
+		add-expr-tokens a.right
+		add-expr-tokens a.below
+	as force-ast
+		add-expr-tokens a.arg
+	as for-or-with-ast
+		add-param-destructure-tokens a.param
+		add-expr-tokens a.arg
+		add-expr-tokens a.body
+	as name-and-range
+		emit variable, a.range
+	as if-ast
+		add-expr-tokens a.condition
+		?add-expr-tokens a.first-branch
+		?add-expr-tokens a.second-branch
+	as interpolated-ast
+		for i, x in with-index a.template
+			emit string, x.range
+			if i != a.template.size - 1
+				add-expr-tokens a.interpolated[i]
+	as it-ast
+		()
+	as it-scope-ast
+		add-expr-tokens a.inner
+	as lambda-ast
+		add-param-destructure-tokens a.param
+		add-expr-tokens a.body
+	as let-ast
+		add-local-destructure-tokens a.destructure
+		add-expr-tokens a.value
+		?add-expr-tokens a.then_
+	as let-the-ast
+		add-type-tokens a.type
+		add-expr-tokens a.value
+		?add-expr-tokens a.then_
+	as list-ast
+		for part in a.parts
+			add-expr-tokens part.arg
+	as literal-number
+		emit number, a.range
+	as literal-string-ast
+		emit string, a.range
+	as logical-ast
+		add-expr-tokens a.left
+		add-expr-tokens a.right
+	as match-ast
+		?emit variable, a.local.?range
+		add-expr-tokens a.matched
+		for case_ in a.cases
+			add-case-tokens case_
+		?add-expr-tokens a.else_.?expr
+	as not-ast
+		add-expr-tokens a.arg
+	as parenthesized-ast
+		add-expr-tokens a.inner
+	as seq-ast
+		add-expr-tokens a.first
+		add-expr-tokens a.then_
+	as shared-ast
+		add-expr-tokens a.inner
+	as the-ast
+		add-type-tokens a.type
+	as throw-ast
+		add-expr-tokens a.thrown
+	as trusted-ast
+		add-expr-tokens a.inner
+	as try-ast
+		add-expr-tokens a.tried
+		for case_ in a.catches
+			add-catch-tokens case_
+	as try-let-ast
+		add-local-destructure-tokens a.destructure
+		add-expr-tokens a.value
+		add-catch-tokens a.catch_
+		?add-expr-tokens a.after
+	as typed-ast
+		if expr = a.expr
+			if a.type.start < expr.start
+				# `:: t n\n expr`
+				add-type-tokens a.type
+				add-expr-tokens expr
+			elif a.type.start > expr.end
+				# expr :: t
+				add-expr-tokens expr
+				add-type-tokens a.type
+			else
+				# fun-name::t args...
+				match expr
+				as call-ast
+					assert expr.style == prefix
+					add-name-for-call expr
+					add-type-tokens a.type
+					add-exprs-tokens expr.args
+				as for-or-with-ast
+					add-type-tokens a.type
+					add-expr-tokens expr
+				else
+					throw unreachable
+		else
+			add-type-tokens a.type
+	as underscore-ast
+		()
+	as unpack-option-ast
+		add-local-destructure-tokens a.destructure
+		add-expr-tokens a.option
+	as while-or-until-body-ast
+		add-expr-tokens a.body
+	as while-or-until-ast
+		add-expr-tokens a.condition
+		add-expr-tokens a.body
+		?add-expr-tokens a.after
+
+-add-name-for-call void(a call-ast) tokens-builder
+	emit function_, a.fun-name.range
+	?add-type-tokens a.type-arg
+
+-add-catch-tokens void(a catch-ast) tokens-builder
+	?emit variable, a.name.?range
+	?emit type, a.as_.?type-name.?range
+	add-expr-tokens a.then_
+
+-add-case-tokens void(a case-ast) tokens-builder
+	add-case-member-tokens a.member
+	add-expr-tokens a.then_
+
+-add-case-member-tokens void(a case-member-ast) tokens-builder
+	match a
+	as as-name-ast
+		emit enumMember, a.name.range
+	as literal-number
+		emit number, a.range
+	as literal-string-ast
+		emit string, a.range
+	as as-bogus-ast
+		()
+
+-add-param-destructure-tokens void(a destructure-ast) tokens-builder
+	add-destructure-tokens-inner a, parameter
+-add-local-destructure-tokens void(a destructure-ast) tokens-builder
+	add-destructure-tokens-inner a, variable
+
+-add-destructure-tokens-inner void(a destructure-ast, kind token-type) tokens-builder
+	match a
+	as name-and-range
+		emit kind, a.range
+	as single-destructure-ast
+		emit kind, a.name.range
+		?add-type-tokens a.type
+	as ignore-destructure-ast
+		emit comment, a.underscore-range
+		?add-type-tokens a.type
+	as void-destructure-ast
+		emit keyword, a.range
+	as array
+		for x in a
+			add-destructure-tokens-inner x, kind
+
+-add-exprs-tokens void(exprs expr-ast array-view) tokens-builder
+	for expr in exprs
+		add-expr-tokens expr
+
+test
+	# This is used by the site, so make it appear used
+	a semantic-tokens = (),
+	_ token[] = (a,)::decode-semantic-tokens.to
+	_ = show comment::token-type

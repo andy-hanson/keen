@@ -1,0 +1,419 @@
+import
+	../../model/ast
+	../../model/model
+	../../model/source-range
+	../../model/uri
+	../../util/by-name
+	../../util/perf
+	../lang
+	./allocators
+	./check-doc-comments
+	./check-expr
+	./check-funs
+	./check-ctx
+	./check-type-decls
+	./detect-unused-private
+	./get-common-types
+	./instantiate
+	./type-from-ast
+
+uri-and-ast record(uri uri, config config, ast file-ast)
+resolved-import union(module, imported-file, diag-import-file)
+imported-file record(uri uri, content nat8 array-view)
+is-std bool(a import-or-export)
+	!a.source
+
+check-bootstrap (keen-module, common-types)
+	keen-lib uri
+	common-uris common-uris
+	uri-and-ast uri-and-ast
+	java-String type-inst
+do instantiate-ctx
+	start = perf-now
+	finally end-check start
+	check-worker keen-lib, common-uris, (), uri-and-ast, of ctx, types-and-specs-map
+		get-common-types uri-and-ast.uri, ctx.diagnostics-builder, types-and-specs-map, java-String
+
+check keen-module
+	keen-lib uri
+	common-uris common-uris
+	uri-and-ast uri-and-ast
+	imports resolved-import[]
+	common-types common-types
+do instantiate-ctx
+	start = perf-now
+	finally end-check start
+	module, _ = check-worker keen-lib, common-uris, imports, uri-and-ast, (of _ then common-types)
+	module
+
+-get-builtin-spec builtin-spec?(range source-range, name symbol) check-ctx # inline
+	name.to or
+		add-diag range, diag-builtin-unsupported spec_, name
+		()
+
+-check-spec-decl-body spec-decl-body
+	spec_ spec-decl
+	type-params type-params
+	delay-spec-insts delay-spec-insts
+	ast spec-decl-ast
+do check-ctx, types-get
+	modifiers = check-spec-modifiers delay-spec-insts, ast.type-params, ast.modifiers
+	builtin_ builtin-spec? = if modifiers.is-builtin
+		get-builtin-spec ast.name-range, ast.name.name
+	sigs = check-signatures spec_, type-params, ast.sigs
+	builtin_, modifiers.parents, sigs
+
+-check-spec-decls-initial spec-decl[](asts spec-decl-ast[]) check-ctx
+	for ast in asts
+		check-type-params ast.type-params
+		next-hash, cur-uri, ast, ast.visibility.visibility-from-explicit-top-level
+
+-check-spec-bodies void(asts spec-decl-ast[], specs spec-decl[]) check-ctx, types-get
+	delay-spec-insts delay-spec-insts = ()
+	for i in 0::nat .. specs.size
+		spec_ = specs[i]
+		ast = asts[i]
+		spec_.body := check-spec-decl-body spec_, ast.type-params, delay-spec-insts, ast
+	for decl in specs
+		detect-and-fix-spec-recursion decl
+	while x = pop delay-spec-insts
+		instantiate-spec-body x, delay-spec-insts
+
+-detect-and-fix-spec-recursion void(decl spec-decl) check-ctx
+	trace spec-decl mut[] = ()
+	if recur-detect-spec-recursion decl, trace
+		add-diag-assert-same-uri decl.range, trace.move-to.diag-spec-recursion
+		overwrite-parents-to-empty decl
+-recur-detect-spec-recursion bool(cur spec-decl, trace spec-decl mut[])
+	!is-empty cur.parents and trace.size >= max-spec-depth or
+	some cur.parents.inner, of parent
+		do if parent.spec-inst
+		trace ~= parent.decl
+		if recur-detect-spec-recursion parent.decl, trace
+			true
+		else
+			_ = pop! trace
+			false
+
+-check-type-aliases-initial type-alias[](asts type-alias-ast[]) check-ctx
+	for ast in asts
+		check-no-type-params ast.type-params, alias_
+		next-hash, ast, cur-uri, ast.visibility.visibility-from-explicit-top-level, (), ()
+
+-check-type-alias-targets void
+	aliases type-alias[]
+	asts type-alias-ast[]
+do check-ctx, types-get
+	for i in 0::nat .. aliases.size
+		type-alias = aliases[i]
+		ast = asts[i]
+		type = type-from-ast ast.target, ast.type-params, different-module
+		type-alias.target := match type
+		as bogus-type
+			void
+		as type-inst
+			type
+		as type-param-index
+			throw unreachable
+
+-build-types-and-specs-map types-and-specs-map
+	structs type-decl[]
+	aliases type-alias[]
+	specs spec-decl[]
+do check-ctx
+	res spec-or-type[] = with out in build
+		for x in structs
+			out ~= x
+		for x in aliases
+			out ~= x
+		for x in specs
+			out ~= x
+	to-by-name res, of _, y
+		add-diag-assert-same-uri y.name-range,
+			diag-duplicate-declaration spec-or-type, y.name
+
+-check-var-initial var-decl(ast var-decl-ast) check-ctx, types-get
+	type = type-from-ast-no-type-params ast.type
+	check-no-type-params ast.type-params, ast.kind.to
+	check-var-modifiers ast.kind, ast.modifiers
+	hash: next-hash
+	ast: ast
+	module-uri: cur-uri
+	visibility: visibility-from-explicit-top-level ast.visibility
+	type: type
+	initializer: bogus-expr ast.range, type
+	doc-comment-references: ()
+-to decl-kind(a var-kind)
+	match a
+	as global_
+		global_
+	as thread-local_
+		thread-local_
+-check-var-modifiers void(kind var-kind, modifiers modifier-ast[]) check-ctx
+	for modifier in modifiers
+		match modifier
+		as modifier-keyword-ast
+			add-diag modifier.range, diag-modifier-invalid modifier.keyword, kind.to
+		as spec-use-ast
+			add-diag modifier.range, diag-spec-use-invalid kind.to
+
+-spec-flags-and-parents record(is-builtin bool, parents specs)
+-check-spec-modifiers spec-flags-and-parents
+	delay-spec-insts delay-spec-insts
+	type-params-scope type-params
+	asts modifier-ast[]
+do check-ctx, types-get
+	is-builtin mut bool = false
+	parents spec-or-type-inst[] = with out in build
+		for ast in asts
+			match ast
+			as modifier-keyword-ast
+				match ast.keyword
+				as builtin_
+					if is-builtin
+						add-diag ast.keyword-range, diag-modifier-duplicate ast.keyword.to
+					modifier-type-arg-invalid ast
+					is-builtin := true
+				else
+					add-diag ast.keyword-range, diag-modifier-invalid ast.keyword, spec_
+			as spec-use-ast
+				if spec_ = spec-or-type-from-ast type-params-scope, ast, delay-spec-insts
+					out ~= spec_
+	is-builtin, get-or-add-specs parents
+
+-check-worker-after-common-types keen-module
+	type-aliases type-alias[]
+	types type-decl[]
+	uri-and-ast uri-and-ast
+	imports-and-re-exports imports-and-re-exports
+	specs spec-decl[]
+do check-ctx, common-types, types-and-specs-map
+	ast = uri-and-ast.ast
+	check-type-bodies types, ast.structs
+	vars var-decl[] = for x in ast.vars
+		check-var-initial x
+	check-spec-bodies ast.specs, specs
+	funs-and-map =
+		check-funs types, vars, imports-and-re-exports.files, ast.funs, ast.tests
+	the funs-map = funs-and-map.funs-map
+	for var in vars
+		var.initializer :=
+			check-fun-or-test-body var, var.type, (), var.ast.initializer, var.ast, false
+	check-doc-comments funs-and-map.funs-map, type-aliases, types, specs, vars, funs-and-map.funs, funs-and-map.tests
+	module-doc-comment-references = check-doc-comment-references funs-and-map.funs-map, (), (), ast.doc-comment
+	exports = get-all-exports imports-and-re-exports.module-re-exports, funs-and-map.funs-map
+	res keen-module =
+		uri: uri-and-ast.uri
+		config: uri-and-ast.config
+		ast: ast
+		imports-and-re-exports: with out in build
+			for x in imports-and-re-exports.module-imports
+				out ~= x.module
+			for x in imports-and-re-exports.module-re-exports
+				out ~= x.module
+		file-imports-and-exports:
+			-- map imports-and-re-exports.file-imports, it.uri
+			-- map imports-and-re-exports.file-exports, it.uri
+		check-diagnostics: ()
+		aliases: type-aliases
+		types: types
+		vars: vars
+		specs: specs
+		funs: funs-and-map.funs
+		tests: funs-and-map.tests
+		public-exports: exports.public
+		public-and-internal-exports: exports.public-and-internal
+		doc-comment-references: module-doc-comment-references
+	detect-unused-private the::check-context.diagnostics-builder, res
+	res.check-diagnostics := finish-diagnostics
+	res
+
+-all-exports record(public exports, public-and-internal exports)
+-get-all-exports all-exports(re-exports import-or-export[], funs-map funs-map) check-ctx, types-and-specs-map
+	exported-funs fun-decl mut[] = ()
+	exported-types-and-specs spec-or-type mut[] = ()
+
+	for e in re-exports
+		its-exports = match e.source!.kind
+		as import-whole-module-ast
+			# TODO: if this is a re-export imported with a non-relative path, only re-export the public members
+			e.module.public-and-internal-exports
+		as array
+			e.named-imported
+		as import-file-ast
+			throw unreachable
+		for x in its-exports.funs
+			exported-funs ~= x
+		for x in its-exports.types-and-specs
+			exported-types-and-specs ~= x
+
+	for x in the::types-and-specs-map
+		if x.visibility != private
+			exported-types-and-specs ~= x
+	for x in funs-map
+		if x.visibility != private
+			exported-funs ~= x
+
+	public-and-internal exports =
+		funs: exported-funs.move-to
+		types-and-specs: move-to-by-name exported-types-and-specs, of _, y
+			add-diag-assert-same-uri y.range, diag-duplicate-exports type, y.name
+	public:
+		funs: filter public-and-internal.funs, it.visibility == public
+		types-and-specs: filter public-and-internal.types-and-specs, it.visibility == public
+	public-and-internal: public-and-internal
+
+-check-worker (keen-module, common-types)
+	keen-lib uri
+	common-uris common-uris
+	resolved-imports resolved-import[]
+	uri-and-ast uri-and-ast
+	get-common-types common-types mut(ctx check-context, types types-and-specs-map)
+do instantiate-ctx
+	diags-builder diagnostic mut[] = ()
+	imports-and-re-exports = check-imports-and-re-exports diags-builder, uri-and-ast.ast, resolved-imports
+	ast = uri-and-ast.ast
+	all-imports = collect-imports-and-re-exports imports-and-re-exports
+	the check-context  =
+		keen-lib: keen-lib
+		common-uris: common-uris
+		cur-uri: uri-and-ast.uri
+		config: uri-and-ast.config
+		cur-file-text: uri-and-ast.ast.line-and-column-getter.source-text
+		module-imports-and-re-exports: imports-and-re-exports.module-imports ~~ imports-and-re-exports.module-re-exports
+		imports-and-re-exports: all-imports
+		json-type: unless ast.no-std_ then get-json-type all-imports[0]
+		diagnostics-builder: diags-builder
+	assert-all-allocated-freed
+	structs = check-types-initial ast.structs
+	type-aliases = check-type-aliases-initial ast.type-aliases
+	specs = check-spec-decls-initial ast.specs
+	the types-and-specs-map = build-types-and-specs-map structs, type-aliases, specs
+
+	the common-types = get-common-types[the::check-context, the::types-and-specs-map]
+	check-type-alias-targets type-aliases, ast.type-aliases
+	res = check-worker-after-common-types type-aliases, structs, uri-and-ast, imports-and-re-exports, specs
+	assert-all-allocated-freed
+	res, the::common-types
+
+-get-json-type type-inst?(std exports)
+	std.types-and-specs["json"].?type-decl.?only-inst
+
+-imports-and-re-exports record
+	module-imports import-or-export[]
+	module-re-exports import-or-export[]
+	file-imports import-or-export-file[]
+	file-exports import-or-export-file[]
+-files file-imports-and-exports(a imports-and-re-exports)
+	a.file-imports, a.file-exports
+-collect-imports-and-re-exports exports[](a imports-and-re-exports)
+	with out in build
+		for x in a.module-imports
+			out ~= x.exports-for-import
+		for x in a.module-re-exports
+			out ~= x.exports-for-import
+-exports-for-import exports(import_ import-or-export)
+	if import_.is-std
+		import_.module.public-exports
+	else
+		match import_.source!.kind
+		as import-whole-module-ast
+			exports import_.module, import_.import-visibility
+		as array
+			import_.named-imported
+		as import-file-ast
+			throw unreachable
+
+-check-imports-and-re-exports imports-and-re-exports
+	diags-builder diagnostic mut[]
+	ast file-ast
+	resolved-imports resolved-import[]
+do
+	resolved-imports-left resolved-import array-view reference = resolved-imports,
+	imports = check-imports-or-re-exports diags-builder, ast.imports, resolved-imports-left, !ast.no-std_
+	re-exports = check-imports-or-re-exports diags-builder, ast.re-exports, resolved-imports-left, false
+	assert is-empty resolved-imports-left.get
+	imports.modules, re-exports.modules, imports.files, re-exports.files
+
+-imports-or-re-exports record(modules import-or-export[], files import-or-export-file[])
+-check-imports-or-re-exports imports-or-re-exports
+	diags-builder diagnostic mut[]
+	ast imports-or-exports-ast?
+	resolved-imports resolved-import array-view reference
+	include-std bool
+do
+	imports import-or-export mut[] = ()
+	file-imports import-or-export-file mut[] = ()
+	next-import = of
+		res = resolved-imports.get[0]
+		resolved-imports set= resolved-imports.get[1 .. end]
+		res
+
+	if include-std
+		handle-module-import diags-builder, imports, next-import[], (), public, it.noop
+
+	if ast
+		for import-ast in ast.paths
+			import-visibility = import-min-visibility import-ast
+			match kind = import-ast.kind
+			as import-whole-module-ast
+				handle-module-import diags-builder, imports, next-import[], import-ast, import-visibility, it.noop
+			as array
+				handle-module-import diags-builder, imports, next-import[], import-ast, import-visibility, of x
+					x.named-imported := check-named-imports diags-builder, import-visibility, x.module, kind
+			as import-file-ast
+				match x = next-import[]
+				as module
+					throw unreachable
+				as imported-file
+					file-imports ~= import-ast, x.uri, x.content
+				as diag-import-file
+					diags-builder ~= import-ast.path-range, x
+
+	modules: imports.move-to
+	files: file-imports.move-to
+-handle-module-import void
+	diags-builder diagnostic mut[]
+	imports import-or-export mut[]
+	resolved-import resolved-import
+	source import-or-export-ast?
+	min-visibility export-visibility
+	cb-init-imported void mut(x import-or-export)
+do
+	match resolved-import
+	as module
+		imports ~= source, resolved-import, min-visibility, ()
+		cb-init-imported[imports.peek!]
+	as imported-file
+		throw unreachable
+	as diag-import-file
+		diags-builder ~=
+			range: source.?path-range else ()
+			kind: resolved-import
+
+-import-min-visibility export-visibility(a import-or-export-ast)
+	match a.path
+	as path
+		public
+	as rel-path
+		internal
+
+-check-named-imports exports
+	diags-builder diagnostic mut[]
+	import-visibility export-visibility
+	module module
+	names name-and-range[]
+do
+	set symbol set = map names, it.name
+	exports = exports module, import-visibility
+	if set.size != names.size
+		assert set.size < names.size
+		for name in names
+			if (count names, it.name == name.name) != 1
+				diags-builder ~= name.range, name.name.diag-duplicate-import-name
+	for name in set
+		if exports.funs[name].is-empty and !exports.types-and-specs[name] and !exports.types-and-specs[name]
+			ast = find! names, it.name == name
+			diags-builder ~= ast.range, name.diag-import-refers-to-nothing
+	funs: choose-keys exports.funs, set
+	types-and-specs: choose-keys exports.types-and-specs, set

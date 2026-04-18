@@ -1,0 +1,1165 @@
+import
+	keen/string/unicode
+	../../../lib/col/mut-set: hint-size
+	../../../lib/parse: parse-float
+	../../model/ast
+	../../model/model
+	../../model/source-range
+	../../util/by-name
+	../../util/util
+	./check-call/check-call
+	./check-call/check-call-specs
+	./check-ctx
+	./allocators
+	./check-util
+	./expr-ctx
+	./inferring-type
+	./instantiate
+	./type-from-ast
+
+check-fun-or-test-body expr-maybe-allocated-locals
+	container expr-container
+	return-type type
+	params destructure[]
+	ast expr-ast?
+	source-for-empty-new call-expr-source?
+	must-be-auto bool
+do check-ctx, types-get, funs-map
+	the expr-ctx =
+		types-and-specs-map: the::types-and-specs-map
+		funs-map: the::funs-map
+		container: container
+	for param in params
+		add-locals-for-destructure param
+	res expr = if ast
+		if must-be-auto
+			if ast.trusted-ast
+				check-trusted ast, return-type.expect, true
+			else
+				add-diag-assert-same-uri container.name-range, diag-must-be-auto
+				check-and-expect ast, return-type
+		else
+			check-and-expect ast, return-type
+	else
+		check-empty-new source-for-empty-new!, source-for-empty-new!.name-range, return-type.expect
+	if is-empty the::expr-ctx.allocated-locals
+		res
+	else
+		expr-with-allocated-locals res, the::expr-ctx.allocated-locals.move-to
+
+| This exists to work around the fact that spec impls currently can't take contexts
+-check-expr expr
+	instantiate-ctx instantiate-ctx
+	check-ctx check-context
+	common-types common-types
+	expr-ctx expr-ctx
+	ast expr-ast
+	expected expected
+do
+	the instantiate-ctx = instantiate-ctx
+	the check-context = check-ctx
+	the common-types = common-types
+	the expr-ctx = expr-ctx
+	check-expr ast, expected
+-check-expr expr(ast expr-ast, expected expected) check-expr-ctx
+	match ast
+	as assert-or-forbid-ast
+		check-assert-or-forbid ast, expected
+	as assignment-ast
+		check-assignment ast, ast.left, ast.keyword-range, expected, of right-expected
+			check-expr ast.right, right-expected
+	as assignment-call-ast
+		check-assignment-call ast, expected
+	as bogus-ast
+		bogus expected, ast
+	as call-ast
+		check-call ast, expected
+	as call-named-ast
+		check-call-named ast, expected
+	as call-subscript-ast
+		check-call-subscript ast, expected
+	as finally-ast
+		check-finally ast, expected
+	as force-ast
+		check-force ast, expected
+	as for-or-with-ast
+		check-for-or-with ast, expected
+	as name-and-range
+		check-identifier ast, expected
+	as if-ast
+		check-if ast, expected
+	as interpolated-ast
+		check-interpolated ast, expected
+	as it-ast
+		check-it ast, expected
+	as it-scope-ast
+		check-it-scope ast, expected
+	as lambda-ast
+		check-lambda ast, expected, ()
+	as let-ast
+		check-let ast, expected
+	as let-the-ast
+		check-let-the ast, expected
+	as list-ast
+		check-list ast, expected
+	as literal-number
+		check-literal-number ast.range, expected
+	as literal-string-ast
+		check-literal-string ast, expected
+	as logical-ast
+		check-logical ast, expected
+	as match-ast
+		check-match ast, expected
+	as not-ast
+		check-not ast, expected
+	as parenthesized-ast
+		check-expr ast.inner, expected
+	as seq-ast
+		check-seq ast, expected
+	as shared-ast
+		check-shared ast, expected
+	as the-ast
+		check-the ast, expected
+	as throw-ast
+		check-throw ast, expected
+	as trusted-ast
+		check-trusted ast, expected, false
+	as try-ast
+		check-try ast, expected
+	as try-let-ast
+		check-try-let ast, expected
+	as typed-ast
+		check-typed ast, expected
+	as unpack-option-ast
+		check expected, bool, check-unpack-option ast
+	as underscore-ast
+		add-diag ast.range, diag-underscore
+		bogus expected, ast.range
+	as while-or-until-body-ast
+		check-while-or-until-body ast, expected
+	as while-or-until-ast
+		check-while-or-until ast, expected
+
+
+-check-and-infer (expr, type)(ast expr-ast) check-expr-ctx
+	expected expected = infer
+	- check-expr ast, expected
+	- expected.inferred
+
+-check-and-expect-or-infer (expr, type)(ast expr-ast, expected type?) check-expr-ctx
+	if expected
+		(check-and-expect ast, expected), expected
+	else
+		check-and-infer ast
+
+-check-and-expect expr(ast expr-ast, expected type) check-expr-ctx
+	check-expr ast, expected.expect
+
+-check-not expr(ast not-ast, expected expected) check-expr-ctx
+	check expected, bool, not-expr ast, check-condition ast.arg
+
+-check-if if-expr(ast if-ast, expected expected) check-expr-ctx
+	if (ast.first-branch.is-throw or ast.second-branch.is-throw) and !ast.is-else-of-parent
+		add-diag ast.first-keyword-range, diag-if-throw
+	condition = check-condition ast.condition
+	is-negated = ast.is-condition-negated
+	empty-new-range = ast.first-keyword-range
+	# Usually check code in order, but if the first branch is empty, check it last (for better type inference)
+	first-branch expr, type type, second-branch expr = if ast.first-branch
+		first-branch = check-expr-with-context (known-value condition, !is-negated), ast.first-branch!, expected
+		type = expected.inferred
+		second-branch expr = if is-bogus type
+			bogus-expr (ast.second-branch.?range else empty-new-range), type
+		elif ast.second-branch
+			check-expr-with-context (known-value condition, is-negated), ast.second-branch!, expected
+		else
+			check-empty-new ast, empty-new-range, expected
+		first-branch, type, second-branch
+	else
+		second-branch = check-expr-with-context (known-value condition, is-negated), ast.second-branch!, expected
+		type = expected.inferred
+		first-branch expr = if is-bogus type
+			bogus-expr empty-new-range, type
+		else
+			check-empty-new ast, empty-new-range, expected
+		first-branch, type, second-branch
+	ast: ast
+	condition: condition
+	true-branch: if is-negated then second-branch else first-branch
+	false-branch: if is-negated then first-branch else second-branch
+	type: type
+-is-throw bool(a expr-ast?)
+	!!a.?throw-ast
+
+-check-condition expr(ast expr-ast) check-expr-ctx
+	if ast.skip-parentheses.logical-ast
+		check-and-expect ast, bool
+	else
+		# Since anything can implicitly convert to 't?', any expression can match this.
+		# But having this will guide code to prefer to exactly match 'bool' instead of converting to option.
+		res = check-expr ast,
+			- bool, ()
+			- t-option, ((),)
+		# It may implicitly convert to an option and that's what 'expected inferred' gives.
+		# So use 'res type' to get the actual type.
+		type = type-not-json res
+		if is-bool type or is-option type
+			res
+		else
+			unless is-bogus type
+				add-diag ast.range, diag-condition-type type-with-container type
+			bogus-expr ast.range, bool
+
+-check-unpack-option unpack-option(ast unpack-option-ast) check-expr-ctx
+	expr, type = check-and-expect-or-infer ast.option,
+		if t = type-from-destructure ast.destructure
+			option[t]
+	destructure  = check-destructure ast.destructure, type.unwrap-option-or-same, local
+	ast: ast
+	destructure: destructure
+	option: if is-option type
+		match expr
+		as local-get-expr
+			if !expr.local.is-mutable and destructure.local
+				add-diag ast.option.range,
+					diag-unpack-option-unnecessary destructure.name, expr.local.name, ()
+		as call-expr
+			if x = as-call-sum-type-case-get-on-local expr and destructure.local
+				add-diag ast.option.range,
+					diag-unpack-option-unnecessary destructure.name, x.local.name, x.refined-type.type-inst!.decl.name
+		else
+			()
+		expr
+	else
+		range = ast.option.range
+		unless is-bogus type
+			add-diag range, diag-unpack-option-must-be-option type-with-container type
+		bogus-expr range, option[type]
+
+-check-force expr(ast force-ast, expected expected) check-expr-ctx
+	is-option mut bool = true
+	arg = check-with-modify-expected-option ast.arg, expected, of actual
+		is-option := false
+		add-diag ast.keyword-range, diag-option-force-non-option actual
+	if is-option then force-expr ast, arg else arg
+
+-check-the expr(ast the-ast, expected expected) check-expr-ctx
+	do if type = type-for-the ast.type else bogus expected, ast
+	if get-the ast.range, type
+		check expected, type, the-expr ast, type
+	else
+		bogus expected, ast.range
+
+-check-throw expr(ast throw-ast, expected expected) check-expr-ctx
+	if type = try-get-inexact-non-inferring-type expected
+		thrown = check-and-expect ast.thrown, exception
+		throw-expr ast, thrown, type
+	else
+		add-diag ast.range, throw_::diag-needs-expected-type
+		bogus expected, ast.range
+
+-check-trusted trusted-expr(ast trusted-ast, expected expected, allow-unused bool) check-expr-ctx
+	ast, with in trusted-scope ast, allow-unused
+		check-expr ast.inner, expected
+
+-check-assert-or-forbid expr(ast assert-or-forbid-ast, expected expected) check-expr-ctx
+	condition = check-condition ast.condition
+	is-forbid = ast.is-forbid
+	thrown expr? = if thrown-ast = ast.thrown
+		if x = thrown-ast.expr.throw-ast
+			add-diag x.keyword-range, diag-assert-or-forbid-message-is-throw
+		check-expr-with-context (known-value condition, is-forbid), thrown-ast.expr, exception.expect
+	after =
+		diag diag-required-after = if is-forbid then forbid_ else assert_
+		check-required-after ast.keyword-range, (known-value condition, !is-forbid), ast.after, diag, expected
+	assert-or-forbid-expr ast, is-forbid, condition, thrown, after
+
+-check-assignment expr
+	source call-expr-source
+	left expr-ast
+	keyword-range source-range
+	expected expected
+	cb-right expr mut(x expected)
+do check-expr-ctx
+	cant-assign = of
+		add-diag left.range, diag-assignment-not-allowed
+		bogus expected, source.range
+	match left
+	as name-and-range
+		check-assign-identifier left, keyword-range, left.name, expected, cb-right
+	as call-ast
+		name symbol? = match style left
+		as dot
+			"set-{left.fun-name.name}"
+		else
+			()
+		do if name else cant-assign[]
+		check-call-special-cb-n (source, keyword-range, name, left.args.size + 1), expected, of i, arg-expected
+			if i == left.args.size
+				cb-right[arg-expected]
+			else
+				check-expr left.args[i], arg-expected
+	as call-subscript-ast
+		do unless left.is-question-subscript else cant-assign[]
+		check-call-special-cb-n (source, keyword-range, "set-subscript", 3), expected, of i, arg-expected
+			match i
+			as 0
+				check-expr left.left, arg-expected
+			as 1
+				check-expr left.right, arg-expected
+			as 2
+				cb-right[arg-expected]
+			else
+				throw unreachable
+	else
+		cant-assign[]
+
+-check-assignment-call expr(ast assignment-call-ast, expected expected) check-expr-ctx
+	check-assignment ast, ast.left, ast.keyword-range, expected, of arg-expected
+		check-call-special ast, ast.fun-name.range, ast.fun-name.name, (ast.left, ast.right), arg-expected
+
+-check-interpolated expr(ast interpolated-ast, expected expected) check-expr-ctx
+	if type, _ = choose-string-type ast.range, expected
+		check-interpolated-inner ast, ast.range, ast.template, ast.interpolated, expected, type
+	else
+		add-diag ast.range, interpolated::diag-needs-expected-type
+		bogus expected, ast.range
+
+-check-interpolated-inner expr
+	source list-expr-source
+	range source-range
+	template interpolated-template-part[]
+	interpolated-exprs expr-ast[]
+	expected expected
+	type type
+do check-expr-ctx
+	do if called = find-function-for-interpolate-or-list-new range, "interpolate", type else
+		bogus expected, range
+	arg-expected = expect as-array! only! called.param-types
+	list-expr source, called, for* arg-index in 0 .. template.size + interpolated-exprs.size
+		if is-even arg-index
+			part = template[arg-index / 2]
+			do unless is-empty part.value
+			range2 = if is-empty part.range then part.range else part.range[0 .. 1]
+			- check-call-special-cb1 part, range2, "interpolate-string", arg-expected, of inner2
+				check-literal-string-only-string part, inner2
+		else
+			part = interpolated-exprs[arg-index / 2]
+			range2 = if is-empty part.range then part.range else part.range[0 .. 1]
+			- check-call-special source.to, range2, "interpolate-value", (part,), arg-expected
+
+-access-local local?(diag-range source-range, name symbol) check-expr-ctx
+	# This traverses from the innermost lambda outwards, checking if it was already added to a closure.
+	# Then we walk back inwards adding to inner lambdas.
+	i mut = lambdas.size
+	do until
+	if i == 0
+		if index = find-index locals, it.name == name
+			local = locals[index]
+			i := lambdas.size
+			until i == 0 or index >= lambdas[i - 1].first-local-index
+				add-to-closure diag-range, lambdas[i - 1], local
+				i -:= 1
+			local
+		else
+			()::local?
+	else
+		lambda = lambdas[i - 1]
+		if local = find lambda.closure-locals, it.name == name
+			for j in i .. lambdas.size
+				add-to-closure diag-range, lambdas[j], local
+			local
+		else
+			i -:= 1
+			()
+
+-add-to-closure void(diag-range source-range, lambda lambda-info, local local) check-expr-ctx
+	lambda.closure-locals ~= local
+	if is-mutable local
+		_ = ensure the::expr-ctx.allocated-locals, local, of
+			reference[local.type]
+	check-lambda-can-reference-local diag-range, lambda.mutability, local.name, local.type, local.is-mutable
+
+-check-identifier expr(ast name-and-range, expected expected) check-expr-ctx
+	if local = access-local ast.range, ast.name
+		expr expr, type type = if _, type-refinements = find-last refined-types, it.a == local
+			(local-get-and-refine-expr ast, local, type-refinements), type-refinements.last
+		else
+			(local-get-expr ast, local), local.type
+		check expected, type, expr
+	else
+		check-call-identifier ast, expected
+
+-check-assign-identifier expr
+	source name-and-range
+	keyword-range source-range
+	left symbol
+	expected expected
+	cb-right expr mut(x expected)
+do check-expr-ctx
+	if local = access-local source.range, left
+		if is-mutable local
+			check expected, void, local-set-expr source, local, cb-right[local.type.expect]
+		else
+			add-diag source.range, local.diag-local-not-mutable
+			bogus expected, source.range
+	else
+		check-call-special-cb1 source, keyword-range, "set-{left}", expected, cb-right
+
+-check-literal-number expr(range source-range, expected expected) check-expr-ctx
+	do if number-type = choose-number-type range, expected, range.get-text else bogus expected, range
+	match number-type
+	as integral-type
+		literal-scalar-expr range, number-type, check-literal-integral-value number-type, range
+	as float-type-or-js-or-json
+		literal-scalar-expr range, number-type,
+			parse-float get-text range 'to
+
+-check-literal-string expr(ast literal-string-ast, expected expected) check-expr-ctx
+	if type, kind = choose-string-type ast.range, expected
+		if kind
+			check-literal-string-inner ast.range, ast.value, kind, expected
+		else
+			check-interpolated-inner ast, ast.range, (ast.to,), (), expected, type
+	else
+		add-diag ast.range, interpolated::diag-needs-expected-type
+		bogus expected, ast.range
+-to interpolated-template-part(a literal-string-ast)
+	a.range, a.value
+
+| For a string part of an interpolated expression,
+| it is only allowed to be a literal string type, not another 'interpolate' call.
+-check-literal-string-only-string expr(ast interpolated-template-part, expected expected) check-expr-ctx
+	if _, kind = choose-string-type ast.range, expected and kind
+		check-literal-string-inner ast.range, ast.value, kind, expected
+	else
+		add-diag ast.range, diag-literal-not-expected get-expected-for-diag expected
+		bogus expected, ast.range
+
+-check-literal-string-inner expr
+	range source-range
+	value string
+	kind char-or-string-type
+	expected expected
+do check-expr-ctx
+	match kind
+	as char-type
+		match kind
+		as char8
+			literal-scalar-expr range, char8,
+				char8-literal-value range, value 'to
+		as char32
+			literal-scalar-expr range, char32,
+				char32-literal-value range, value 'to
+	as string-like-type
+		if kind != js-any or check-is-js range
+			literal-string-like-expr range, kind, value
+		else
+			bogus expected, range
+
+-check-is-js bool(range source-range) check-expr-ctx
+	res = has-build-target specs, js
+	unless res
+		add-diag range, not-extern-js
+	res
+
+-char8-literal-value char8(diag-range source-range, value string) check-ctx
+	only value.to::char8[] else
+		add-diag diag-range, diag-char-literal-must-be-one-char
+		"a"
+-char32-literal-value char32(diag-range source-range, value string) check-ctx
+	decode-as-single-unicode-char value else
+		add-diag diag-range, diag-char-literal-must-be-one-char
+		"a"
+-decode-as-single-unicode-char char32?(a string)
+	only a.to::char32[]
+
+-expression-context union(known-value, destructure, no-context)
+| Context where {expr} is known to be {expr-value}
+-known-value record(expr expr, expr-value bool)
+-no-context record
+-check-expr-with-context expr
+	context expression-context
+	ast expr-ast
+	expected expected
+do check-expr-ctx
+	check-with-condition context, of
+		check-expr ast, expected
+-check-with-condition[t] t(context expression-context, f t mut()) check-expr-ctx
+	restore-locals = locals.size
+	restore-refined-types = refined-types.size
+	original-specs = specs
+	match context
+	as known-value
+		for x in condition-knowledge context.expr, context.expr-value
+			match x
+			as local
+				add-local x
+			as local-refinement
+				add-type-refinement x.local, x.refined-type
+			as build-target
+				specs := add-build-target-to-specs specs, x
+	as destructure
+		add-locals-for-destructure context
+	as no-context
+		()
+	res = f[]
+	restore-locals restore-locals
+	while refined-types.size > restore-refined-types
+		_ = pop! refined-types
+	specs := original-specs
+	res
+-add-locals-for-destructure void(destructure destructure) check-expr-ctx
+	for x in destructure.locals
+		add-local x
+
+-add-build-target-to-specs specs(specs specs, target build-target) common-types
+	get-or-add-specs specs.inner ~ match target
+	as java
+		java-spec
+	as js
+		js-spec
+
+-add-type-refinement void(local local, refined-type type) expr-ctx
+	refined-types ~= local, if existing = find refined-types, it.a == local
+		existing.b ~ refined-type
+	else
+		as-type-args refined-type
+
+-add-local void(local local) check-expr-ctx
+	if some locals, it.name == local.name
+		add-diag local.local-must-have-name-range, diag-duplicate-declaration param-or-local, local.name
+	locals ~= local
+-restore-locals void(size nat) check-expr-ctx
+	while locals.size > size
+		pop-local
+-pop-local void() expr-ctx
+	_ = pop! locals
+
+-check-shared expr(ast shared-ast, expected expected) check-expr-ctx
+	if inner = lambda-ast ast.inner
+		check-lambda inner, expected, ast.keyword-range
+	else
+		add-diag ast.keyword-range, diag-shared-arg-is-not-lambda
+		bogus expected, ast.range
+
+-is-mutable-local bool(a closure-element)
+	a.local and a.is-mutable
+-type type(a closure-element)
+	match a
+	as local
+		a.type
+	as type-inst
+		a
+
+-check-it expr(ast it-ast, expected expected) check-expr-ctx
+	local = access-local! ast.range, "it"
+	check expected, local.type, local-get-expr ast, local
+
+-check-it-scope expr(ast it-scope-ast, expected expected) check-expr-ctx
+	if ast.inner.it-ast
+		add-diag ast.range, diag-it-identity
+		bogus expected, ast
+	else
+		check-lambda ast, expected, ()
+
+| This exists to work around the fact that spec impls currently can't take contexts
+-check-lambda expr
+	instantiate-ctx instantiate-ctx
+	check-ctx check-context
+	common-types common-types
+	expr-ctx expr-ctx
+	source lambda-source
+	expected expected
+do
+	the instantiate-ctx = instantiate-ctx
+	the check-context = check-ctx
+	the common-types = common-types
+	the expr-ctx = expr-ctx
+	check-lambda source, expected, ()
+-check-lambda expr(ast lambda-source, expected expected, explicit-shared source-range?) check-expr-ctx
+	do if el = get-expected-lambda ast, ast.param, expected else
+		bogus expected, ast.diag-range
+	return-type = el.return-type
+	lambda-decl = el.lambda-decl
+	param-type = el.instantiated-param-type
+	param = if param-ast = ast.param
+		check-destructure param-ast, param-type, param
+	else
+		ast.it-scope-ast!, param-type
+
+	lambda-info lambda-info =
+		mutability: if explicit-shared then mut_ else as-lambda-type! lambda-decl
+		first-local-index: locals.size
+		closure-locals: ()
+		closure-contexts: ()
+	# Checking the body of the lambda may fill in candidate type args
+	# if the expected return type contains candidate's type params
+	body-expected = if return-type then expect-with-context return-type else infer
+
+	lambdas ~= lambda-info
+	body = check-expr-with-context param, ast.body, body-expected
+	_ = pop! lambdas
+
+	body-type = if return-type
+		# Can't just use `inferred body-expected` since that may be a narrower type than requested.
+		try-get-inexact-non-inferring-type return-type else bogus-type
+	else
+		inferred body-expected
+	res lambda-expr =
+		ast: ast
+		param: param
+		mut-type-for-explicit-shared: if explicit-shared then lambda-mut[body-type, param-type]
+		body: body
+		closure:
+			-- map lambda-info.closure-locals, it.identity
+			-- map lambda-info.closure-contexts, it.identity
+		type: lambda-decl[body-type, param-type]
+	must-check expected, res.type
+	if explicit-shared
+		if lambda-decl.as-lambda-type! != shared_
+			add-diag explicit-shared, diag-shared-not-expected get-expected-for-diag expected
+		all-shared = every res.closure, of x
+			!x.is-mutable-local and is-shared specs, x.type
+		if all-shared
+			add-diag explicit-shared, diag-shared-lambda-unused
+	res
+
+-check-let expr(ast let-ast, expected expected) check-expr-ctx
+	value-expr, value-type = check-and-expect-or-infer ast.value, type-from-destructure ast.destructure
+	destructure = check-destructure ast.destructure, value-type, local
+	then_ = check-required-after ast.destructure.range, destructure, ast.then_, let, expected
+	let-expr ast, destructure, value-expr, then_
+
+-type-for-the type-inst?(ast type-ast) check-expr-ctx
+	match type = type-from-ast ast
+	as bogus-type
+		()
+	as type-param-index
+		add-diag ast.range, diag-context-type-param
+		()
+	as type-inst
+		type
+
+-check-let-the expr(ast let-the-ast, expected expected) check-expr-ctx
+	do if is-empty lambdas else
+		add-diag ast.keyword-range, diag-context-defined-in-lambda
+		bogus expected, ast
+	do if type = type-for-the ast.type else bogus expected, ast
+	value = check-and-expect ast.value, type
+	old-specs = specs
+	if contains old-specs.all-contexts, type
+		add-diag ast.keyword-range, diag-context-duplicate type-with-container type
+	specs := old-specs ~ type
+	after = check-required-after ast.keyword-range, (), ast.then_, let, expected
+	specs := old-specs
+	let-the-expr ast, type, value, after
+
+-check-required-after expr?
+	diag-range source-range
+	locals expression-context
+	ast expr-ast?
+	kind diag-required-after
+	expected expected
+do check-expr-ctx
+	check-with-condition locals, of
+		if ast
+			check-expr ast, expected
+		else
+			unless t = expected.try-get-inexact-non-inferring-type and is-void t
+				add-diag diag-range, kind
+				bogus expected, diag-range
+
+-check-list expr(ast list-ast, expected expected) check-expr-ctx
+	if args expr-ast[] = map-every ast.parts, it.expr-ast
+		check-call-list-no-multi ast, ast.range, args, expected
+	else
+		do if result-type = try-get-inexact-non-inferring-type expected else
+			add-diag ast.range, list::diag-needs-expected-type
+			bogus expected, ast.range
+		do if called = find-function-for-interpolate-or-list-new ast.range, "list-new", result-type else
+			bogus expected, ast.range
+		arg-elem-type = as-array! only! called.param-types
+		list-expr ast, called, for part in ast.parts
+			match part
+			as expr-ast
+				check-and-expect part, arg-elem-type
+			as list-ast-part-multi
+				list-expr-part-multi check-and-expect part.arg, array-view[arg-elem-type]
+
+-check-logical expr(ast logical-ast, expected expected) check-expr-ctx
+	match ast.kind
+	as and_
+		left = check-condition ast.left
+		right = check-with-condition (known-value left, true), of
+			check-condition ast.right
+		check expected, bool, (ast, bool-and-bool, bool, left, right)::logical-expr
+	as else_
+		left = check-with-modify-expected-option ast.left, expected, of actual
+			add-diag ast.keyword-range, actual.diag-option-else-left-non-option
+		right = check-expr ast.right, expected
+		(ast, option-else, expected.inferred, left, right)::logical-expr
+	as or_
+		if expected.try-get-inexact-non-inferring-type == bool
+			left = check-condition ast.left
+			right = check-condition ast.right
+			(ast, bool-or-bool, bool, left, right)::logical-expr
+		else
+			left = check-expr ast.left, expected
+			right = check-expr ast.right, expected
+			left-type = type-not-json left
+			right-type = type-not-json right
+			type = expected.inferred
+			kind = if type == bool
+				bool-or-bool
+			else
+				if !is-option left-type
+					add-diag ast.range,
+						diag-option-or-left-non-option type-with-container left-type
+				elif !is-option right-type
+					add-diag ast.range,
+						diag-option-or-right-non-option type-with-container right-type
+				option-or
+			(ast, kind, type, left, right)::logical-expr
+
+| Outer expected is 't?', inner expected is 't'
+-check-with-modify-expected-option expr
+	ast expr-ast
+	outer expected
+	warn-non-option void mut(actual type-with-container)
+do check-expr-ctx
+	check-with-modify-expected outer, option[it], of inner
+		arg = check-expr ast, inner
+		arg-type = type-not-json arg
+		un-option = unwrap-option-allow-bogus arg-type else
+			warn-non-option[type-with-container arg-type]
+			arg-type
+		arg, un-option
+
+-check-while-or-until expr(ast while-or-until-ast, expected expected) check-expr-ctx
+	condition = check-condition ast.condition
+	body = check-expr-with-context (known-value condition, !ast.is-until), ast.body, expect void
+	diag diag-required-after = if ast.is-until then until_ else while_
+	after = check-required-after ast.keyword-range, (known-value condition, ast.is-until), ast.after, diag, expected
+	while-or-until-expr ast, condition, body, after
+
+check-while-or-until-body expr(ast while-or-until-body-ast, expected expected) check-expr-ctx
+	if ast.is-until
+		body = check-with-modify-expected expected, it.expected-until-body, of inner
+			res = check-expr ast.body, inner
+			body-type = inferred inner
+			if is-bool body-type
+				res, void
+			elif u = unwrap-option body-type
+				res, u
+			else
+				unless is-bogus body-type
+					add-diag ast.keyword-range, diag-until-non-option type-with-container body-type
+				res, body-type
+		while-or-until-body-expr ast, body
+	else
+		body = check-and-expect ast.body, bool
+		check expected, void, while-or-until-body-expr ast, body
+-expected-until-body type(a type) common-types
+	if is-void a
+		bool
+	else
+		option[a]
+
+-check-match expr(ast match-ast, expected expected) check-expr-ctx
+	matched, matched-type = check-and-infer ast.matched
+	local local? = if local = ast.local
+		local, matched-type
+	if local then add-local local
+	# Use an arbitrary non-matchable inst as default
+	inst = matched-type.type-inst else void
+	decl = inst.decl
+	not-matchable = of
+		unless is-bogus matched-type
+			add-diag ast.matched.range,
+				diag-match-on-non-matchable type-with-container matched-type
+		bogus expected, ast.matched
+	res = match body = decl.body
+	as type-body-bogus
+		not-matchable[]
+	as builtin-type
+		if char-type = body.to::char-type?
+			check-match-char ast, expected, local, matched, char-type
+		elif integral = body.to::integral-type?
+			check-match-scalar ast, expected, local, matched, integral
+		else
+			not-matchable[]
+	as enum_
+		check-match-enum ast, expected, local, matched, decl, body
+	as flags_
+		not-matchable[]
+	as java-class
+		not-matchable[]
+	as record_
+		if string-like = get-matchable-string-like-from-record inst
+			check-match-string-like ast, expected, local, matched, string-like
+		else
+			not-matchable[]
+	as sum-type
+		if can-match-sum-type body.kind
+			check-match-sum-type ast, expected, local, matched, inst
+		else
+			not-matchable[]
+	if local
+		pop-local
+	res
+
+-can-match-sum-type bool(a sum-type-kind)
+	match a
+	as interface_
+		false
+	as java-interface
+		true
+	as union_
+		true
+	as variant_
+		true
+
+-check-match-enum expr
+	ast match-ast
+	expected expected
+	matched-local local?
+	matched expr
+	matched-enum type-decl
+	body enum_
+do check-expr-ctx
+	remaining enum-or-flags-member mut-set = body.members.to
+	has-case-diag mut bool = false
+	cases match-enum-case[] = with out in build ast.cases.size
+		do for case-ast in ast.cases
+		as-name = name-from-case-member-ast case-ast.member
+		name = as-name.?name.?name
+		if member = (if name then body.members-by-name[name])
+			if remove remaining, member
+				out ~= member, check-expr case-ast.then_, expected
+			else
+				has-case-diag := true
+				add-diag case-ast.name-range, name!::diag-match-case-duplicate
+		else
+			has-case-diag := true
+			if name
+				add-diag case-ast.name-range, diag-match-case-name-not-in-enum name, matched-enum
+
+	do unless has-case-diag else bogus expected, ast.range
+
+	else_ expr? = if is-empty remaining
+		if x = ast.else_
+			add-diag x.keyword-range, diag-match-unnecessary-else
+		()
+	else
+		check-match-else-required ast, expected, of
+			diag-match-unhandled-enum-members remaining.to
+	match-enum-expr ast, matched-local, matched, cases, else_, expected.inferred
+
+-check-match-sum-type match-sum-type-expr
+	ast match-ast
+	expected expected
+	local local?
+	matched expr
+	sum-type type-inst
+do check-expr-ctx
+	matched-local = local or as-immut-local-get matched
+	cases = check-match-sum-type-cases matched-local, sum-type, ast.cases, expected
+	body = sum-type.decl.body.sum-type!
+	is-union = body.kind == union_
+	else_ expr? = if is-union
+		if cases.size == body.listed-members.size
+			if x = ast.else_
+				add-diag x.keyword-range, diag-match-unnecessary-else
+			()
+		else
+			check-match-else-required ast, expected, of
+				diag-match-unhandled-union-case-types list-missing-union-cases sum-type, body, cases
+	else
+		check-match-else-required ast, expected, of then variant_::diag-match-needs-else
+	match-sum-type-expr ast, local, matched, cases, else_, expected.inferred
+-list-missing-union-cases type-inst[](union_ type-inst, body sum-type, cases match-sum-type-case[])
+	for* member in body.listed-members
+		member-inst = instantiate-type-inst member.member, union_.type-args
+		if !some cases, it.case-type == member-inst
+			- member-inst
+
+-as-immut-local-get local?(a expr)
+	if res = a.as-local-get and !is-mutable res
+		res
+
+-check-match-sum-type-cases match-sum-type-case[]
+	matched-local local?
+	matched-variant type-inst
+	case-asts case-ast[]
+	expected expected
+do check-expr-ctx
+	seen type-inst mut-set = ()
+	hint-size seen, case-asts.size
+	do with out in build case-asts.size
+	do for case-ast in case-asts
+	do if res = check-match-sum-type-case matched-local, matched-variant, case-ast.member, case-ast.then_, expected
+	if try-add seen, res.case-type
+		out ~= res
+	else
+		add-diag case-ast.name-range, res.case-type.decl.name::diag-match-case-duplicate
+
+-check-catches catch_[](asts catch-ast[], expected expected) check-expr-ctx
+	seen type-inst mut-set = ()
+	hint-size seen, asts.size
+	do with out in build asts.size
+	do for index, ast in with-index asts
+	do if res = check-catch ast, expected, index < asts.size - 1
+	if try-add seen, res.caught-type
+		out ~= res
+	else
+		add-diag ast.keyword-range, res.caught-type.decl.name::diag-match-case-duplicate
+
+-check-catch catch_?(ast catch-ast, expected expected, require-type bool) check-expr-ctx
+	explicit-caught-type type-inst? = if as_ = ast.as_
+		the types-and-specs-map = the::expr-ctx.types-and-specs-map
+		inst-type-from-ast as_.type-name.name, as_.type-name.range, (), type-params, yes
+	if require-type and !explicit-caught-type
+		add-diag ast.keyword-range, diag-catch-else-must-come-last
+	caught-type = explicit-caught-type else exception
+	destructure simple-destructure = if name = ast.name
+		(name, caught-type)::local
+	else
+		destructure-ignore ast, caught-type
+	destructure, check-expr-with-context destructure.to, ast.then_, expected
+
+-check-match-sum-type-case match-sum-type-case?
+	matched-local local?
+	matched-variant type-inst
+	member-ast case-member-ast
+	then-ast expr-ast
+	expected expected
+do check-expr-ctx
+	as-name = name-from-case-member-ast member-ast
+	name = as-name.?name.?name
+	do if name
+	do if case-type = get-sum-type-case-from-name matched-variant, name, member-ast.name-range
+	if matched-local
+		add-type-refinement matched-local, case-type
+	expr = check-expr then-ast, expected
+	if matched-local
+		_ = pop! refined-types
+	case-type, expr
+
+-get-sum-type-case-from-name type-inst?
+	sum-type type-inst
+	name symbol
+	name-range source-range
+do check-expr-ctx
+	listed-members = sum-type.decl.body.sum-type!.listed-members
+	the types-and-specs-map = the::expr-ctx.types-and-specs-map
+	do if type = type-or-alias-from-name name, name-range
+	match type
+	as type-alias
+		target = type.target
+		is-listed = some listed-members, it.member == target
+		has-case = some target.decl.sum-type-cases, it.sum-type == sum-type
+		if is-listed or has-case
+			target
+		else
+			add-diag name-range, diag-match-sum-type-no-member sum-type.type-with-container, target.decl
+			()
+	as type-decl
+		if member = find listed-members, it.member.decl == type
+			instantiate-type-inst member.member, sum-type.type-args
+		else
+			from-case = first type.sum-type-cases, of x
+				compare-sum-types name-range, type, x.sum-type, sum-type
+			if from-case
+				match from-case
+				as type-inst then from-case
+				as sum-type-case-bogus then ()
+			else
+				add-diag name-range,
+					diag-match-sum-type-no-member sum-type.type-with-container, type
+				()
+
+-instantiated-sum-type-case-or-bogus union(type-inst, sum-type-case-bogus)
+-sum-type-case-bogus record
+
+| Returns instantiated case type if the declared sum-type matches the actual
+-compare-sum-types instantiated-sum-type-case-or-bogus?
+	range source-range
+	case_ type-decl
+	declared-sum-type type-inst
+	actual-sum-type type-inst
+do check-ctx, common-types
+	do if declared-sum-type.decl == actual-sum-type.decl
+	with-type-context-for case_.n-type-params, of inferring-context
+		inferring-declared-sum-type type-and-context = declared-sum-type, inferring-context
+		do if match-types inferring-declared-sum-type, actual-sum-type.non-inferring, exact
+		if inferred-types = map-every-type-args inferring-context, it.?type
+			case_[inferred-types]
+		else
+			add-diag range, case_.diag-match-sum-type-cant-infer-type-args
+			sum-type-case-bogus
+
+-check-match-char expr
+	ast match-ast
+	expected expected
+	matched-local local?
+	matched expr
+	char-type char-type
+do check-expr-ctx
+	seen scalar-value mut-set = ()
+	hint-size seen, ast.cases.size
+	cases match-scalar-case[] = with out in build ast.cases.size
+		do for case-ast in ast.cases
+		do if string-value = string-from-case-ast case-ast.member
+		value scalar-value = match char-type
+		as char8
+			char8-literal-value case-ast.name-range, string-value 'to
+		as char32
+			char32-literal-value case-ast.name-range, string-value 'to
+		if try-add seen, value
+			out ~= value, check-expr case-ast.then_, expected
+		else
+			add-diag case-ast.name-range, string-value::diag-match-case-duplicate
+	else_ = check-match-else-required ast, expected, of then integral::diag-match-needs-else
+	match-scalar-expr ast, char-type, matched-local, matched, cases, else_, expected.inferred
+
+-check-match-scalar expr
+	ast match-ast
+	expected expected
+	matched-local local?
+	matched expr
+	integral-type integral-type
+do check-expr-ctx
+	seen scalar-value mut-set = ()
+	hint-size seen, ast.cases.size
+	cases match-scalar-case[] = with out in build
+		do for case-ast in ast.cases
+		value scalar-value? = match x = case-ast.member
+		as as-name-ast
+			add-diag x.name.range, numeric::diag-match-case-for-type
+			()
+		as literal-number
+			check-literal-integral-value integral-type, x.range
+		as literal-string-ast
+			add-diag x.range, numeric::diag-match-case-for-type
+			()
+		as as-bogus-ast
+			()
+		do if value
+		if try-add seen, value
+			out ~= value, check-expr case-ast.then_, expected
+		else
+			add-diag case-ast.name-range, if is-signed integral-type
+				value.to::int64::diag-match-case-duplicate
+			else
+				value.to::nat64::diag-match-case-duplicate
+	else_ = check-match-else-required ast, expected, of then integral::diag-match-needs-else
+	match-scalar-expr ast, integral-type, matched-local, matched, cases, else_, expected.inferred
+
+-get-matchable-string-like-from-record string-like-type?(inst type-inst) common-types
+	if inst == char32-array
+		char32-array
+	elif inst == char8-array
+		char8-array
+	elif inst == symbol
+		symbol
+	elif inst == string
+		string
+
+-check-match-string-like expr
+	ast match-ast
+	expected expected
+	matched-local local?
+	matched expr
+	string-type string-like-type
+do check-expr-ctx
+	the types-and-specs-map = the::expr-ctx.types-and-specs-map
+	do if spec_ = get-spec-from-common-module ast.keyword-range, "equal", compare else
+		bogus expected, ast.range
+
+	matched-type = type-inst! type-not-json matched
+	equals = check-spec-and-get-last-impl ast.keyword-range, instantiate-spec spec_, matched-type
+	seen string mut-set = ()
+	cases match-string-like-case[] = with out in build
+		do for case-ast in ast.cases
+		do if value = string-from-case-ast case-ast.member
+		if try-add seen, value
+			out ~= value, check-expr case-ast.then_, expected
+		else
+			add-diag case-ast.name-range, value::diag-match-case-duplicate
+	else_ = check-match-else-required ast, expected, of then string-like::diag-match-needs-else
+	match-string-like-expr ast, string-type, matched-local, matched, equals, cases, else_, expected.inferred
+
+-check-match-else-required expr
+	ast match-ast
+	expected expected
+	cb-diag diag mut()
+do check-expr-ctx
+	if else_ = ast.else_
+		check-expr else_.expr, expected
+	else
+		add-diag ast.keyword-range, cb-diag[]
+		bogus expected, ast.range
+
+-check-empty-new expr
+	parent call-expr-source
+	range source-range
+	expected expected
+do check-expr-ctx
+	check-call-list-no-multi parent, range, (), expected
+-check-or-empty-new expr
+	parent call-expr-source
+	empty-new-range source-range
+	ast expr-ast?
+	expected expected
+do check-expr-ctx
+	if ast
+		check-expr ast, expected
+	else
+		check-empty-new parent, empty-new-range, expected
+
+-string-from-case-ast string?(ast case-member-ast) check-ctx
+	match ast
+	as as-name-ast
+		ast.name.name.to
+	as literal-number
+		add-diag ast.range, string-like::diag-match-case-for-type
+		()
+	as literal-string-ast
+		ast.value
+	as as-bogus-ast
+		()
+
+-name-from-case-member-ast as-name-ast?(ast case-member-ast) check-ctx
+	res as-name-ast? = ast.as-name-ast
+	unless res
+		add-diag ast.name-range, enum-or-union::diag-match-case-for-type
+	res
+
+-check-seq expr(ast seq-ast, expected expected) check-expr-ctx
+	first = check-and-expect ast.first, void
+	then_ = check-expr ast.then_, expected
+	seq-expr first, then_
+
+-check-finally expr(ast finally-ast, expected expected) check-expr-ctx
+	right = check-and-expect ast.right, void
+	below = check-expr ast.below, expected
+	finally-expr ast, right, below
+
+-check-try expr(ast try-ast, expected expected) check-expr-ctx
+	body = check-expr ast.tried, expected
+	catches = check-catches ast.catches, expected
+	try-expr ast, body, catches, expected.inferred
+
+-check-try-let expr(ast try-let-ast, expected expected) check-expr-ctx
+	value-expr, value-type = check-and-expect-or-infer ast.value, type-from-destructure ast.destructure
+	destructure = check-destructure ast.destructure, value-type, local
+	catch_ = check-catch! ast.catch_, expected, false
+	then_ = check-required-after ast.try-keyword-range, destructure, ast.after, try-let, expected
+	try-let-expr ast, destructure, value-expr, catch_, then_, expected.inferred
+
+-check-typed expr(ast typed-ast, expected expected) check-expr-ctx
+	type = type-from-ast ast.type
+	do unless is-bogus type else bogus expected, ast.range
+	expr = check-or-empty-new ast, ast.keyword-range, ast.expr, type.expect
+	check expected, type, typed-expr ast, expr, type

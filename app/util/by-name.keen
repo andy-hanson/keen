@@ -1,0 +1,319 @@
+import
+	keen/bits
+	../../lib/col/mut-map: mut-map-with-capacity
+	../../lib/symbol: hash-value
+	./util
+
+name[t] spec
+	name symbol(a t)
+
+by-name[t] record
+	-impl t impl
+-impl[t] union(t[], t large-by-name)
+
+-large-by-name[t] record
+	values t[]
+	next nat32[]
+
+new[t] t by-name()
+	()::t[],
+
+is-empty[t] bool(a t by-name)
+	is-empty a.to::t[]
+size[t] nat(a t by-name)
+	size a.to::t[]
+| This does not allocate
+-to[t] t[](a t by-name)
+	match impl = a.impl
+	as array
+		impl
+	as large-by-name
+		impl.values
+
+some[t] bool(a t by-name, f bool mut(x t))
+	some a.to::t[], f
+
+# Entry in {next} that indicates that we are at the end of the chain.
+-no-next nat32()
+	max-value
+# This special value is used temporarily in {to}. The final {next} has no unused values.
+-unused nat32()
+	max-value - 1
+
+move-to-by-name[t] t by-name(values t mut[], on-duplicate void mut(x t, y t)) t name
+	to-by-name values.move-to, on-duplicate
+
+| If two have the same name, reports both in 'on-duplicate' and omits an arbitrary one from the result
+to-by-name[t] t by-name(values t[], on-duplicate void mut(x t, y t)) t name
+	if values.size <= 4
+		if i, j = find-duplicate-small values
+			on-duplicate[values[i], values[j]]
+			remove-at values, j 'to-by-name on-duplicate
+		else
+			values,
+	else
+		try
+			values.to-large-by-name,
+		catch d as duplicate
+			value-with-name mut t? = ()
+			res t[] = filter values, of value
+				value.name != d.name or
+					if value-with-name
+						on-duplicate[value-with-name!, value]
+						false
+					else
+						value-with-name := value
+						true
+			to-by-name res, on-duplicate
+
+filter[t] t by-name(a t by-name, f bool mut(x t)) t name
+	match impl = a.impl
+	as array
+		impl: filter::t[] impl, f
+	as large-by-name
+		filter impl.values, f 'to-by-name of _ then throw unreachable
+
+choose-keys[t] t by-name(a t by-name, keys symbol set) t name
+	values t[] = for* k in keys then from-option a[k]
+	to-by-name values, of _ then throw unreachable
+
+-find-duplicate-small[t] (nat, nat)?(values t[]) t name
+	first 0::nat .. values.size, of i
+		first i + 1 .. values.size, of j
+			if values[i].name == values[j].name
+				i, j
+
+-to-large-by-name[t] t large-by-name(values t[]) t name
+	n = values.size
+	res t buffer = trusted uninitialized-buffer n
+
+	next nat32 buffer = n-of n, unused
+	delay t mut[] = ()
+
+	for x in values
+		i = x.name.hash-value % n
+		if next[i] == unused
+			res[i] := x
+			next[i] := no-next
+		else
+			delay ~= x
+
+	unused-spots nat32 mut[] = ()
+	for i, x in with-index next
+		if x == unused
+			unused-spots ~= i.to
+
+	# Try to minimize the maximum cost. Cost = the length of the chain that we would create.
+	max-cost mut = 2
+	until is-empty delay
+		filter-unordered delay, of x
+			!place-delayed res, next, x, unused-spots, max-cost
+		max-cost +:= 1
+
+	trusted res.cast-immutable, next.cast-immutable
+-duplicate record(name symbol) exception case
+-show string(_ duplicate)
+	throw unreachable
+| Returns true if the value was placed, false if it should be delayed.
+-place-delayed[t] bool
+	res t buffer
+	next nat32 buffer
+	x t
+	unused-spots nat32 mut[]
+	max-cost nat
+do t name
+	cur mut = x.name.hash-value % res.size
+	cost mut = 1
+	do until
+	forbid next[cur] == unused
+	forbid x.name == res[cur].name else duplicate x.name
+	if next[cur] == no-next
+		# Found the end
+		dest = pop! unused-spots
+		next[cur] := dest
+		res[dest] := x
+		next[dest] := no-next
+		true
+	elif cost == max-cost
+		false
+	else
+		cur := next[cur]
+		cost +:= 1
+		()
+
+subscript[t] t?(a t by-name, name symbol) t name
+	match impl = a.impl
+	as array
+		find impl, it.name == name
+	as large-by-name
+		i mut = name.hash-value % impl.values.size
+		do until
+		value = impl.values[i]
+		if value.name == name
+			value
+		else
+			next = impl.next[i]
+			if next == no-next
+				()::t?
+			else
+				i := next
+				()
+
+test
+	rs r[] =
+		- "a", 0
+		- "b", 1
+		- "b", 2
+		- "c", 3
+	duplicates (r, r) mut[] = ()
+	a r by-name = to-by-name rs, of x
+		duplicates ~= x
+	duplicates.to::(r, r)[] is ((("b", 1), ("b", 2)),)
+	assert array a.impl
+	a["a"] is ("a", 0)
+	a["b"] is ("b", 1)
+	a["c"] is ("c", 3)
+	a["d"] is ()
+test
+	rs r[] =
+		- "a", 0
+		- "b", 1
+		- "c", 2
+		- "d", 3
+		- "e", 4
+		- "e", 5
+	duplicates (r, r) mut[] = ()
+	a r by-name = to-by-name rs, of x
+		duplicates ~= x
+	duplicates.to::(r, r)[] is ((("e", 4), ("e", 5)),)
+	assert large-by-name a.impl # Make sure we are testing this case
+	a.size is 5
+	for r in rs
+		a[r.name] is if r.name == "e"
+			"e", 4
+		else
+			r
+	a["f"] is ()
+
+-r record
+	name symbol
+	whatever nat
+- == bool(a r, b r)
+-to json(a r)
+
+multi-by-name[t] record
+	-impl t multi-by-name-impl
+is-empty[t] bool(a t multi-by-name)
+	is-empty a.to::t[]
+size[t] nat(a t multi-by-name)
+	size a.to::t[]
+-multi-by-name-impl[t] union(t[], t large-multi-by-name)
+-large-multi-by-name[t] record
+	# Each nat64 is effectively (start nat32, next nat32)
+	starts-and-nexts nat64[]
+	| All values stored contiguously
+	values t[]
+
+| This does not allocate
+-to[t] t[](a t multi-by-name)
+	match impl = a.impl
+	as array
+		impl
+	as large-multi-by-name
+		impl.values
+
+list-new[t] t multi-by-name(a t[]) t name
+	a.to
+
+move-to[t] t multi-by-name(values t mut[]) t name
+	values.move-to.to
+to[t] t multi-by-name(values t[]) t name
+	do if values.size > 8 else impl: sort::t[] values, it.name
+	groups = group-by-name values
+	groups-by-name t[] large-by-name = to-large-by-name groups
+	starts nat32 buffer = trusted uninitialized-buffer groups.size
+	out-values t buffer = trusted uninitialized-buffer values.size
+	next-value mut = 0
+	for i, subarray in with-index groups-by-name.values
+		starts[i] := next-value.to
+		values-end = next-value + subarray.size
+		out-values[next-value .. values-end] := subarray
+		next-value := values-end
+	starts-and-nexts nat64 buffer = trusted uninitialized-buffer starts.size
+	for i in 0::nat .. starts-and-nexts.size
+		starts-and-nexts[i] := starts[i] 'bits-cat groups-by-name.next[i]
+	impl: trusted large-multi-by-name starts-and-nexts.cast-immutable, out-values.cast-immutable
+-group-by-name[t] t[][](values t[]) t name
+	res t mut[] mut[symbol] = mut-map-with-capacity values.size
+	for x in values
+		ensure res, x.name ~= x
+	map res, it.b.move-to
+-name[t] symbol(a t[]) t name
+	a[0].name
+###
+TODO:PERF consider this instead, once I have a faster 'sort'
+| Sorts the array and returns subarrays of that with the same name
+-group-by-name[t] t array-view[](values t[]) t name
+	sorted = values sort it.name
+	with out in build
+		cur-name mut = sorted[0] name
+		start mut = 0
+		for i in 1::nat .. sorted.size
+			if sorted[i].name != cur-name
+				out ~= sorted[start .. i]
+				cur-name := sorted[i] name
+				start := i
+		out ~= sorted[start .. end]
+-name[t] symbol(a t array-view) t name
+	a[0] name
+###
+
+subscript[t] t array-view(a t multi-by-name, name symbol) t name
+	match impl = a.impl
+	as array
+		i mut = 0
+		do until
+		if i == impl.size
+			()::(t array-view)
+		elif impl[i].name == name
+			j mut = i + 1
+			until j == impl.size or impl[j].name != name
+				j +:= 1
+			impl[i .. j]
+		else
+			i +:= 1
+			()
+	as large-multi-by-name
+		cur mut = name.hash-value % impl.starts-and-nexts.size
+		do until
+		start-and-next = impl.starts-and-nexts[cur]
+		start = start-and-next >> 32
+		next = start-and-next & 0xffffffff
+		if impl.values[start].name == name
+			end = if cur + 1 == impl.starts-and-nexts.size
+				impl.values.size
+			else
+				impl.starts-and-nexts[cur + 1] >> 32
+			impl.values[start .. end]
+		elif next == no-next
+			()::(t array-view)
+		else
+			cur := next
+			()
+
+some[t] bool(a t multi-by-name, f bool mut(x t))
+	some a.to, f
+
+choose-keys[t] t multi-by-name(a t multi-by-name, keys symbol set) t name
+	for* k in keys
+		a[k].to
+
+test
+	r0 r = "a", 1
+	r1 r = "b", 2
+	r2 r = "a", 3
+	sort (r0, r1, r2).group-by-name, it[0].name is (r0, r2), (r1,)
+	a r multi-by-name = (r0, r1, r2).to
+	a["a"] is (r0, r2)
+	a["b"] is (r1,)
+	a["c"] is ()

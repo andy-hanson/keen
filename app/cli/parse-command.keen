@@ -1,0 +1,620 @@
+import
+	keen/parse-command
+	keen/string/util
+	../../lib/parse
+	../frontend/lang
+	../model/model: build-target, java, js
+	../model/source-range
+	../model/uri
+	../util/exit-code
+	../util/util
+	./command
+
+parse-command command(cwd file-path, args string[]) global
+	parse-command-inner cwd, args
+
+parse-command-inner command(cwd file-path, args string[])
+	arg0 = unless is-empty args then args[0]
+	if ends-with arg0, ".keen"
+		kind:
+			main:
+				uri: parse-uri-with-cwd cwd, arg0
+				program-args: args[1 .. end].to
+			options: ()
+		options: ()
+	elif name = command-name arg0
+		parse-command-from-name cwd, name, args[1 .. end].to.parse-command
+	else
+		kind: help-command help-all-text, if arg0 == "help" or arg0 == "--help" then ok else error
+		options: ()
+
+-parse-command-from-name command(cwd file-path, name command-name, all-args parsed-command)
+	args, help, options = extract-options all-args
+	if help
+		kind: help-command name.help-for-command, ok
+		options: options
+	else
+		diags diags = ()
+		res = parse-command-kind cwd, name, args, diags
+		if is-empty diags
+			res, options
+		else
+			show-diags = join "\n", map diags, it.show
+			help-str = "Command syntax error:\n{show-diags}\n{help-for-command name}"
+			kind: help-command help-str, error
+			options: options
+
+-extract-options (parsed-command, bool, command-options)(a parsed-command)
+	args2, help = extract a, "help"
+	args3, perf = extract args2, "perf"
+	- args3
+	- _ = help
+	- !!perf,
+
+-extract (parsed-command, string[]?)(a parsed-command, name symbol)
+	if value, rest = remove a.named, name
+		(a.nameless, rest, a.after), value
+	else
+		a, ()
+
+-bogus help-command()
+	"This should not appear", error
+
+-command-name enum
+	build
+	check
+	lsp
+	perf-test
+	print
+	run
+	test_
+	version
+-show string(a command-name)
+	match a
+	as build
+		"build"
+	as check
+		"check"
+	as lsp
+		"lsp"
+	as perf-test
+		"perf-test"
+	as print
+		"print"
+	as run
+		"run"
+	as test_
+		"test"
+	as version
+		"version"
+- == bool(a command-name, b command-name)
+-members command-name[]()
+-command-name command-name?(a string)
+	match a
+	as build
+		build
+	as check
+		check
+	as lsp
+		lsp
+	as perf-test
+		perf-test
+	as print
+		print
+	as run
+		run
+	as "test"
+		test_
+	as version
+		version
+	else
+		()
+
+-diags alias
+	diag mut[]
+-diag union
+	build-out-bad-file-extension
+	expected-keen-uri
+	expected-keen-or-dir-uri
+	expected-nat
+	expected-paths
+	needs-single-path
+	needs-out
+	parse-file-path
+	perf-test-kind-invalid
+	print-kind-invalid
+	redundant-part
+	test-line-number-invalid
+	unexpected-part
+	unexpected-part-args
+	unexpected-before
+-build-out-bad-file-extension record
+-expected-keen-uri record(actual string)
+-expected-keen-or-dir-uri record(actual string)
+-expected-nat record(tag symbol?, actual string)
+-expected-paths record(tag string?)
+-needs-single-path record(actual nat)
+-needs-out record
+-parse-file-path record(actual string)
+-perf-test-kind-invalid record
+-print-kind-invalid record
+-redundant-part record
+	redundant-tag string
+	| This causes {redundant-tag} to be redundant
+	other-tag string
+-test-line-number-invalid record
+-unexpected-part record(tag symbol)
+-unexpected-part-args record(tag symbol, args string[])
+-unexpected-before record(arg string)
+
+-show string(a diag)
+	match a
+	as build-out-bad-file-extension
+		"Build output must be a '.js' or extensionless file."
+	as expected-keen-uri
+		"Expected path to a '.keen' file, instead got {quoted a.actual}."
+	as expected-keen-or-dir-uri
+		"Expected path to a '.keen' file or directory, instead got {quoted a.actual}."
+	as expected-nat
+		if tag = a.tag
+			"Expected argument to '--{tag}' to be a natural number, instead got {quoted a.actual}."
+		else
+			"This command expects a natural number, instead got {quoted a.actual}."
+	as expected-paths
+		if tag = a.tag
+			"Argument '--{tag}' expects a list of paths."
+		else
+			"This command expects a list of paths."
+	as needs-out
+		"'build' with 'config.kid' needs '--out' argument"
+	as needs-single-path
+		if a.actual == 0
+			"This command needs a path."
+		else
+			"This command expects a single path. Instead got {a.actual}."
+	as parse-file-path
+		"Not a valid file path: {quoted a.actual}."
+	as perf-test-kind-invalid
+		"Not a valid perf-test command."
+	as print-kind-invalid
+		"Not a valid print command."
+	as redundant-part
+		"{quoted a.redundant-tag} is redundant given '--{a.other-tag}'."
+	as test-line-number-invalid
+		"Specifying a test line number only works when there is a single test file."
+	as unexpected-part
+		"Unexpected argument '--{a.tag}'."
+	as unexpected-part-args
+		"Argument '--{a.tag}' is a flag and should not have any values (starting with {quoted a.args[0]}."
+	as unexpected-before
+		"Unexpected un-named argument {quoted a.arg}."
+
+-parse-command-kind command-kind
+	cwd file-path
+	command-name command-name
+	args parsed-command
+	diags diags
+do
+	match command-name
+	as build
+		parse-build-command cwd, diags, args
+	as check
+		options = parse-check-options diags, args.named
+		expect-empty-after-dash-dash diags, args.after
+		paths = parse-keen-or-dir-uris cwd, diags, args.nameless
+		::check-command
+		root-uris: paths
+		times: times options
+		show-color: !no-color options
+		show-all-diagnostics: show-all-diags options
+	as lsp
+		expect-all-empty diags, args
+		lsp-command
+	as perf-test
+		parse-perf-test-command cwd, diags, args
+	as print
+		parse-print-command cwd, diags, args
+	as run
+		options = run-options parse-run-options diags, args.named, false
+		main = parse-main-uri cwd, diags, args.nameless
+		:: run-command
+		main: main-kind-main-function main, args.after
+		options: options
+	as test_
+		options = parse-run-options diags, args.named, true
+		expect-empty-after-dash-dash diags, args.after
+		:: run-command
+		main: parse-main-kind-for-test cwd, diags, args.nameless, options.all, options.line
+		options: options.run-options
+	as version
+		expect-all-empty diags, args
+		version-command
+
+-expect-all-empty void(diags diags, args parsed-command)
+	expect-empty-before diags, args.nameless
+	expect-empty-parts diags, args.named
+	expect-empty-after-dash-dash diags, args.after
+-expect-empty-before void(diags diags, before string[])
+	unless is-empty before
+		diags ~= unexpected-before before[0]
+-expect-empty-parts void(diags diags, parts string[][symbol])
+	for tag, _ in parts
+		diags ~= unexpected-part tag
+-expect-empty-after-dash-dash void(diags diags, after string[])
+	unless is-empty after
+		diags ~= unexpected-part "--"
+
+-parse-main-kind-for-test main-kind(cwd file-path, diags diags, args string[], all bool, line nat?)
+	uris = parse-keen-or-dir-uris cwd, diags, args
+	if line and (all or uris.size != 1)
+		diags ~= test-line-number-invalid
+	main-kind-tests all, uris, line
+
+-parse-main-uri uri(cwd file-path, diags diags, args string array-view)
+	if arg = only args
+		parse-keen-uri cwd, diags, arg
+	else
+		diags ~= needs-single-path args.size
+		()
+
+-parse-keen-or-kid-uri uri(cwd file-path, diags diags, arg string)
+	uri = parse-uri-with-cwd cwd, arg
+	match file-type uri
+	as keen
+		()
+	as kid
+		()
+	else
+		diags ~= expected-keen-uri arg
+	uri
+
+-parse-keen-uri uri(cwd file-path, diags diags, arg string)
+	uri = parse-uri-with-cwd cwd, arg
+	if uri.file-type != keen
+		diags ~= expected-keen-uri arg
+	uri
+
+-parse-keen-or-dir-uri uri(cwd file-path, diags diags, arg string)
+	uri = parse-uri-with-cwd cwd, arg
+	unless keen-or-dir uri
+		diags ~= expected-keen-or-dir-uri arg
+	uri
+-keen-or-dir enum(keen, dir)
+-keen-or-dir keen-or-dir?(uri uri)
+	if is-keen uri
+		keen
+	elif is-extensionless uri
+		dir
+	else
+		()
+
+-parse-keen-or-dir-uris uri set(cwd file-path, diags diags, args string array-view)
+	if is-empty args
+		diags ~= expected-paths ()
+	for arg in args
+		parse-keen-or-dir-uri cwd, diags, arg
+
+-parse-perf-test-command command-kind(cwd file-path, diags diags, args parsed-command)
+	expect-empty-after-dash-dash diags, args.after
+	subcommand = args.nameless[0]
+	res command-kind? = match subcommand
+	as parse
+		times mut = 1
+		for part in args.named
+			match tag = part.a
+			as times
+				times := expect-nat diags, part
+			else
+				diags ~= unexpected-part tag
+		:: perf-test-parse-command
+		root-uris: parse-keen-or-dir-uris cwd, diags, args.nameless[1 .. end]
+		times: times
+	else
+		()
+	res else
+		diags ~= perf-test-kind-invalid
+		bogus
+
+-parse-print-command command-kind(cwd file-path, diags diags, args parsed-command)
+	expect-empty-after-dash-dash diags, args.after
+	subcommand = args.nameless[0]
+	res command-kind? = match subcommand
+	as ast
+		do if is-empty args.named
+		print-ast-command parse-main-uri cwd, diags, args.nameless[1 .. end]
+	as tokens
+		do if is-empty args.named
+		print-tokens-command parse-main-uri cwd, diags, args.nameless[1 .. end]
+	as dependencies
+		uris = parse-keen-or-dir-uris cwd, diags, args.nameless[1 .. end]
+		do if format print-dependencies-format =
+			if is-empty args.named
+				dot
+			elif args.named.size == 1
+				args.named["format"].?only.?to
+		print-dependencies-command uris, format
+	as model
+		do if is-empty args.named
+		print-model-command parse-keen-or-dir-uris cwd, diags, args.nameless[1 .. end]
+	as low-model
+		do if is-empty args.named
+		print-low-model-command parse-main-uri cwd, diags, args.nameless[1 .. end]
+	else
+		do if is-empty args.named
+		if kind = subcommand.to::print-ide-at-pos-kind?
+			do if args.nameless.size == 3
+			do if lc = parse-line-and-column args.nameless[2]
+			:: print-ide-at-pos-command
+			kind: kind
+			where: (parse-main-uri cwd, diags, args.nameless[1 .. 2]), lc
+		elif kind = subcommand.to::print-ide-whole-file-kind?
+			do if args.nameless.size == 2
+			arg = args.nameless[1]
+			:: print-ide-whole-file-command
+			kind: kind
+			uri: if kind == semantic-tokens
+				parse-keen-or-kid-uri cwd, diags, arg
+			else
+				parse-keen-uri cwd, diags, arg
+	res else
+		diags ~= print-kind-invalid
+		bogus
+
+-parse-build-command command-kind(cwd file-path, diags diags, args parsed-command)
+	expect-empty-after-dash-dash diags, args.after
+	out mut single-build-output[] = ()
+	test_ mut bool = false
+	all mut bool = false
+	line mut nat? = ()
+	sanity-checks mut = no-sanity-checks
+	times mut = 1
+	watch mut bool = false
+	for part in args.named
+		tag, values = part
+		match tag
+		as out
+			out := parse-build-out cwd, diags, values
+		as "test"
+			expect-flag diags, part
+			test_ := true
+		as all
+			expect-flag diags, part
+			all := true
+		as line
+			line := expect-line diags, part
+		as sanity-checks
+			expect-flag diags, part
+			sanity-checks := all-sanity-checks
+		as times
+			times := expect-nat diags, part
+		as watch
+			expect-flag diags, part
+			watch := true
+		else
+			diags ~= unexpected-part tag
+
+	if all and !test_
+		diags ~= unexpected-part "all"
+	if line and !test_
+		diags ~= unexpected-part "line"
+
+	main main-kind = if test_
+		parse-main-kind-for-test cwd, diags, args.nameless, all, line
+	else
+		:: main-kind-main-function
+		uri: parse-main-uri cwd, diags, args.nameless
+		program-args: ()
+	res-out single-build-output[] = if is-empty out
+		if default = default-executable-path-for-main main
+			-
+				path: default
+				kind: java
+		else
+			diags ~= needs-out
+			()
+	else
+		out
+	main: main
+	out: res-out
+	options: sanity-checks: sanity-checks
+	times: times
+	watch: watch
+
+-check-options record(times nat, no-color bool, show-all-diags bool)
+-parse-check-options check-options(diags diags, args string[][symbol])
+	times mut = 1
+	no-color mut bool = false
+	all-errors mut bool = false
+	for part in args
+		tag, _ = part
+		match tag
+		as all-errors
+			all-errors := true
+		as no-color
+			no-color := true
+		as times
+			times := expect-nat diags, part
+		else
+			diags ~= unexpected-part tag
+	times, no-color, all-errors
+
+-run-options-and-all record(run-options run-options, all bool, line nat?)
+-parse-run-options run-options-and-all(diags diags, args string[][symbol], include-test-options bool)
+	node-js mut bool = false
+	watch mut bool = false
+	all mut bool = false
+	line mut nat? = ()
+	for part in args
+		tag, _ = part
+		match tag
+		as all
+			if include-test-options
+				expect-flag diags, part
+				all := true
+			else
+				diags ~= unexpected-part tag
+		as line
+			line := expect-line diags, part
+		as node-js
+			expect-flag diags, part
+			node-js := true
+		as watch
+			expect-flag diags, part
+			watch := true
+		else
+			diags ~= unexpected-part tag
+	run-options:
+		node-js: node-js
+		watch: watch
+	all: all
+	line: line
+
+-expect-nat nat(diags diags, (tag symbol, values string[]))
+	value = only values else "multiple values"
+	try
+		parse nat, value
+	catch as parse-error
+		diags ~= expected-nat tag, value
+		()
+-expect-line nat(diags diags, (tag symbol, values string[]))
+	res = expect-nat diags, (tag, values)
+	if res == 0 then 0 else res - 1
+
+-expect-flag void(diags diags, (tag symbol, args string[]))
+	unless is-empty args
+		diags ~= unexpected-part-args tag, args
+
+-parse-build-out single-build-output[](cwd file-path, diags diags, args string[])
+	if is-empty args
+		diags ~= expected-paths "out"
+	for* arg in args
+		from-option parse-single-build-out cwd, diags, arg
+-parse-single-build-out single-build-output?(cwd file-path, diags diags, arg string)
+	path = parse-file-path-with-cwd-or-diag diags, cwd, arg
+	if kind = build-kind-from-extension get-extension path
+		path, kind
+	else
+		diags ~= build-out-bad-file-extension
+		()
+
+-build-kind-from-extension build-target?(extension symbol)
+	match extension
+	as ""
+		java
+	as ".jar"
+		java
+	as ".js"
+		js
+	else
+		()
+
+-parse-file-path-with-cwd-or-diag file-path(diags diags, cwd file-path, arg string)
+	parse-file-path-with-cwd cwd, arg else
+		diags ~= parse-file-path arg
+		cwd / "bogus"
+
+-default-executable-path-for-main file-path?(main main-kind)
+	do if main-kind-main-function main
+	do if file = as-file-path main.uri
+	do unless file.base-name == config-base-name
+	without-extension! file, ".keen"
+
+-help-all-text string()
+	commands = join for name in members::command-name[]
+		unless is-internal-command name
+			"\n\t{show-command name}"
+	quote
+		Command must be one of:
+			keen hello.keen (or any '.keen' file)
+			{commands}.
+			For more info, run e.g. 'keen build --help'.
+
+-is-internal-command bool(a command-name)
+	a == print
+-help-for-command string(name command-name)
+	"Command: {show-command name}\n\n{command-description name}"
+-show-command string(name command-name)
+	options = describe-command-options name
+	"keen {name}{unless is-empty options then " {options}"}"
+-describe-command-options string(name command-name)
+	match name
+	as build
+		"PATH [--out PATH] [--optimize]"
+	as check
+		"PATHS"
+	as lsp
+		""
+	as print
+		"[kind] PATH [LINE:COLUMN]"
+	as perf-test
+		"[kind] PATH [--times n]"
+	as run
+		"PATH -- [program-args]"
+	as test_
+		"PATH [line number] [--all]"
+	as version
+		""
+-command-description string(name command-name)
+	match name
+	as build
+		quote
+			Compiles the program at PATH.
+			Options are:
+				--out: Output path. Defaults to the input path with the extension removed.
+					This normally produces an executable JAR.
+					If this has a '.js' extension, it will output JS source code instead.
+				--test: Ignore the 'main' function and compile a program that runs tests.
+					(You probably don't need this and should just use `keen test`.)
+				--all: Works with '--test'. Runs all tests in all included files.
+	as check
+		quote
+			Prints any diagnostics for the module(s) at PATH(s) or their imports.
+			No options.
+	as lsp
+		quote
+			This runs the Language Server Protocol through stdin/stdout.
+			No options.
+	as perf-test
+		quote
+			Does various things to test performance.
+	as print
+		quote
+			Prints various information about the program.
+
+			keen print dependencies PATH [--format flat]
+				Outputs all dependencies. By default this uses the '.dot' format.
+				With '--format flat', this just lists all files that were included.
+
+			The following print internal compiler data:
+				keen print ast PATH
+				keen print model PATH
+				keen print low-model PATH
+
+			The following perform a single LSP query and print the result:
+				keen print code-lenses PATH
+				keen print definition PATH LINE:COLUMN
+				keen print document-highlights PATH LINE:COLUMN
+				keen print folding-ranges PATH
+				keen print hover PATH LINE:COLUMN
+				keen print inlay-hints PATH
+				keen print references PATH LINE:COLUMN
+				keen print rename PATH LINE:COLUMN
+				keen print signature-help PATH LINE:COLUMN
+				keen print tokens PATH
+				keen print type-definition PATH LINE:COL
+	as run
+		quote
+			Runs the program at PATH.
+			Command-line arguments to the program should come after a `--`, as in `keen run foo.keen -- arg1 arg2`.
+			This can equivalently be written as `keen foo.keen arg1 arg2`.
+	as test_
+		quote
+			Runs tests at PATH.
+			If PATH is a 'keen-config.json' file, searches its directory (recursively) for '.keen' files.
+			If PATH is a file, runs tests in that file.
+			You can also specify the line number of a 'test' keyword to run only that test.
+			If '--all' is specified, runs all tests in reachable files, including library tests.
+	as version
+		quote
+			Prints information about the version of 'keen'.
+			No options.
