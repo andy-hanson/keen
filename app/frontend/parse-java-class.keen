@@ -1,31 +1,74 @@
 import
+	keen/bits
 	keen/format/binary
+	keen/parse
 	keen/unsafe
 	../../lib/private/parse-util
+	../model/model
 	../model/uri
 	../util/java-bytecode-types
 	../util/perf
+	../util/util
 
-parsed-java-class-header record
+parsed-java-class record
 	content nat8 array-view
 	constants constants
 	access class-access
 	this-class path
-	super-class path?
-	interfaces path[]
-	start-of-fields nat
-supertypes path[](a parsed-java-class-header)
-	a.interfaces ~~ a.super-class.from-option
+	type-params symbol[]
+	super-class java-class-type?
+	interfaces java-class-type[]
+	fields parsed-field[]
+	methods parsed-method[]
 
-bogus-java-class-header parsed-java-class-header(path path)
+java-class-reference record
+	path path
+	is-supertype bool
+
+referenced-in-supertypes record(class_ parsed-java-class)
+some bool(a referenced-in-supertypes, f bool mut(x java-class-reference))
+	class_ = a.class_
+	(super = class_.super-class) and some-supertype-reference super, f or
+	some class_.interfaces, of x then some-supertype-reference x, f
+
+-some-supertype-reference bool(a java-class-type, f bool mut(x java-class-reference))
+	f[a.path, true] or some a.type-args, of x then some-type-reference x, f
+
+referenced-classes record(class_ parsed-java-class)
+some bool(a referenced-classes, f bool mut(x java-class-reference))
+	class_ = a.class_
+	some a.class_.referenced-in-supertypes, f or
+	some class_.fields, (of x then some-type-reference x.type, f) or
+	some class_.methods, (of x then some-method-reference x.descriptor, f)
+-some-method-reference bool(a method-descriptor, f bool mut(x java-class-reference))
+	some-type-reference a.return-type, f or
+	some a.param-types, of x then some-type-reference x, f
+-some-type-reference bool(a java-type, f bool mut(x java-class-reference))
+	match a
+	as void
+		()
+	as java-primitive-type
+		()
+	as java-array-type
+		some-type-reference a.element, f
+	as java-class-type
+		some-class-reference a, f
+	as java-type-param
+		()
+-some-class-reference bool(a java-class-type, f bool mut(x java-class-reference))
+	f[a.path, false] or some a.type-args, of x then some-type-reference x, f
+
+bogus-java-class parsed-java-class(path path)
 	content: 0, 0, 0, 0, 0, 0 # 0 fields, 0 methods, 0 attributes (and 2 bytes per '0')
 	constants: ()
 	access: public
 	this-class: path
+	type-params: ()
 	super-class: ()
 	interfaces: ()
-	start-of-fields: 0
-parse-java-class parsed-java-class-header(content nat8 array-view)
+	fields: ()
+	methods: ()
+parse-java-class parsed-java-class(content nat8 array-view)
 	start = perf-now
 	finally end-parse-java-class start
 	reader = begin content
@@ -33,30 +76,70 @@ parse-java-class parsed-java-class-header(content nat8 array-view)
 	version = take32 reader
 	assert version >= 69
 	constants = read-constant-pool reader
+	the constants = constants # TODO: use this as a context more often! -----------------------------------------------------------------------------------
 	access class-access = reader.take16.to!
 	this-class = read-class-reference reader, constants
-	super-class = read-optional-class-reference reader, constants
-	interfaces = read-array reader, of then read-class-reference reader, constants
+	super-class-path = read-optional-class-reference reader, constants
+	interface-paths = read-array reader, of then read-class-reference reader, constants
+	fields = read-array reader, of then read-field reader, constants
+	methods = read-array reader, of then read-method reader, constants
+	sig = if signature = get-signature (read-attributes reader, constants), constants
+		parse-class-signature signature, super-class-path!, interface-paths
+	else
+		type-params: ()
+		super-class: if super-class-path
+			java-class-type super-class-path, ()
+		interfaces: for x in interface-paths
+			java-class-type x, ()
+	assert is-at-end reader
 	content: content
 	constants: constants
 	access: access
 	this-class: this-class
-	super-class: super-class
-	interfaces: interfaces
-	start-of-fields: index reader
+	type-params: sig.type-params
+	super-class: sig.super-class
+	interfaces: sig.interfaces
+	fields: fields
+	methods: methods
 
-parsed-java-class-body record
-	fields parsed-field[]
-	methods parsed-method[]
-parse-java-class-body parsed-java-class-body(header parsed-java-class-header)
-	reader = begin header.content
-	skip-next-n reader, header.start-of-fields
-	constants = constants header
-	fields = read-array reader, of then read-field reader, constants
-	methods = read-array reader, of then read-method reader, constants
-	_ = read-attributes reader, constants
-	assert is-at-end reader
-	fields, methods
+-class-signature record(type-params symbol[], super-class java-class-type?, interfaces java-class-type[])
+-parse-class-signature class-signature(input char8 array-view, super-class-path path, interface-paths path[]) constants
+	iter = begin input
+	type-params = read-type-params iter
+	super-class = read-class-type iter
+	super-class.path is super-class-path
+	interfaces java-class-type[] = for i in interface-paths
+		res = read-class-type iter
+		res.path is i
+		res
+	assert is-at-end iter
+	type-params, super-class, interfaces
+
+-read-type-params symbol[](iter string-iterator)
+	do if try-take-char8 iter, "<"
+	do with out in build
+	do until
+	start = copy iter
+	until iter.peek == ":" or iter.peek == ">"
+		_ = take-next iter
+	out ~= to::symbol slice start, iter
+	if try-take iter, "::"
+		# Class bound
+		_ = read-type iter
+	if try-take iter, ":"
+		# Interface bounds
+		_ = read-type iter
+		while iter.peek == "L"
+			_ = read-type iter
+	try-take iter, ">"
+
+take-until-terminator char8 array-view(iter string-iterator, char char8)
+	start = copy iter
+	until iter.peek8 == char
+		_ = take-next iter
+	res = slice start, iter
+	take-next iter is char
+	res
 
 -read-array[t] t[](reader nat8 array-iterator, f t mut())
 	for _ in 0 .. reader.take16
@@ -83,65 +166,95 @@ new constants()
 parsed-method record
 	access-flags method-access-flags
 	name symbol
+	# This will come from the Signature attribute if present
 	descriptor method-descriptor
 -read-method parsed-method(reader nat8 array-iterator, constants constants)
 	access-flags method-access-flags = reader.take16.to!
 	name symbol = read-utf8-reference reader, constants 'to
-	descriptor = parse-method-descriptor read-utf8-reference reader, constants
-	_ = read-attributes reader, constants
+	descriptor-text = read-utf8-reference reader, constants
+	attributes = read-attributes reader, constants
+	descriptor = parse-method-descriptor (get-signature (), constants else descriptor-text)
 	access-flags: access-flags
 	name: name
 	descriptor: descriptor
 
 method-descriptor record
+	type-params symbol[]
 	return-type java-type
 	param-types java-type[]
 | 'path' is a class path such as "java/lang/Object"
-java-type union(void, java-primitive-type, java-array-type, path)
-	show string()
-java-array-type record(element java-type)
-show string(_ void)
-	"void"
-show string(a java-array-type)
-	"{a.element.show}[]"
+java-type union(void, java-primitive-type, java-array-type, java-class-type, java-type-param)
+java-array-type record(element java-type) # TODO: could this just be a java-class-type of java/lang/Array? ----------------------------
+java-class-type record(path path, type-args java-type[])
+java-type-param record(name symbol)
 
 -parse-method-descriptor method-descriptor(a string-view)
 	iter string-iterator = begin a
+	type-params = read-type-params iter
 	take-next iter is "("
 	param-types java-type[] = with out in build
 		until try-take-char8 iter, ")"
 			out ~= read-type iter
 	return-type = read-type iter
 	assert is-at-end iter
-	return-type, param-types
+	type-params, return-type, param-types
 -wrap-arrays java-type(type java-type, arrays nat)
 	if arrays == 0 then type else wrap-arrays type.java-array-type, arrays - 1
 -parse-type java-type(a string-view)
-	match char = a[0]
-	as L
-		a[end - 1] is ";"
-		as-path a[1 .. end - 1]
-	as "["
-		java-array-type parse-type a[1 .. end]
-	else
-		single-char-type char
+	iter = begin a
+	res = read-type iter
+	assert is-at-end iter
+	res
 -read-type java-type(iter string-iterator)
 	arrays mut = 0
 	do until
-	char = take-next iter
-	match char
+	match char = take-next iter
 	as L
-		start = copy iter
-		until iter.peek8 == ";"
-			_ = take-next iter
-		path = as-path (start 'slice iter)
-		_ = take-next iter
-		wrap-arrays path, arrays
+		class_ = read-class-type-after-L iter
+		wrap-arrays class_, arrays
+	as T
+		java-type-param to take-until-terminator iter, ";"
 	as "["
 		arrays +:= 1
 		()
 	else
 		wrap-arrays char.single-char-type, arrays
+-read-class-type java-class-type(iter string-iterator)
+	take-next iter is "L"
+	read-class-type-after-L iter
+-read-class-type-after-L java-class-type(iter string-iterator)
+	start = copy iter
+	until iter.peek8 == ";" or iter.peek8 == "<"
+		_ = take-next iter
+	# TODO: NEATER (avoid mut somehow 
+	path = as-path slice start, iter
+	match take-next iter
+	as "<"
+		type-args = read-type-args-after-lt iter
+		# Some signatures use Foo<Bar>.Baz instead of Foo$Baz<Bar>
+		if try-take iter, "."
+			after-dot = copy iter
+			until iter.peek8 == ";" or iter.peek8 == "<"
+				_ = take-next iter
+			path2 = add-to-base-name path, "${slice after-dot, iter}"
+			# Foo<Bar>.Baz<Bang> is Foo$Baz<Bar, Bang>
+			more-type-args = if try-take iter, "<"
+				type-args ~~ read-type-args-after-lt iter
+			take-next iter is ";"
+			java-class-type path2, type-args ~~ more-type-args
+		else
+			take-next iter is ";"
+			java-class-type path, type-args
+	as ";"
+		java-class-type path, ()
+	else
+		throw unreachable
+
+-read-type-args-after-lt java-type[](iter string-iterator)
+	do with out in build
+	out ~= read-type iter
+	until try-take-char8 iter, ">"
+		out ~= read-type iter
 
 -single-char-type java-type(a char8)
 	match a
@@ -163,18 +276,31 @@ show string(a java-array-type)
 		()::void
 	as Z
 		T_BOOLEAN
+	as "*"
+		()::void # Java uses this to mean 'any' type, which Keen doesn't really have an equivalent for ..............................................
 	else
 		throw unreachable
 
 -read-attribute record
 	attribute-name symbol
+	attribute-bytes nat8 array-view
 -read-attributes read-attribute[](reader nat8 array-iterator, constants constants)
 	read-array reader, of
 		read-attribute reader, constants
 -read-attribute read-attribute(reader nat8 array-iterator, constants constants)
 	attribute-name = read-utf8-reference reader, constants
-	skip-next-n reader, reader.take32
+	attribute-bytes = take-next-n reader, reader.take32
 	attribute-name: attribute-name.to
+	attribute-bytes: attribute-bytes
+
+-get-signature string-view?(attributes read-attribute[], constants constants)
+	do if attr = find attributes, it.attribute-name == "Signature"
+	attr.attribute-bytes.size is 2
+	constants.constant-strings[attr.attribute-bytes.to::nat16]
+
+-to nat16(a nat8 array-view)
+	x, y = only2! a
+	x 'bits-cat y
 
 -read-utf8-reference string-view(reader nat8 array-iterator, constants constants)
 	constants.constant-strings[reader.take16]

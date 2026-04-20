@@ -14,6 +14,7 @@ import
 	./check/check-ctx
 	./check/detect-unused-internal
 	./check/get-common-funs
+	./check/get-common-types
 	./check/instantiate
 	./config
 	./java-externs
@@ -48,8 +49,8 @@ frontend record mut, java-classes case
 	-workable-keen uri mut-sorted-set
 common-types common-types(a frontend)
 	a.common-types-option!
-ensure-java-class type-decl(a frontend, path path)
-	type ensure-java-class-file a, path, header-only
+get-java-class type-decl(a frontend, path path)
+	a.java-class-files[path]!.type!
 
 show-ctx show-ctx(a frontend, uris-info uris-info, options show-options)
 	line-and-column-getters: a.line-and-column-getters
@@ -115,27 +116,31 @@ new frontend(keen-lib uri)
 -config-or-diag union(config, read-file-diag)
 
 -java-class-file record mut
-	type type-decl
+	path path
 	parsed mut java-class-or-diag
 	work-needed mut java-work-kind
+	type mut type-decl?
 	has-filled-in-supertypes mut bool
 	| This will be an empty option if we don't need to import this Java class as a module
 	module mut java-class-module?
 	| Uris are for {keen-file}s
 	referenced-by-keen uri mut-set
 	| Subclasses or interface implementers must be processed after their supertypes.
-	inheritors path mut-set
--path path(a java-class-file)
-	a.type.source.type-decl-source-java!.path
+	| Processing a class body requires types to exist for all referenced classes.
+	referenced-by-java path mut-set
 
-| If a Java class has only come up as a type, we can process the header only.
-| If it is imported as a module, we must process the entire class including methods.
--java-work-kind enum(header-only, all)
+-java-work-kind enum
+	| The Java class is referenced, so we just need it as a type
+	referencable
+	| The Java class is used as a supertype, so we need its supertypes to copy to the subtype
+	supertypes
+	| The Java class is imported as a module, so we need all of its public methods.
+	all
 - == bool(a java-work-kind, b java-work-kind)
 - <=> comparison(a java-work-kind, b java-work-kind)
 -to json(a java-work-kind)
 
--java-class-or-diag union(parsed-java-class-header, read-file-diag)
+-java-class-or-diag union(parsed-java-class, read-file-diag)
 
 -ast-or-diag union(file-ast, read-file-diag)
 
@@ -178,7 +183,7 @@ make-program program(a frontend, fully-loaded-dirs uri set)
 	java-modules: for* k, v in a.java-class-files
 		if m = v.module
 			- k, m
-	all-java-classes: map-values a.java-class-files, it.type
+	all-java-classes: map-values a.java-class-files, it.type!
 	additional-diagnostics: common-funs-diagnostics ~~ unused-diagnostics ~~ kid-diagnostics
 	line-and-column-getters: a.line-and-column-getters
 	common-funs: common-funs
@@ -244,14 +249,25 @@ set-file void(a frontend, uri uri, result read-file-result)
 	match file-type uri
 	as class_
 		path = uri.as-java-uri!
-		file = ensure-java-class-file a, path, header-only
+		file = ensure-java-class-file a, path, referencable
+		the instantiate-ctx = a.instantiate-ctx
 		match result
 		as array-view
-			file.parsed := parse-java-class result
-			for super in file.parsed.parsed-java-class-header!.supertypes
-				(ensure-java-class-file a, super, header-only).inheritors ~= path
+			parsed = parse-java-class result
+			file.parsed := parsed
+			if file.type
+				file.path.to::symbol is "java/lang/String" # We handle this specially so that common-types can use it
+			else
+				file.type := initial-type-decl-for-java-class parsed
+			for ref in referenced-classes parsed
+				kind = if ref.is-supertype then supertypes else referencable
+				(ensure-java-class-file a, ref.path, kind).referenced-by-java ~= path
+			for x in file.referenced-by-java
+				add-to-workable-if-so a, x, a.java-class-files[x]!
 		as read-file-diag
 			file.parsed := result
+			file.type := bogus-type-decl uri, path.base-name.to, 0
+			file.has-filled-in-supertypes := true
 		add-to-workable-if-so a, path, file
 	as keen
 		file = ensure-keen-file a, uri
@@ -360,13 +376,14 @@ set-file void(a frontend, uri uri, result read-file-result)
 	the instantiate-ctx = a.instantiate-ctx
 	res = ensure a.java-class-files, path, of
 		a.unknown ~= path.to-java-uri
-		type: initial-type-decl-for-java-class path
+		path: path
 		parsed: unknown
 		work-needed: work-needed
+		type: ()
 		has-filled-in-supertypes: ()
 		module: ()
 		referenced-by-keen: ()
-		inheritors: ()
+		referenced-by-java: ()
 	if res.work-needed < work-needed
 		res.work-needed := work-needed
 		add-to-workable-if-so a, path, res
@@ -388,12 +405,15 @@ set-file void(a frontend, uri uri, result read-file-result)
 	finally end-dirty-work start
 
 	the instantiate-ctx = a.instantiate-ctx
-	the java-classes = a
 	bootstrap = a.common-files[bootstrap]
 	if remove a.workable-keen, bootstrap.uri
 		fa uri-and-ast = bootstrap.uri, bootstrap.config!, bootstrap.get-ast
-		String = type ensure-java-class-file a, "java/lang/String".parse-path, header-only
-		module, common-types = check-bootstrap a.keen-lib, a.common-uris, fa, String.only-inst
+		# TODO: maybe it would be simpler to just not have String in common-types ...
+		String-path = parse-path "java/lang/String"
+		String = ensure-java-class-file a, String-path, referencable
+		String.type := initial-type-decl-for-String String-path
+		String.has-filled-in-supertypes := true
+		module, common-types = check-bootstrap a.keen-lib, a.common-uris, fa, String.type!.only-inst
 		a.common-types-option := common-types
 		bootstrap.module := module
 		a.count-uncompiled-keen-files -:= 1
@@ -403,28 +423,7 @@ set-file void(a frontend, uri uri, result read-file-result)
 	the common-types = common-types
 	do until
 	if path = remove-min a.workable-java
-		file = a.java-class-files[path]!
-		header = match x = file.parsed
-		as parsed-java-class-header
-			x
-		as read-file-diag
-			bogus-java-class-header path
-		unless file.has-filled-in-supertypes
-			fill-java-class-supertypes file.type, header
-			file.has-filled-in-supertypes := true
-
-		match file.work-needed
-		as header-only
-			()
-		as all
-			file.module := get-java-module path, file.type, header
-		for x in file.referenced-by-keen
-			file.work-needed is all
-			add-to-workable-if-so a, a.keen-files[x]!
-		for x in file.inheritors
-			inheritor = a.java-class-files[x]!
-			unless inheritor.module
-				add-to-workable-if-so a, x, inheritor
+		work-on-java-class a, path
 		false
 	elif uri = remove-min a.workable-keen
 		file = a.keen-files[uri]!
@@ -438,6 +437,40 @@ set-file void(a frontend, uri uri, result read-file-result)
 		false
 	else
 		true
+
+-work-on-java-class void(a frontend, path path) common-types, instantiate-ctx
+	the java-classes = a
+	file = a.java-class-files[path]!
+	class_ = match x = file.parsed
+	as parsed-java-class
+		x
+	as read-file-diag
+		bogus-java-class path
+	filled-in-supertypes = !file.has-filled-in-supertypes
+	unless file.has-filled-in-supertypes
+		fill-java-class-supertypes file.type!, class_
+		file.has-filled-in-supertypes := true
+
+	filled-body mut bool = false
+
+	match file.work-needed
+	as referencable
+		throw unreachable
+	as supertypes
+		assert filled-in-supertypes
+	as all
+		if can-fill-class-body a, file
+			filled-body := true
+			file.module := get-java-module path, file.type!, class_
+		else
+			assert filled-in-supertypes
+
+	if filled-body
+		for x in file.referenced-by-keen
+			file.work-needed is all
+			add-to-workable-if-so a, a.keen-files[x]!
+	for x in file.referenced-by-java
+		add-to-workable-if-so a, x, a.java-class-files[x]!
 
 | This may not fix all circular imports, but it's run in a loop
 -fix-circular-imports void(a frontend)
@@ -464,7 +497,7 @@ set-file void(a frontend, uri uri, result read-file-result)
 	values[index .. end] ~~ values[0 .. index]
 
 -compile-non-bootstrap-module keen-module(a frontend, file keen-file) instantiate-ctx
-	assert file.is-workable
+	assert is-workable file
 	assert common-types = a.common-types-option # bootstrap must be compiled first
 	ast uri-and-ast = file.uri, file.config!, file.get-ast
 	imports = fully-resolve-imports file.resolved-imports!
@@ -542,13 +575,50 @@ set-file void(a frontend, uri uri, result read-file-result)
 	if is-workable file
 		a.workable-keen ~= file.uri
 
+-any-work-to-do bool(file java-class-file)
+	match file.work-needed
+	as referencable
+		# TODO: not sure if this matters. Could just say 'false'. The type is created the moment it's parsed, it's not a separate task to do. ...............
+		!file.type
+	as supertypes
+		!file.has-filled-in-supertypes
+	as all
+		!file.module
 -is-workable bool(a frontend, file java-class-file)
+	do if any-work-to-do file
 	match parsed = file.parsed
-	as parsed-java-class-header
-		every parsed.supertypes, of x
-			has-filled-in-supertypes a.java-class-files[x]!
+	as parsed-java-class
+		has-all-supertypes = every parsed.referenced-in-supertypes, of ref
+			can-use-reference a, ref
+		match file.work-needed
+		as referencable
+			# We create the type as soon as the file is parsed, so we'll never have a parsed-java-class with work to do here
+			throw unreachable
+		as supertypes
+			has-all-supertypes
+		as all
+			if file.has-filled-in-supertypes
+				can-fill-class-body a, file
+			else
+				# At least the work of filling in supertypes can be done
+				has-all-supertypes
 	as read-file-diag
 		parsed != unknown
+-can-fill-class-body bool(a frontend, file java-class-file)
+	match parsed = file.parsed
+	as parsed-java-class
+		every parsed.referenced-classes, of ref
+			can-use-reference a, ref
+	as read-file-diag
+		true
+
+-can-use-reference bool(a frontend, ref java-class-reference)
+	referenced-file = a.java-class-files[ref.path]!
+	if ref.is-supertype
+		referenced-file.has-filled-in-supertypes
+	else
+		!!referenced-file.type
+
 -is-workable bool(a keen-file)
 	forbid a.module
 	a.ast-or-diag.read-file-diag != unknown and
@@ -612,7 +682,7 @@ set-file void(a frontend, uri uri, result read-file-result)
 				read-error file.uri, x
 		as java-class-file
 			match x = file.parsed
-			as parsed-java-class-header
+			as parsed-java-class
 				file.module!
 			as read-file-diag
 				read-error file.path.to-java-uri, x

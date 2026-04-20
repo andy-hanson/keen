@@ -10,11 +10,12 @@ import
 
 java-ctx spec instantiate-ctx, java-classes, common-types
 java-classes interface mut
-	ensure-java-class type-decl(path path)
--ensure-java-class type-decl(path path) java-classes
-	ensure-java-class the::java-classes, path
+	# The frontend is responsible for ensuring that referenced Java classes have already been loaded
+	get-java-class type-decl(path path)
+-get-java-class type-decl(path path) java-classes
+	get-java-class the::java-classes, path
 
-fill-java-class-supertypes void(type type-decl, class_ parsed-java-class-header) java-ctx
+fill-java-class-supertypes void(type type-decl, class_ parsed-java-class) java-ctx
 	start = perf-now
 	finally end-fill-java-class-supertypes start
 	fill-supertypes class_, type
@@ -27,18 +28,27 @@ fill-java-class-supertypes void(type type-decl, class_ parsed-java-class-header)
 			listed-members: ()
 			methods: ()
 
-get-java-module java-class-module(path path, type type-decl, class_ parsed-java-class-header) java-ctx
+get-java-module java-class-module(path path, type type-decl, class_ parsed-java-class) java-ctx
 	start = perf-now
 	finally end-get-java-module start
-	body = parse-java-class-body class_
-	fill-interface-methods class_, body.methods, type
-	funs = funs-for-java-class path, class_, body, type
+	fill-interface-methods class_, class_.methods, type
 	path: path
 	public-exports:
-		funs: funs.to
+		funs: to funs-for-java-class path, class_, type
 		types-and-specs: to-by-name (type,), of _ then throw unreachable
 
-initial-type-decl-for-java-class type-decl(path path) instantiate-ctx
+initial-type-decl-for-String type-decl(path path) instantiate-ctx
+	hash: next-hash
+	source: type-decl-source-java path, path.base-name.to
+	visibility: public
+	mutability: mut_
+	mutability-is-forced: false
+	doc-comment-references: ()
+	sum-type-cases: ()
+	body: java-class path, ()
+
+initial-type-decl-for-java-class type-decl(a parsed-java-class) instantiate-ctx
+	path = a.this-class
 	hash: next-hash
 	source: type-decl-source-java path,
 		base = base-name path
@@ -54,12 +64,12 @@ initial-type-decl-for-java-class type-decl(path path) instantiate-ctx
 	# For an interface, This will be overwritten by {fill-java-class-supertypes}
 	body: java-class path, ()
 
--fill-supertypes void(class_ parsed-java-class-header, type type-decl) java-ctx
+-fill-supertypes void(class_ parsed-java-class, type type-decl) java-ctx
 	type.specs := global-java-unsafe-specs
 
-	type.sum-type-cases := for path in class_.interfaces
+	type.sum-type-cases := for i in class_.interfaces
 		ast: ()
-		sum-type: only-inst ensure-java-class path
+		sum-type: to-type i, class_.type-params
 		method-impls: ()
 
 	if class_.this-class.to::symbol == "java/lang/Throwable"
@@ -72,11 +82,11 @@ initial-type-decl-for-java-class type-decl(path path) instantiate-ctx
 			method-impls: ((),)
 
 	if super = class_.super-class
-		super-class = ensure-java-class super
-		type.body.java-class!.super-class := only-inst super-class
-		type.sum-type-cases ~~:= super-class.sum-type-cases
+		super-class = to-type super, class_.type-params
+		type.body.java-class!.super-class := super-class
+		type.sum-type-cases ~~:= super-class.decl.sum-type-cases # TODO: this is not quite right, we need to instantiate them ..........................................
 
--fill-interface-methods void(class_ parsed-java-class-header, parsed-methods parsed-method[], type type-decl) java-ctx
+-fill-interface-methods void(class_ parsed-java-class, parsed-methods parsed-method[], type type-decl) java-ctx
 	do if class_.access[interface_]
 	assert type.body.sum-type
 	type.body :=
@@ -87,7 +97,7 @@ initial-type-decl-for-java-class type-decl(path path) instantiate-ctx
 			do if method.access-flags[abstract_]
 			# Ignore varargs; they just become normal array parameters
 			(method.access-flags & ~varargs) is (abstract_ | public)
-			return-type, params = method-return-type-and-params method
+			return-type, params = method-return-type-and-params method.descriptor, class_.type-params
 			-
 				container: type
 				source: signature-source-java method.name
@@ -95,14 +105,9 @@ initial-type-decl-for-java-class type-decl(path path) instantiate-ctx
 				params: params
 				doc-comment-references: ()
 
--funs-for-java-class fun-decl[]
-	path path
-	header parsed-java-class-header
-	class_ parsed-java-class-body
-	type type-decl
-do java-ctx
+-funs-for-java-class fun-decl[](path path, class_ parsed-java-class, type type-decl) java-ctx
 	class-type = only-inst type
-	is-interface = header.access[interface_]
+	is-interface = class_.access[interface_]
 	do with out in build
 	for field in class_.fields
 		do if field.access-flags[public | static] # TODO: support instance fields
@@ -110,7 +115,7 @@ do java-ctx
 			hash: next-hash
 			source: fun-source-java path, field.name
 			visibility: public
-			return-type: to-type field.type
+			return-type: to-type field.type, class_.type-params
 			params: ()
 			specs: global-java-unsafe-specs
 			doc-comment-references: ()
@@ -122,7 +127,7 @@ do java-ctx
 		do if method.access-flags[public]
 		is-static = method.access-flags[static]
 		is-constructor = method.name == "<init>"
-		return-type, most-params = method-return-type-and-params method
+		return-type, most-params = method-return-type-and-params method.descriptor, class_.type-params
 		do if body fun-body-extern-java = if is-static
 			kind: if is-interface then static-method-of-interface else static-method-of-class
 			class_: path
@@ -151,23 +156,31 @@ do java-ctx
 		for index, method in with-index sum.methods
 			out ~= fun-for-method type, class-type, index, method
 
--method-return-type-and-params (type, destructure[])(method parsed-method) java-ctx
-	- to-type method.descriptor.return-type
-	- for i, x in with-index method.descriptor.param-types
+-method-return-type-and-params (type, destructure[])(method method-descriptor, class-type-params symbol[]) java-ctx
+	type-params = class-type-params ~~ method.type-params
+	- to-type method.return-type, type-params
+	- for i, x in with-index method.param-types
 		:: local
 		source: local-source-generated "p{i}"
-		type: to-type x
+		type: to-type x, type-params
 
--to-type type(type java-type) java-ctx
+-to-type type(type java-type, type-params symbol[]) java-ctx
 	match type
 	as void
 		void
 	as java-primitive-type
 		type-from-primitive type
 	as java-array-type
-		buffer[to-type type.element]
-	as path
-		only-inst ensure-java-class type
+		buffer[to-type type.element, type-params]
+	as java-class-type
+		to-type type, type-params
+	as java-type-param
+		type-param-index index-of! type-params, type.name
+-to-type type-inst(a java-class-type, type-params symbol[]) java-ctx
+	decl = get-java-class a.path
+	type-args type-args = make-type-args a.type-args, of x
+		to-type x, type-params
+	decl[type-args]
 
 -type-from-primitive type(type java-primitive-type) common-types
 	match type
