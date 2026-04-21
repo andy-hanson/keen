@@ -38,11 +38,13 @@ referenced-classes record(class_ parsed-java-class)
 some bool(a referenced-classes, f bool mut(x java-class-reference))
 	class_ = a.class_
 	some a.class_.referenced-in-supertypes, f or
-	some class_.fields, (of x then some-type-reference x.type, f) or
-	some class_.methods, (of x then some-method-reference x.descriptor, f)
--some-method-reference bool(a method-descriptor, f bool mut(x java-class-reference))
-	some-type-reference a.return-type, f or
-	some a.param-types, of x then some-type-reference x, f
+	some class_.fields, (of x then some-type-reference x.erased-type, f or some-type-reference x.generic-type, f) or
+	some class_.methods, (of x then some-method-reference x, f)
+-some-method-reference bool(a parsed-method, f bool mut(x java-class-reference))
+	some-type-reference a.erased-return-type, f or
+	some a.erased-param-types, (of x then some-type-reference x, f) or
+	some-type-reference a.generic-return-type, f or
+	some a.generic-param-types, of x then some-type-reference x, f
 -some-type-reference bool(a java-type, f bool mut(x java-class-reference))
 	match a
 	as void
@@ -148,13 +150,21 @@ take-until-terminator char8 array-view(iter string-iterator, char char8)
 parsed-field record
 	access-flags field-access-flags
 	name symbol
-	type java-type
-	attributes read-attribute[]
+	erased-type java-type
+	generic-type java-type
 -read-field parsed-field(reader nat8 array-iterator, constants constants)
-	access-flags: reader.take16.to!
-	name: read-utf8-reference reader, constants 'to
-	type: parse-type read-utf8-reference reader, constants
-	attributes: read-attributes reader, constants
+	access-flags field-access-flags = to! reader.take16
+	name symbol = to read-utf8-reference reader, constants
+	erased-type = parse-type read-utf8-reference reader, constants
+	attributes = read-attributes reader, constants
+	generic-type = if sig = get-signature attributes, constants
+		parse-type sig
+	else
+		erased-type
+	access-flags: access-flags
+	name: name
+	erased-type: erased-type
+	generic-type: generic-type
 
 -constants record
 	| These are both indexed by constant pool indices. Thus some entries are unused,
@@ -166,17 +176,29 @@ new constants()
 parsed-method record
 	access-flags method-access-flags
 	name symbol
-	# This will come from the Signature attribute if present
-	descriptor method-descriptor
+	erased-return-type java-type
+	erased-param-types java-type[]
+	type-params symbol[]
+	generic-return-type java-type
+	generic-param-types java-type[]
 -read-method parsed-method(reader nat8 array-iterator, constants constants)
 	access-flags method-access-flags = reader.take16.to!
-	name symbol = read-utf8-reference reader, constants 'to
+	name symbol = to read-utf8-reference reader, constants
 	descriptor-text = read-utf8-reference reader, constants
+	erased-type-params, erased-return-type, erased-param-types = parse-method-descriptor descriptor-text
+	assert is-empty erased-type-params
 	attributes = read-attributes reader, constants
-	descriptor = parse-method-descriptor (get-signature (), constants else descriptor-text)
+	type-params, generic-return-type, generic-param-types = if sig = get-signature attributes, constants
+		parse-method-descriptor sig
+	else
+		erased-type-params, erased-return-type, erased-param-types
 	access-flags: access-flags
 	name: name
-	descriptor: descriptor
+	erased-return-type: erased-return-type
+	erased-param-types: erased-param-types
+	type-params: type-params
+	generic-return-type: generic-return-type
+	generic-param-types: generic-param-types
 
 method-descriptor record
 	type-params symbol[]
@@ -188,7 +210,7 @@ java-array-type record(element java-type) # TODO: could this just be a java-clas
 java-class-type record(path path, type-args java-type[])
 java-type-param record(name symbol)
 
--parse-method-descriptor method-descriptor(a string-view)
+-parse-method-descriptor (symbol[], java-type, java-type[])(a string-view)
 	iter string-iterator = begin a
 	type-params = read-type-params iter
 	take-next iter is "("
@@ -196,6 +218,9 @@ java-type-param record(name symbol)
 		until try-take-char8 iter, ")"
 			out ~= read-type iter
 	return-type = read-type iter
+	# Ignore 'throws' clauses
+	while try-take-char8 iter, "^"
+		_ = read-type iter
 	assert is-at-end iter
 	type-params, return-type, param-types
 -wrap-arrays java-type(type java-type, arrays nat)
@@ -207,18 +232,24 @@ java-type-param record(name symbol)
 	res
 -read-type java-type(iter string-iterator)
 	arrays mut = 0
-	do until
-	match char = take-next iter
-	as L
-		class_ = read-class-type-after-L iter
-		wrap-arrays class_, arrays
-	as T
-		java-type-param to take-until-terminator iter, ";"
-	as "["
-		arrays +:= 1
-		()
-	else
-		wrap-arrays char.single-char-type, arrays
+	res java-type = until
+		match char = take-next iter
+		as L
+			read-class-type-after-L iter
+		as T
+			java-type-param to take-until-terminator iter, ";"
+		as "["
+			arrays +:= 1
+			()
+		as "-"
+			# This means '? super foo'. Treat this as just 'foo'.
+			()
+		as "+"
+			# This means '? extends foo'. Treat this as just 'foo'.
+			()
+		else
+			single-char-type char
+	wrap-arrays res, arrays
 -read-class-type java-class-type(iter string-iterator)
 	take-next iter is "L"
 	read-class-type-after-L iter
@@ -277,8 +308,9 @@ java-type-param record(name symbol)
 	as Z
 		T_BOOLEAN
 	as "*"
-		()::void # Java uses this to mean 'any' type, which Keen doesn't really have an equivalent for ..............................................
+		java-class-type "java/lang/Object".parse-path, ()
 	else
+		log "Le unexpected char", a # -----------------------------------------------------------------------------------------------
 		throw unreachable
 
 -read-attribute record

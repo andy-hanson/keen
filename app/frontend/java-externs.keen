@@ -39,7 +39,7 @@ get-java-module java-class-module(path path, type type-decl, class_ parsed-java-
 
 initial-type-decl-for-String type-decl(path path) instantiate-ctx
 	hash: next-hash
-	source: type-decl-source-java path, path.base-name.to
+	source: type-decl-source-java path, path.base-name.to, ()
 	visibility: public
 	mutability: mut_
 	mutability-is-forced: false
@@ -50,12 +50,16 @@ initial-type-decl-for-String type-decl(path path) instantiate-ctx
 initial-type-decl-for-java-class type-decl(a parsed-java-class) instantiate-ctx
 	path = a.this-class
 	hash: next-hash
-	source: type-decl-source-java path,
-		base = base-name path
-		if _, rest = try-split-once base, "$"
-			rest.to
-		else
-			base.to
+	source:
+		:: type-decl-source-java
+		path: path
+		name:
+			base = base-name path
+			if _, rest = try-split-once base, "$"
+				rest.to
+			else
+				base.to
+		type-params: for x in a.type-params then 0, x
 	visibility: public
 	mutability: mut_
 	mutability-is-forced: false
@@ -69,7 +73,7 @@ initial-type-decl-for-java-class type-decl(a parsed-java-class) instantiate-ctx
 
 	type.sum-type-cases := for i in class_.interfaces
 		ast: ()
-		sum-type: to-type i, class_.type-params
+		sum-type: to-type i, class_.type-params, ()
 		method-impls: ()
 
 	if class_.this-class.to::symbol == "java/lang/Throwable"
@@ -79,12 +83,15 @@ initial-type-decl-for-java-class type-decl(a parsed-java-class) instantiate-ctx
 			ast: ()
 			sum-type: exception
 			# The method impls will not actually be emitted, so don't bother
-			method-impls: ((),)
+			method-impls: ()
 
 	if super = class_.super-class
-		super-class = to-type super, class_.type-params
+		super-class = to-type super, class_.type-params, ()
 		type.body.java-class!.super-class := super-class
-		type.sum-type-cases ~~:= super-class.decl.sum-type-cases # TODO: this is not quite right, we need to instantiate them ..........................................
+		type.sum-type-cases ~~:= for x in super-class.decl.sum-type-cases
+			ast: ()
+			sum-type: instantiate-type-inst x.sum-type, super-class.type-args
+			method-impls: ()
 
 -fill-interface-methods void(class_ parsed-java-class, parsed-methods parsed-method[], type type-decl) java-ctx
 	do if class_.access[interface_]
@@ -97,7 +104,7 @@ initial-type-decl-for-java-class type-decl(a parsed-java-class) instantiate-ctx
 			do if method.access-flags[abstract_]
 			# Ignore varargs; they just become normal array parameters
 			(method.access-flags & ~varargs) is (abstract_ | public)
-			return-type, params = method-return-type-and-params method.descriptor, class_.type-params
+			return-type, params = method-return-type-and-params method, class_.type-params, false
 			-
 				container: type
 				source: signature-source-java method.name
@@ -106,40 +113,50 @@ initial-type-decl-for-java-class type-decl(a parsed-java-class) instantiate-ctx
 				doc-comment-references: ()
 
 -funs-for-java-class fun-decl[](path path, class_ parsed-java-class, type type-decl) java-ctx
-	class-type = only-inst type
+	class-type = instantiated-with-own-type-params type
+	class-type-params name-and-range[] = for x in class_.type-params
+		0, x
 	is-interface = class_.access[interface_]
 	do with out in build
 	for field in class_.fields
 		do if field.access-flags[public | static] # TODO: support instance fields
 		out ~=
 			hash: next-hash
-			source: fun-source-java path, field.name
+			source: fun-source-java path, field.name, class-type-params
 			visibility: public
-			return-type: to-type field.type, class_.type-params
+			return-type: to-type field.generic-type, class_.type-params, ()
 			params: ()
 			specs: global-java-unsafe-specs
 			doc-comment-references: ()
 			body:
 				:: fun-body-extern-java
-				static-field, path
+				kind: static-field
+				class_: path
+				erased-return-type: to-type-never-generic field.erased-type
+				erased-param-types: ()
 
 	for method in class_.methods
 		do if method.access-flags[public]
 		is-static = method.access-flags[static]
 		is-constructor = method.name == "<init>"
-		return-type, most-params = method-return-type-and-params method.descriptor, class_.type-params
-		do if body fun-body-extern-java = if is-static
-			kind: if is-interface then static-method-of-interface else static-method-of-class
-			class_: path
+		return-type, most-params = method-return-type-and-params method, class_.type-params, true
+		do if kind java-method-kind = if is-static
+			if is-interface then static-method-of-interface else static-method-of-class
 		elif is-constructor
-			constructor, path
+			constructor
 		elif is-interface
 			()
 		else
-			virtual, path
+			virtual
 		out ~=
 			hash: next-hash
-			source: fun-source-java path, if is-constructor then "new" else method.name
+			source:
+				:: fun-source-java
+				class-path: path
+				name: if is-constructor then "new" else method.name
+				type-params:
+					-- unless is-static then class-type-params
+					-- for x in method.type-params then 0, x
 			visibility: public
 			return-type: if is-constructor then class-type else return-type
 			params: if is-static or is-constructor
@@ -149,37 +166,56 @@ initial-type-decl-for-java-class type-decl(a parsed-java-class) instantiate-ctx
 				-- most-params
 			specs: global-java-unsafe-specs
 			doc-comment-references: ()
-			body: body
+			body:
+				:: fun-body-extern-java
+				kind: kind
+				class_: path
+				erased-return-type: to-type-never-generic method.erased-return-type
+				erased-param-types: map method.erased-param-types, it.to-type-never-generic
 
 	if sum = type.body.sum-type
 		sum.kind is java-interface
 		for index, method in with-index sum.methods
 			out ~= fun-for-method type, class-type, index, method
 
--method-return-type-and-params (type, destructure[])(method method-descriptor, class-type-params symbol[]) java-ctx
-	type-params = class-type-params ~~ method.type-params
-	- to-type method.return-type, type-params
-	- for i, x in with-index method.param-types
+-method-return-type-and-params (type, destructure[])(method parsed-method, class-type-params symbol[], support-method-type-params bool) java-ctx
+	type-params = class-type-params ~~ if support-method-type-params then method.type-params
+	unsupported-type-params = unless support-method-type-params then method.type-params
+	- to-type method.generic-return-type, type-params, unsupported-type-params
+	- for i, x in with-index method.generic-param-types
 		:: local
 		source: local-source-generated "p{i}"
-		type: to-type x, type-params
+		type: to-type x, type-params, unsupported-type-params
 
--to-type type(type java-type, type-params symbol[]) java-ctx
+-to-type-never-generic type-inst(type java-type) java-ctx
+	type-inst! to-type type, (), ()
+-to-type type(type java-type, type-params symbol[], unsupported-type-params symbol[]) java-ctx
 	match type
 	as void
 		void
 	as java-primitive-type
 		type-from-primitive type
 	as java-array-type
-		buffer[to-type type.element, type-params]
+		buffer[to-type type.element, type-params, unsupported-type-params]
 	as java-class-type
-		to-type type, type-params
+		to-type type, type-params, unsupported-type-params
 	as java-type-param
-		type-param-index index-of! type-params, type.name
--to-type type-inst(a java-class-type, type-params symbol[]) java-ctx
+		if index = index-of type-params, type.name
+			type-param-index index
+		else
+			assert contains unsupported-type-params, type.name
+			only-inst get-java-class parse-path "java/lang/Object"
+-to-type type-inst(a java-class-type, type-params symbol[], unsupported-type-params symbol[]) java-ctx
 	decl = get-java-class a.path
-	type-args type-args = make-type-args a.type-args, of x
-		to-type x, type-params
+	type-args type-args = if is-empty a.type-args
+		# Sometimes signatures omit type arguments
+		make-type-args decl.type-params, of _
+			# TODO:PERF maybe store this once instead of parsing a path every time! ---------------------------------------------------------------
+			only-inst get-java-class "java/lang/Object".parse-path
+	else
+		a.type-args.size is decl.type-params.size
+		make-type-args a.type-args, of x
+			to-type x, type-params, unsupported-type-params
 	decl[type-args]
 
 -type-from-primitive type(type java-primitive-type) common-types

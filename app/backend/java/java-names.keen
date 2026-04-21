@@ -59,7 +59,11 @@ do show-ctx
 			"$test{fun.hash}"
 		as low-fun-source-wrap-main
 			"$wrap-main"
-		descriptor = descriptor-for-signature type-to-descriptor, (map fun.params, it.type), fun.return-type
+		actual-return-type low-type, actual-param-types low-type[] = if x = low-fun-body-extern-java fun.body
+			x.erased-return-type, x.erased-param-types
+		else
+			fun.return-type, map fun.params, it.type
+		descriptor = descriptor-for-signature type-to-descriptor, actual-return-type, actual-param-types
 		fun, (name, descriptor)
 	var-to-name: for x in program.all-vars
 		x, "{do-mangle x.source.name}{get-hash x}"
@@ -85,7 +89,7 @@ subscript class-and-member(a java-names, var low-var)
 	member: a.var-to-name[var]!
 subscript class-and-member(a java-names, fun low-fun)
 	match body = fun.body
-	as fun-body-extern-java
+	as low-fun-body-extern-java
 		class_: body.class_.to
 		member: fun.source.low-fun-source-regular!.decl.name
 	else
@@ -141,15 +145,16 @@ instance-method-name symbol(a java-names, fun low-fun)
 		"{a[fun.params[0].type]}_{base}"
 instance-method-descriptor symbol(a java-names, fun low-fun)
 	assert is-instance java-method-kind a.union-info, fun
-	descriptor-for-signature a, (map fun.params[1 .. end], it.type), fun.return-type
+	forbid fun.body.low-fun-body-extern-java # If so, need to use erased types -------------------------------------------------------------------------
+	descriptor-for-signature a, fun.return-type, map fun.params[1 .. end], it.type
 
 constructor-descriptor symbol(a java-names, fun low-fun)
 	java-method-kind a.union-info, fun is constructor
-	descriptor-for-signature a, (map fun.params, it.type), ()
+	descriptor-for-signature a, (), map fun.params, it.type
 
-descriptor-for-signature symbol(a java-names, param-types low-type[], return-type low-type?)
-	descriptor-for-signature a.type-to-descriptor, param-types, return-type
-descriptor-for-signature symbol(type-to-descriptor symbol[low-type], param-types low-type[], return-type low-type?)
+descriptor-for-signature symbol(a java-names, return-type low-type?, param-types low-type[])
+	descriptor-for-signature a.type-to-descriptor, return-type, param-types
+descriptor-for-signature symbol(type-to-descriptor symbol[low-type], return-type low-type?, param-types low-type[]) # TODO: why is return-type optional, when that's the same as void???
 	params = join for param in param-types
 		descriptor-for-param-type type-to-descriptor, param
 	return = if return-type
@@ -266,7 +271,7 @@ boxed-class-name symbol(a java-names, type low-type)
 		throw unreachable
 
 lambda-init-descriptor symbol(a java-names, lambda lambda-low-expr)
-	descriptor-for-signature a, (map lambda.closure, it.type), ()
+	descriptor-for-signature a, (), map lambda.closure, it.type
 
 primitive-descriptor symbol(a java-primitive-type)
 	match a
