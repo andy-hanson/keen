@@ -148,6 +148,7 @@ initial-type-decl-for-java-class type-decl(a parsed-java-class) instantiate-ctx
 			()
 		else
 			virtual
+		include-this-param = !(is-static or is-constructor)
 		out ~=
 			hash: next-hash
 			source:
@@ -159,19 +160,27 @@ initial-type-decl-for-java-class type-decl(a parsed-java-class) instantiate-ctx
 					-- for x in method.type-params then 0, x
 			visibility: public
 			return-type: if is-constructor then class-type else return-type
-			params: if is-static or is-constructor
-				most-params
-			else
-				- "this".local-source-generated, class-type
+			params:
+				-- if include-this-param
+					- "this".local-source-generated, class-type
 				-- most-params
 			specs: global-java-unsafe-specs
 			doc-comment-references: ()
 			body:
 				:: fun-body-extern-java
+				# inline these variables ..........................................................................................
+				erased-return-type = to-type-never-generic method.erased-return-type
+				erased-param-types type-inst[] = 
+					-- if include-this-param
+						- instantiated-with-Object type
+					-- map method.erased-param-types, it.to-type-never-generic
+				if method.name == "get"
+					log "this class:", class_.this-class
+					log "get erased-return-type:", erased-return-type
 				kind: kind
 				class_: path
-				erased-return-type: to-type-never-generic method.erased-return-type
-				erased-param-types: map method.erased-param-types, it.to-type-never-generic
+				erased-return-type: erased-return-type
+				erased-param-types: erased-param-types
 
 	if sum = type.body.sum-type
 		sum.kind is java-interface
@@ -186,6 +195,10 @@ initial-type-decl-for-java-class type-decl(a parsed-java-class) instantiate-ctx
 		:: local
 		source: local-source-generated "p{i}"
 		type: to-type x, type-params, unsupported-type-params
+
+-Object type-inst() java-ctx
+	# TODO:PERF maybe store this once instead of parsing a path every time! ---------------------------------------------------------------
+	only-inst get-java-class parse-path "java/lang/Object"
 
 -to-type-never-generic type-inst(type java-type) java-ctx
 	type-inst! to-type type, (), ()
@@ -204,19 +217,20 @@ initial-type-decl-for-java-class type-decl(a parsed-java-class) instantiate-ctx
 			type-param-index index
 		else
 			assert contains unsupported-type-params, type.name
-			only-inst get-java-class parse-path "java/lang/Object"
+			Object
 -to-type type-inst(a java-class-type, type-params symbol[], unsupported-type-params symbol[]) java-ctx
 	decl = get-java-class a.path
-	type-args type-args = if is-empty a.type-args
+	if is-empty a.type-args
 		# Sometimes signatures omit type arguments
-		make-type-args decl.type-params, of _
-			# TODO:PERF maybe store this once instead of parsing a path every time! ---------------------------------------------------------------
-			only-inst get-java-class "java/lang/Object".parse-path
+		instantiated-with-Object decl
 	else
 		a.type-args.size is decl.type-params.size
-		make-type-args a.type-args, of x
+		args = make-type-args a.type-args, of x
 			to-type x, type-params, unsupported-type-params
-	decl[type-args]
+		decl[args]
+
+-instantiated-with-Object type-inst(decl type-decl) java-ctx
+	decl[make-type-args decl.type-params, of _ then Object]
 
 -type-from-primitive type(type java-primitive-type) common-types
 	match type
