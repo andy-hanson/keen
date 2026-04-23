@@ -29,9 +29,9 @@ test-diagnostics-overwrite: bin/keen
 	cd test-cases/diagnostics && ../../bin/keen check . --no-color --all-errors 2> expected.txt || true
 
 test-end-to-end: bin/keen
-	bin/keen test-cases/end-to-end/main.keen
+	bin/keen run test-cases/end-to-end
 test-end-to-end-overwrite: bin/keen
-	bin/keen test-cases/end-to-end/main.keen --overwrite-output
+	bin/keen run test-cases/end-to-end --overwrite-output
 
 today = $(shell date --iso-8601 --utc)
 
@@ -59,7 +59,7 @@ check:
 	bin/keen-lkg check app lib test
 
 bin/keen: $(compiler_deps)
-	bin/keen-lkg build app/main.keen --out bin/keen-tmp
+	bin/keen-lkg build app --out bin/keen-tmp
 	# Avoid directly writing to the file. This avoids crashing any IDE using the old version.
 	mv bin/keen-tmp bin/keen
 
@@ -88,15 +88,10 @@ bin/java-classes.tar:
 ### Optional commands ###
 
 bin/keen.js: $(compiler_deps)
-	bin/keen build app/main.keen --out bin/keen.js
+	bin/keen build app --out bin/keen.js
 
 profile-check: bin/keen
-	java -XX:StartFlightRecording=filename=profile.jfr,settings=profile -jar bin/keen check app/main.keen --times 30 --perf
-	jmc
-
-profile-translate-to-java: bin/keen
-	java -XX:StartFlightRecording=filename=profile.jfr,settings=profile -jar bin/keen build app/main.keen --out bin/temp --times 30 --perf
-	rm bin/temp
+	java -XX:StartFlightRecording=filename=profile.jfr,settings=profile -jar bin/keen check app lib test --times 30 --perf
 	jmc
 
 view-dependencies: bin/keen
