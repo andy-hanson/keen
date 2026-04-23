@@ -77,15 +77,14 @@ parse-java-class parsed-java-class(content nat8 array-view)
 	reader.take32 is 0xcafebabe
 	version = take32 reader
 	assert version >= 69
-	constants = read-constant-pool reader
-	the constants = constants # TODO: use this as a context more often! -----------------------------------------------------------------------------------
+	the constants = read-constant-pool reader
 	access class-access = reader.take16.to!
-	this-class = read-class-reference reader, constants
-	super-class-path = read-optional-class-reference reader, constants
-	interface-paths = read-array reader, of then read-class-reference reader, constants
-	fields = read-array reader, of then read-field reader, constants
-	methods = read-array reader, of then read-method reader, constants
-	sig = if signature = get-signature (read-attributes reader, constants), constants
+	this-class = read-class-reference reader
+	super-class-path = read-optional-class-reference reader
+	interface-paths = read-array reader, it.read-class-reference
+	fields = read-array reader, it.read-field
+	methods = read-array reader, it.read-method
+	sig = if signature = get-signature read-attributes reader
 		parse-class-signature signature, super-class-path!, interface-paths
 	else
 		type-params: ()
@@ -95,7 +94,7 @@ parse-java-class parsed-java-class(content nat8 array-view)
 			java-class-type x, ()
 	assert is-at-end reader
 	content: content
-	constants: constants
+	constants: the::constants
 	access: access
 	this-class: this-class
 	type-params: sig.type-params
@@ -143,21 +142,21 @@ take-until-terminator char8 array-view(iter string-iterator, char char8)
 	take-next iter is char
 	res
 
--read-array[t] t[](reader nat8 array-iterator, f t mut())
+-read-array[t] t[](reader nat8 array-iterator, f t mut(reader nat8 array-iterator))
 	for _ in 0 .. reader.take16
-		f[]
+		f[reader]
 
 parsed-field record
 	access-flags field-access-flags
 	name symbol
 	erased-type java-type
 	generic-type java-type
--read-field parsed-field(reader nat8 array-iterator, constants constants)
+-read-field parsed-field(reader nat8 array-iterator) constants
 	access-flags field-access-flags = to! reader.take16
-	name symbol = to read-utf8-reference reader, constants
-	erased-type = parse-type read-utf8-reference reader, constants
-	attributes = read-attributes reader, constants
-	generic-type = if sig = get-signature attributes, constants
+	name symbol = to read-utf8-reference reader
+	erased-type = parse-type read-utf8-reference reader
+	attributes = read-attributes reader
+	generic-type = if sig = get-signature attributes
 		parse-type sig
 	else
 		erased-type
@@ -181,14 +180,14 @@ parsed-method record
 	type-params symbol[]
 	generic-return-type java-type
 	generic-param-types java-type[]
--read-method parsed-method(reader nat8 array-iterator, constants constants)
+-read-method parsed-method(reader nat8 array-iterator) constants
 	access-flags method-access-flags = reader.take16.to!
-	name symbol = to read-utf8-reference reader, constants
-	descriptor-text = read-utf8-reference reader, constants
+	name symbol = to read-utf8-reference reader
+	descriptor-text = read-utf8-reference reader
 	erased-type-params, erased-return-type, erased-param-types = parse-method-descriptor descriptor-text
 	assert is-empty erased-type-params
-	attributes = read-attributes reader, constants
-	type-params, generic-return-type, generic-param-types = if sig = get-signature attributes, constants
+	attributes = read-attributes reader
+	type-params, generic-return-type, generic-param-types = if sig = get-signature attributes
 		parse-method-descriptor sig
 	else
 		erased-type-params, erased-return-type, erased-param-types
@@ -206,9 +205,13 @@ method-descriptor record
 	param-types java-type[]
 | 'path' is a class path such as "java/lang/Object"
 java-type union(void, java-primitive-type, java-array-type, java-class-type, java-type-param)
-java-array-type record(element java-type) # TODO: could this just be a java-class-type of java/lang/Array? ----------------------------
+to json(a java-type)
+java-array-type record(element java-type)
+to json(a java-array-type)
 java-class-type record(path path, type-args java-type[])
+to json(a java-class-type)
 java-type-param record(name symbol)
+to json(a java-type-param)
 
 -parse-method-descriptor (symbol[], java-type, java-type[])(a string-view)
 	iter string-iterator = begin a
@@ -257,7 +260,6 @@ java-type-param record(name symbol)
 	start = copy iter
 	until iter.peek8 == ";" or iter.peek8 == "<"
 		_ = take-next iter
-	# TODO: NEATER (avoid mut somehow 
 	path = as-path slice start, iter
 	match take-next iter
 	as "<"
@@ -308,40 +310,38 @@ java-type-param record(name symbol)
 	as Z
 		T_BOOLEAN
 	as "*"
-		java-class-type "java/lang/Object".parse-path, ()
+		java-class-type "java/lang/Object".assume-path, ()
 	else
-		log "Le unexpected char", a # -----------------------------------------------------------------------------------------------
 		throw unreachable
 
 -read-attribute record
 	attribute-name symbol
 	attribute-bytes nat8 array-view
--read-attributes read-attribute[](reader nat8 array-iterator, constants constants)
-	read-array reader, of
-		read-attribute reader, constants
--read-attribute read-attribute(reader nat8 array-iterator, constants constants)
-	attribute-name = read-utf8-reference reader, constants
+-read-attributes read-attribute[](reader nat8 array-iterator) constants
+	read-array reader, it.read-attribute
+-read-attribute read-attribute(reader nat8 array-iterator) constants
+	attribute-name = read-utf8-reference reader
 	attribute-bytes = take-next-n reader, reader.take32
 	attribute-name: attribute-name.to
 	attribute-bytes: attribute-bytes
 
--get-signature string-view?(attributes read-attribute[], constants constants)
+-get-signature string-view?(attributes read-attribute[]) constants
 	do if attr = find attributes, it.attribute-name == "Signature"
 	attr.attribute-bytes.size is 2
-	constants.constant-strings[attr.attribute-bytes.to::nat16]
+	the::constants.constant-strings[attr.attribute-bytes.to::nat16]
 
 -to nat16(a nat8 array-view)
 	x, y = only2! a
 	x 'bits-cat y
 
--read-utf8-reference string-view(reader nat8 array-iterator, constants constants)
-	constants.constant-strings[reader.take16]
--read-class-reference path(reader nat8 array-iterator, constants constants)
-	read-optional-class-reference! reader, constants
--read-optional-class-reference path?(reader nat8 array-iterator, constants constants)
+-read-utf8-reference string-view(reader nat8 array-iterator) constants
+	the::constants.constant-strings[reader.take16]
+-read-class-reference path(reader nat8 array-iterator) constants
+	read-optional-class-reference! reader
+-read-optional-class-reference path?(reader nat8 array-iterator) constants
 	index = take16 reader
 	unless index == 0
-		constants.constant-classes[index]
+		the::constants.constant-classes[index]
 
 # https://docs.oracle.com/javase/specs/jvms/se21/html/jvms-4.html#jvms-4.4
 -read-constant-pool constants(reader nat8 array-iterator)

@@ -57,6 +57,10 @@ show-ctx show-ctx(a frontend, uris-info uris-info, options show-options)
 	uris-info: uris-info
 	options: options
 
+| True if the URI is imported through a file import (`./foo.txt as foo string`)
+is-imported-file-uri bool(a frontend, uri uri)
+	!!a.other-files[uri]
+
 new frontend(keen-lib uri)
 	common-uris = common-uris keen-lib
 	res frontend =
@@ -188,7 +192,9 @@ make-program program(a frontend, fully-loaded-dirs uri set)
 	line-and-column-getters: a.line-and-column-getters
 	common-funs: common-funs
 	common-types: a.common-types
-	uncommon-types: json: common-funs.json-named-new.return-type.type-inst!
+	uncommon-types:
+		java-String: only-inst a.java-class-files[assume-path "java/lang/String"]!.type!
+		json: common-funs.json-named-new.return-type.type-inst!
 
 get-kid-file line-and-character-getter(a frontend, uri uri)
 	if is-config uri
@@ -407,13 +413,8 @@ set-file void(a frontend, uri uri, result read-file-result)
 	the instantiate-ctx = a.instantiate-ctx
 	bootstrap = a.common-files[bootstrap]
 	if remove a.workable-keen, bootstrap.uri
-		fa uri-and-ast = bootstrap.uri, bootstrap.config!, bootstrap.get-ast
-		# TODO: maybe it would be simpler to just not have String in common-types ...
-		String-path = parse-path "java/lang/String"
-		String = ensure-java-class-file a, String-path, referencable
-		String.type := initial-type-decl-for-String String-path
-		String.has-filled-in-supertypes := true
-		module, common-types = check-bootstrap a.keen-lib, a.common-uris, fa, String.type!.only-inst
+		module, common-types = check-bootstrap a.keen-lib, a.common-uris,
+			bootstrap.uri, bootstrap.config!, bootstrap.get-ast
 		a.common-types-option := common-types
 		bootstrap.module := module
 		a.count-uncompiled-keen-files -:= 1
@@ -578,8 +579,9 @@ set-file void(a frontend, uri uri, result read-file-result)
 -any-work-to-do bool(file java-class-file)
 	match file.work-needed
 	as referencable
-		# TODO: not sure if this matters. Could just say 'false'. The type is created the moment it's parsed, it's not a separate task to do. ...............
-		!file.type
+		# Type is created as soon as file content is ready, not in a separate work step
+		assert file.type
+		false
 	as supertypes
 		!file.has-filled-in-supertypes
 	as all
@@ -592,7 +594,6 @@ set-file void(a frontend, uri uri, result read-file-result)
 			can-use-reference a, ref
 		match file.work-needed
 		as referencable
-			# We create the type as soon as the file is parsed, so we'll never have a parsed-java-class with work to do here
 			throw unreachable
 		as supertypes
 			has-all-supertypes
