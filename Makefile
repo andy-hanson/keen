@@ -31,7 +31,7 @@ test-diagnostics-overwrite: bin/keen
 test-end-to-end: bin/keen
 	bin/keen run test-cases/end-to-end
 test-end-to-end-overwrite: bin/keen
-	bin/keen run test-cases/end-to-end --overwrite-output
+	bin/keen run test-cases/end-to-end -- --overwrite-output
 
 today = $(shell date --iso-8601 --utc)
 

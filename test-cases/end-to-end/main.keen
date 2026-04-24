@@ -36,13 +36,14 @@ main nat(args string[]) global
 
 -test-options record(print-tests bool, overwrite-output bool, match-test string)
 
--paths record(cwd string, path-to-keen string)
+-paths record(path-to-test-cases string, path-to-keen string)
 
 -do-test nat(options test-options) global
-	paths paths = cwd: current-directory, path-to-keen: "./bin/keen"
-	tests = list-tests "./test-cases/end-to-end/tests", options.match-test
+	paths paths = path-to-test-cases: "./test-cases/end-to-end/tests", path-to-keen: "../../../bin/keen"
+	tests = list-tests paths.path-to-test-cases, options.match-test
 	failures failure[] = for* x in tests
-		run-single-keen-test paths, x, options
+		for* kind in members::run-kind[]
+			run-single paths, x, kind, options
 	if is-empty failures
 		print "Ran {size tests} keen tests"
 		0
@@ -51,23 +52,11 @@ main nat(args string[]) global
 		size failures
 
 -list-tests string[](path string, match-test string) global
-	filter path.paths-in-dir, of child
-		ext-is-keen child and contains-seq child, match-test
+	filter path.names-in-dir, of child
+		is-keen child and contains-seq child, match-test
 
--ext-is-keen bool(a string)
+-is-keen bool(a string)
 	a.base-name.get-extension == "keen"
-
--run-single-keen-test failure[]
-	paths paths
-	path string
-	options test-options
-do global
-	if print-tests options
-		print "keen run {path}"
-	res failure[]? = first members::run-kind[], of kind
-		failures = run-single paths, path, kind, options.overwrite-output
-		unless is-empty failures then failures
-	res else ()
 
 -run-kind enum(java, js)
 -to symbol(a run-kind)
@@ -77,24 +66,26 @@ do global
 
 -run-single failure[]
 	paths paths
-	path string
+	test-name string
 	run-kind run-kind
-	overwrite-output bool
+	options test-options
 do global
 	args string[] = match run-kind
 	as java
-		"run", path
+		"run", test-name
 	as js
-		"run", path, "--node-js"
-	log "{paths.path-to-keen} {join " ", args}"
-	res = spawn-and-wait-result paths.path-to-keen, args
+		"run", test-name, "--node-js"
+	if options.print-tests
+		log "{paths.path-to-keen} {join " ", args}"
+	res = run-process paths.path-to-keen, args, cwd: paths.path-to-test-cases
 	out-pre = format-output res
 	out = match run-kind
 	as java
 		normalize-java out-pre
 	as js
 		remove-node-js-footer normalize-js-temp-paths out-pre
-	handle-output path, "{path}.{run-kind}.out", out, overwrite-output, run-kind
+	path = "{paths.path-to-test-cases}/{test-name}"
+	handle-output path, "{path}.{run-kind}.out", out, options.overwrite-output, run-kind
 
 -normalize-java string(a string)
 	update-lines a, of line
@@ -181,9 +172,9 @@ do global
 			path: original-path
 			message: "For {kind.to::symbol}: {output-path} was not as expected. Actual:\n{actual}"
 
-failure record(path string, message string)
+-failure record(path string, message string)
 
-show-failures string(failures failure[])
+-show-failures string(failures failure[])
 	s = join "\n", for failure in failures
 		"{bold}{failure.path}{reset} {failure.message}"
 	"{s}\n{failures.size} failures"
