@@ -15,17 +15,17 @@ fun-body-decl fun-body(fun low-fun)
 	fun.source.low-fun-source-regular!.decl.body
 
 # Fills in simple function bodies
-quick-fill-in-low-fun-body void(ctx lower-context, cf low-fun)
+quick-fill-in-low-fun-body void(ctx lower-context, fun low-fun)
 	the common-types = ctx.common-types
 	the uncommon-types = ctx.uncommon-types
 	the lower-context = ctx
 	the low-common-types = ctx.low-common-types
-	assert cf.body.low-fun-body-deferred
-	fun-body = cf.fun-body-decl
-	return-type = cf.return-type
-	range = cf.range
-	low-params = cf.params
-	cf.body := match x = fun-body
+	assert fun.body.low-fun-body-deferred
+	fun-body = fun.fun-body-decl
+	return-type = fun.return-type
+	range = fun.range
+	low-params = fun.params
+	fun.body := match x = fun-body
 	as fun-body-bogus
 		gen-bogus return-type, range
 	as fun-body-extern-java
@@ -35,36 +35,44 @@ quick-fill-in-low-fun-body void(ctx lower-context, cf low-fun)
 		erased-return-type: get-low-type x.erased-return-type, ()
 		erased-param-types: map x.erased-param-types, of p then get-low-type p, ()
 	as auto-fun
-		lower-auto-fun cf, x
+		lower-auto-fun fun, x
 	as builtin-fun
-		lower-builtin-fun cf, x
-	as create-enum-or-flags
-		constant-low-expr return-type, range, x.member.value.to
-	as create-record
-		if is-empty low-params and !prevent-constant return-type.body.low-record!
-			constant-low-expr return-type, range, get-constant-record ctx.all-constants, return-type, ()
-		else
-			gen-create-record return-type, range, for param in low-params
-				local-get-low-expr range, param
+		lower-builtin-fun fun, x
+	as enum-or-flags-member
+		constant-low-expr return-type, range, x.value.to
 	as expr
 		low-fun-body-deferred
 	as expr-with-allocated-locals
 		low-fun-body-deferred
 	as fun-body-file-import
-		lower-file-import cf, x
+		lower-file-import fun, x
 	as flags-function
-		lower-flags-function cf, x
+		lower-flags-function fun, x
 	as fun-body-method
 		info = ctx.sum-types[low-params[0].type]!
-		info.methods-unsorted ~= cf
+		info.methods-unsorted ~= fun
 		for case_ in info.cases
-			if impl = case_.model-method-impls[x.method-index]
-				type-args-scope = case_.type-args-scope
-				case_.method-impls[x.method-index] := get-low-fun-from-called type-args-scope, (), impl
+			case_.method-impls[x.method-index] := match case_
+			as low-sum-type-case-regular
+				if impl = case_.model-method-impls[x.method-index]
+					get-low-fun-from-called case_.type-args-scope, (), impl
+			as low-sum-type-case-new-interface
+				low-fun-for-new-interface-method-impl case_.case-type, fun, x.method-index
 		unless preserve-methods
-			ctx.deferred-methods ~= cf
+			ctx.deferred-methods ~= fun
 		low-fun-body-method x.method-index, if sig = x.erased-signature
 			for type in sig then get-low-type type, ()
+	as new-interface
+		case-index, case-type = low-type-for-new-interface fun.return-type, fun.params
+		create-union-low-expr return-type, range, case-index,
+			create-record-low-expr case-type, fun.range, for param in fun.params
+				local-get-low-expr fun.range, param
+	as new-record
+		if is-empty low-params and !prevent-constant return-type.body.low-record!
+			constant-low-expr return-type, range, get-constant-record ctx.all-constants, return-type, ()
+		else
+			gen-create-record return-type, range, for param in low-params
+				local-get-low-expr range, param
 	as record-field-get
 		record_ = local-get-low-expr range, only! low-params
 		index = field-index-from-field record_.type, x.field
@@ -81,7 +89,7 @@ quick-fill-in-low-fun-body void(ctx lower-context, cf low-fun)
 		value: p1
 	as sum-type-case-get
 		case_ = sum-type-case-index low-params.only!.type, as-option! return-type
-		gen-union-member-get cf, case_
+		gen-union-member-get fun, case_
 	as var-get
 		assert is-empty low-params
 		var-get-low-expr range, x.var.get-var
@@ -146,6 +154,8 @@ lower-fun-body low-fun-body(cf low-fun, expr expr-maybe-allocated-locals) lower-
 		x.decl.params
 	as low-fun-source-test
 		()
+	as low-fun-source-new-interface-method-impl
+		throw unreachable
 	as low-fun-source-wrap-main
 		throw unreachable
 	the lower-expr-ctx = cf, expr.allocated-locals
@@ -1124,6 +1134,7 @@ lower-expr low-expr(outer-type low-type, a expr) lower-and-expr-ctx
 		log-error "At: {where}, expected type: {show-low-type expected-type}, actual: {show-low-type actual.type}"
 		throw unreachable
 
+# Implicitly convert the actual expression to the expected type.
 -try-widen low-expr?(expected low-type, actual low-expr) lower-ctx
 	if actual.type == expected
 		actual
