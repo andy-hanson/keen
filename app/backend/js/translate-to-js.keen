@@ -1,4 +1,5 @@
 import
+	keen/format/base64
 	../../cli/command
 	../../frontend/show-model
 	../../model/low-model
@@ -575,7 +576,7 @@ do to-expr
 		with got in temp-local "got", source, arg-get
 			got-eq-undefined = gen-eq-eq-eq source, got, source.gen-undefined
 			none-type = type.body.low-union!.members[0]
-			new-none = gen-new source, (to-ref source, none-type), () # TODO:PERF don't construct it every time
+			new-none = gen-new source, to-ref source, none-type # TODO:PERF don't construct it every time
 			none = gen-create-union source, type, 0, new-none
 			some = gen-create-union source, type, 1, got
 			gen-ternary source, got-eq-undefined, none, some
@@ -755,8 +756,7 @@ do
 -convert-to-js-string js-expr(source source, arg js-expr)
 	# TODO:PERF just have this call 'to-js-string' from string.keen!
 	# new TextDecoder().decode(new Uint8Array(arg.chars.map(Number)))
-	TextDecoder = gen-global source, "TextDecoder"
-	text-decoder = gen-new source, TextDecoder, ()
+	text-decoder = gen-new source, gen-global source, "TextDecoder"
 	gen-call-property-sync source, text-decoder, "decode",
 		Uint8Array = gen-global source, "Uint8Array"
 		- gen-new source, Uint8Array,
@@ -1278,8 +1278,19 @@ do to-expr
 -gen-init-constant js-expr(source source, a any-allocated-constant) to-js
 	match a
 	as single-constant-array
-		array-literal source, a.type, for e in a.elements
-			translate-constant source, a.element-type, e
+		if is-char8-or-nat8 a.element-type and a.elements.size > 8
+			bytes = map::nat8[] a.elements, it.as-nat8
+			if every bytes, it < 0x80
+				# new TextEncoder().encode(s)
+				new-text-encoder = gen-new source, gen-global source, "TextEncoder"
+				gen-call-property-sync source, new-text-encoder, "encode",
+					- gen-string source, as-string bytes
+			else
+				gen-call-property-sync source, (gen-global source, "Uint8Array"), "fromBase64",
+					- gen-string source, base64-encode bytes
+		else
+			array-literal source, a.type, for e in a.elements
+				translate-constant source, a.element-type, e
 	as single-constant-record
 		class_ = to-ref source, a.type
 		gen-new source, class_, for field, arg in zip a.fields, a.args
