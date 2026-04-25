@@ -76,7 +76,7 @@ editor/vscode/node_modules:
 bin/java-classes.tar:
 	rm -rf bin/java-classes
 	mkdir bin/java-classes
-	bin/keen print dependencies app --format flat | \
+	bin/keen print dependencies app lib test --format flat | \
 		grep 'java:///java' | \
 		sed 's|^java:///java/|classes/java/|' | \
 		sed 's|%24|\$$|' | \

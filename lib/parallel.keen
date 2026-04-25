@@ -1,173 +1,67 @@
-no-std
 import
+	java/lang/Object
 	java/lang/Runnable
-	java/lang/Throwable
-	java/util/concurrent/CompletableFuture
-	java/util/concurrent/ExecutionException
 	java/util/concurrent/ExecutorService
-	./bool
-	./col/array
-	./col/buffer
-	./col/mut-array
-	./col/collection
-	./col/sort
-	./col/util
-	./exception
+	java/util/concurrent/Future
 	./js
-	./json
-	./misc
-	./number
 	./private/runtime
-	./range
 	./random/random
 	./random/secure-random
 	./random/util
-	./string
-	./test-util
 	./unsafe
-
-| In Java, this is a `java.util.concurrent.CompletableFuture`.
-| In JS, this is a `Promise`.
--future[t] builtin
-
--as-js[t] js-any(value t) js, unsafe
-	reinterpret-cast value
-
--await[t] t(a t future)
-	trusted if java
-		with in unlocked-exclusion
-			try
-				a.reinterpret-cast::(t CompletableFuture).get
-			catch e as ExecutionException
-				throw reinterpret-cast e.reinterpret-cast::Throwable.getCause
-	elif js
-		reinterpret-cast await as-js a
-	else
-		throw todo
-
--Promise js-any() js
-	trusted js-global["Promise"]
-
-| Just yields the fiber temporarily. It may be restarted immediately.
-+yield-fiber void()
-	trusted if java
-		with in unlocked-exclusion
-			()
-	elif js
-		resolver = of resolve js-any
-			:: void
-			_ = call js-global["setTimeout"], resolve, 0
-		_ = await call-new Promise, resolver.to
-	else
-		throw todo
-
-| Converts a value to a future resolved with that value.
--new[t] t future(value t)
-	trusted if java
-		res t CompletableFuture = ()
-		ok = complete res, value
-		assert ok
-		reinterpret-cast res
-	elif js
-		reinterpret-cast call-property Promise, "resolve", value.as-js
-	else
-		throw todo
-test
-	x nat future = 1,
-	x.await is 1
-
-| Future resolved with an exception.
--rejected[t] t future(err exception)
-	trusted if java
-		res t CompletableFuture = ()
-		ok = completeExceptionally res, err.reinterpret-cast
-		assert ok
-		reinterpret-cast res
-	elif js
-		reinterpret-cast call-property Promise, "reject", err.as-js
-	else
-		throw todo
-test
-	fut nat future = rejected error "foo"
-	try
-		_ = await fut
-		should-throw
-	catch e as error
-		e.show is "foo"
-
--parallel record
-| Run {f} in a new fiber with a new exclusion and return a future for its result.
--with-block[t] t future(_ parallel, f t shared())
-	trusted if java
-		future t CompletableFuture = ()
-		fill-it = of
-			:: void
-			ok = complete future, f[]
-			assert ok == true
-		_ = submit get-executor, fill-it.reinterpret-cast::Runnable
-		reinterpret-cast future
-	elif js
-		# This ensures 'f' is not run immediately
-		Promise 'call-property "resolve" 'call-property "then", f.as-js 'reinterpret-cast
-	else
-		throw todo
-test
-	out nat mut[] = ()
-	f void shared(x nat) = shared-of-mut-lambda of x
-		out ~= x
-	for x in parallel 0::nat .. 10
-		f[x]
-	out.move-to.sort::nat[] is for x in 0::nat .. 10 then x
 
 +parallel-collection[col] record(collection col)
 +parallel[col] col parallel-collection(a col)
 	a,
 | For each element of {a}, runs {f} in parallel.
 | Returns a collection of all the results of {f}.
+|
+| If any call to {f} throws an exception, this will throw that too.
+| (If multiple calls to {f} throw an exception, one will be thrown arbitrarily.)
+| This will still wait for all calls to {f} to complete before returning.
 +for-loop[out-col, out-elem, in-col, in-elem] out-col
 	a in-col parallel-collection
 	f out-elem shared(elem in-elem)
 do out-elem shared, in-elem shared, (out-col, out-elem) list-new, in-col size, (in-col, in-elem) some
 	array in-elem[] = for x in a.collection then x
-	permutation = random-permutation a.collection.size
-	futures out-elem future[] = for index in permutation
-		with in parallel
-			f[array[index]]
-	results out-elem[] = for x in futures
-		trusted if js
-			# Can't do `x await`, since that will fail if the input is not a Promise.
-			# This is tricky because we may have implicitly awaited the Promise already.
-			reinterpret-cast await as-js x
-		else
-			await x
-	trusted list-new undo-permutation results, permutation
-test
-	xs nat[] = for x in parallel 0::nat .. 5
-		x * 2
-	xs is (0, 2, 4, 6, 8)
+	# Use a random mutation to avoid a pattern in execution order, since that is not guaranteed.
+	permutation nat[] = random-permutation a.collection.size
+	do trusted
+	results out-elem buffer = uninitialized-buffer array.size
+	if java
+		do with in unlocked-exclusion
+		error mut exception? = ()
+		futures Object Future[] = for index in permutation
+			fill-it void mut() = of
+				try
+					results[index] := f[array[index]]
+				catch e
+					error := error else e
+			submit get-executor, fill-it.reinterpret-cast::Runnable
+		for x in futures
+			_ = get x
+		forbid error else error!
+	elif js
+		fn = eval quote
+			async (array, permutation, results, f) => \{
+				const promises = Array.from(permutation).map(async index => \{ results[index] = await f(array[index]) \})
+				await Promise.allSettled(promises) // Ensure all promises have run to completion
+				for (const x of promises) await x // Ensure any errors get thrown
+			\}
+		_ = await call fn, array.reinterpret-cast, permutation.to, results.reinterpret-cast, f.reinterpret-cast
+	else
+		throw todo
+	list-new cast-immutable results
 
 | For each element of {a}, runs {f} in parallel.
 +for-loop[col, elem] void
 	a col parallel-collection
 	f void shared(elem elem)
 do elem shared, col size, (col, elem) some
-	array elem[] = for x in a.collection then x
-	permutation = random-permutation a.collection.size
-	futures void future[] = for index in permutation
-		with in parallel
-			f[array[index]]
-	for x in futures
-		await x
+	_ void[] = for-loop a, f
 
 -random-permutation nat[](size nat)
 	shuffle (0 .. size).to, basic-prng trusted next secure-random
-| Unsafe because permutation must contain all indices in 0 .. n exactly once
--undo-permutation[t] t[](a t[], permutation nat[]) unsafe
-	a.size is permutation.size
-	res t buffer = uninitialized-buffer permutation.size
-	for i in  0 .. permutation.size
-		res[permutation[i]] := a[i]
-	cast-immutable res
 
 | Runs {f} in parallel for each element of {a} and returns elements for which it was {true}.
 +filter[out-col, in-col, elem, builder] out-col
