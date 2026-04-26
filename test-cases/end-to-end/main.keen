@@ -7,21 +7,30 @@ import
 	keen/parse-command
 	keen/string/util
 
-main nat(args string[]) global
-	if values = parse-named-args args, ("print-tests", "overwrite-output", "match")
-		print-tests-strs, overwrite-output-strs, match-test-strs = as-tuple3 values
-		options test-options =
-			print-tests: !!print-tests-strs
-			overwrite-output: if overwrite-output-strs
-				assert is-empty overwrite-output-strs
-				true
-			match-test: if match-test-strs
-				assert match-test-strs.size == 1
-				match-test-strs[0]
-		do-test options
-	else
+main void() global
+	do if values = parse-named-args command-line-args, ("print-tests", "overwrite-output", "match") else
 		print-help
-		1
+		exit-process 1
+	print-tests-strs, overwrite-output-strs, match-test-strs = as-tuple3 values
+	options test-options =
+		print-tests: !!print-tests-strs
+		overwrite-output: if overwrite-output-strs
+			assert is-empty overwrite-output-strs
+			true
+		match-test: if match-test-strs
+			assert match-test-strs.size == 1
+			match-test-strs[0]
+
+	paths paths = path-to-test-cases: "./test-cases/end-to-end/tests", path-to-keen: "../../../bin/keen"
+	tests = list-tests paths.path-to-test-cases, options.match-test
+	failures failure[] = for* x in tests
+		for* kind in members::run-kind[]
+			run-single paths, x, kind, options
+	if is-empty failures
+		print "Ran {size tests} keen tests"
+	else
+		print-error failures.show-failures
+		exit-process failures.size.to
 
 -as-tuple3[t] (t, t, t)(a t[])
 	assert a.size == 3
@@ -35,26 +44,10 @@ main nat(args string[]) global
 			--match [STR]: Print tests that have STR in the name.
 
 -test-options record(print-tests bool, overwrite-output bool, match-test string)
-
 -paths record(path-to-test-cases string, path-to-keen string)
-
--do-test nat(options test-options) global
-	paths paths = path-to-test-cases: "./test-cases/end-to-end/tests", path-to-keen: "../../../bin/keen"
-	tests = list-tests paths.path-to-test-cases, options.match-test
-	failures failure[] = for* x in tests
-		for* kind in members::run-kind[]
-			run-single paths, x, kind, options
-	if is-empty failures
-		print "Ran {size tests} keen tests"
-		0
-	else
-		print-error failures.show-failures
-		size failures
-
 -list-tests string[](path string, match-test string) global
 	filter path.names-in-dir, of child
 		is-keen child and contains-seq child, match-test
-
 -is-keen bool(a string)
 	a.base-name.get-extension == "keen"
 

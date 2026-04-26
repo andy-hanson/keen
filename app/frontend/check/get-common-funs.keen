@@ -56,9 +56,9 @@ do instantiate-ctx, common-types
 		equal-symbol: get-fun[symbol, "==", bool, (symbol, symbol)]
 		show-exception: get-fun[bootstrap, "show", string, (exception,)]
 		start-runtime: instantiate-non-template-fun get-fun-decl diags, modules[runtime], "start-runtime",
-			type-params: (), return-type: void, params: (), allow-global: true, allow-unsafe: true
+			type-params: (), return-type: void, params: (string-array,), allow-global: true, allow-unsafe: true
 		stop-runtime: instantiate-non-template-fun get-fun-decl diags, modules[runtime], "stop-runtime",
-			type-params: (), return-type: void, params: (nat64,), allow-global: true, allow-unsafe: true
+			type-params: (), return-type: void, params: (), allow-global: true, allow-unsafe: true
 		concat-array-views: get-fun-decl diags, modules[array], "concat-array-views",
 			type-params: one-type-param
 			return-type: t-array
@@ -145,72 +145,50 @@ do instantiate-ctx
 		x.type == y
 
 -get-fun-decl fun-decl
-	diags-builder uri-and-diagnostic mut[]
+	diagnostics uri-and-diagnostic mut[]
 	module keen-module
 	name symbol
 	expected-sig type-params-and-sig
 do instantiate-ctx
-	get-fun-decl-multi diags-builder, module, name, (expected-sig,) 'decl
+	res mut fun-decl? = ()
+	for x in get-funs module, name
+		do if signature-matches-template x, expected-sig
+		if res
+			diagnostics ~= x.range, diag-common-fun-duplicate name
+		else
+			res := x
+	res else bogus-fun-decl diagnostics, module, name, expected-sig
 
 -get-main-fun main-fun(diags-builder uri-and-diagnostic mut[], main-module keen-module) instantiate-ctx, common-types
-	sig0 type-params-and-sig =
+	decl = get-fun-decl diags-builder, main-module, "main",
 		type-params: ()
 		return-type: void
 		params: ()
 		allow-global: true
 		allow-unsafe: true
-	sig1 type-params-and-sig =
-		type-params: ()
-		return-type: nat64
-		params: (string-array,)
-		allow-global: true
-		allow-unsafe: true
-	decl = get-fun-decl-multi diags-builder, main-module, "main", (sig0, sig1)
-	inst = instantiate-non-template-fun decl.decl
-	specs = inst.decl.specs
+	inst = instantiate-non-template-fun decl
+	specs = decl.specs
 	unless is-empty specs.all-contexts and is-empty specs.instantiated-sigs
 		diags-builder ~= inst.decl.name-range, diag-main-has-specs
-	match decl.sig-index
-	as 0
-		main-fun-void inst
-	as 1
-		main-fun-nat64-of-args inst
-	else
-		throw unreachable
+	inst
 
--fun-decl-and-sig-index record(decl fun-decl, sig-index nat)
--get-fun-decl-multi fun-decl-and-sig-index
-	diags-builder uri-and-diagnostic mut[]
+-bogus-fun-decl fun-decl
+	diagnostics uri-and-diagnostic mut[]
 	module keen-module
 	name symbol
-	expected-sigs type-params-and-sig[]
-do instantiate-ctx
-	res mut fun-decl-and-sig-index? = ()
-	for x in get-funs module, name
-		do if index = find-index expected-sigs, of sig then signature-matches-template x, sig
-		if res
-			diags-builder ~= x.range, name.diag-common-fun-duplicate
-		else
-			res := x, index
-	res else bogus-fun-decl-multi diags-builder, module, name, expected-sigs
--bogus-fun-decl-multi fun-decl-and-sig-index
-	diags-builder uri-and-diagnostic mut[]
-	module keen-module
-	name symbol
-	expected-sigs type-params-and-sig[]
+	expected-sig type-params-and-sig
 do instantiate-ctx
 	decl fun-decl =
 		hash: next-hash
-		source: fun-source-bogus module.uri, name, expected-sigs[0].type-params
+		source: fun-source-bogus module.uri, name, expected-sig.type-params
 		visibility: public
-		return-type: expected-sigs[0].return-type
-		params: expected-sigs[0].params.make-params
+		return-type: expected-sig.return-type
+		params: expected-sig.params.make-params
 		specs: ()
 		doc-comment-references: ()
 		body: fun-body-bogus
-	diag diag = diag-common-fun-missing decl, expected-sigs
-	diags-builder ~= (module.uri, ()), diag
-	decl, 0
+	diagnostics ~= (module.uri, ()), diag-common-fun-missing decl, expected-sig
+	decl
 
 -get-funs fun-decl array-view(a module, name symbol)
 	a.public-and-internal-exports.funs[name]
