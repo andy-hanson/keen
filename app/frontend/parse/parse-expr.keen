@@ -220,13 +220,12 @@ parse-fun-expr-body expr-ast?() parser
 	else
 		()
 -to-expr expr-ast(a callable-expr, args expr-ast[])
-	plain = of
-		:: expr-ast
+	plain = of::expr-ast
 		if is-empty args and !a.type-arg
 			a.fun-name
 		else
 			call-ast prefix, a.fun-name, args, a.type-arg
-	res expr-ast = match a.kind
+	res = match a.kind
 	as plain
 		plain[]
 	as not
@@ -517,11 +516,10 @@ parse-fun-expr-body expr-ast?() parser
 
 -parse-do-for-or-with expr-ast(start pos, kind for-or-with-ast-keyword) parser
 	advance
-	colon2-pos = next-start
-	type type-ast? = if try-take-token colon2
-		parse-type-for-typed-expr
+	type = maybe-parse-type-annotation
 	param, in-pos = parse-for-or-with-parameter
-	res for-or-with-ast =
+	maybe-typed type,
+		:: for-or-with-ast
 		start: start
 		keyword: kind
 		param: param
@@ -529,10 +527,6 @@ parse-fun-expr-body expr-ast?() parser
 		then-pos: max-value
 		arg: parse-expr-no-block
 		body: must-parse-next-lines after-do-line
-	if type
-		typed-ast res, colon2-pos, type
-	else
-		res
 
 -parse-for-or-with expr-ast
 	start pos
@@ -540,13 +534,12 @@ parse-fun-expr-body expr-ast?() parser
 	kind for-or-with-ast-keyword
 	block-kind parse-diag-needs-block-ctx
 do parser
-	colon2-pos = next-start
-	type type-ast? = if try-take-token colon2
-		parse-type-for-typed-expr
+	type = maybe-parse-type-annotation
 	param, in-pos = parse-for-or-with-parameter
 	arg = parse-expr-no-block
 	then-pos, body = parse-then-or-indented-statements start, allowed-block, block-kind
-	res for-or-with-ast =
+	maybe-typed type,
+		:: for-or-with-ast
 		start: start
 		keyword: kind
 		param: param
@@ -554,10 +547,15 @@ do parser
 		then-pos: then-pos
 		arg: arg
 		body: body
-	if type
-		typed-ast res, colon2-pos, type
+
+-maybe-parse-type-annotation (pos, type-ast)?() parser
+	if try-take-token colon2
+		prev-start, parse-type-for-typed-expr
+-maybe-typed expr-ast(pos-and-type (pos, type-ast)?, expr expr-ast)
+	if pos, type = pos-and-type
+		typed-ast expr, pos, type
 	else
-		res
+		expr
 
 -parse-do-while-or-until expr-ast(start pos, is-until bool) parser
 	advance
@@ -689,12 +687,13 @@ do parser
 		assert allowed-block # The 'do if' at top handled the false case
 		parse-statements-and-dedent
 	as of_
+		type = maybe-parse-type-annotation
 		param destructure-ast = if peek then_ or peek newline-indent
 			void-destructure-ast (prev-end, prev-end)
 		else
 			parse-destructure-no-require-parens
 		then-pos, body = parse-then-or-indented-statements start, allowed-block, of_
-		lambda-ast start, param, then-pos, body
+		lambda-ast start, param, then-pos, maybe-typed type, body
 	as operator-prefix
 		operator = prev-symbol
 		with arg in it-scope parse-expr-before-call arg-ctx
