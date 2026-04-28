@@ -53,6 +53,7 @@ get-position position?(program program, where uri-line-and-character, pos-kind g
 -get-position-kind position-kind?(module keen-module, pos pos, pos-kind get-position-kind) common-types
 	the keen-module = module
 	position-in-doc-comment module, pos or
+	position-in-imports module, pos or
 	first module.aliases, (of x then position-in-alias x, pos) or
 	first module.types, (of x then position-in-type x, pos) or
 	first module.vars, (of x then position-in-var x, pos) or
@@ -61,6 +62,27 @@ get-position position?(program program, where uri-line-and-character, pos-kind g
 	first module.tests, (of x then position-in-test x, pos, pos-kind) or
 	# We need a definition at position 0, because inlay hints for "Used by" have that as their location.
 	if pos == 0 then position-module
+
+-position-in-imports position-kind?(module keen-module, pos pos)
+	first module.walk-explicit-imports, of ast, imported
+		if has-pos ast.range, pos
+			position-in-import ast, imported, pos
+
+-position-in-import position-kind?(ast import-or-export-ast, imported module, pos pos)
+	if has-pos ast.path-range, pos
+		position-import-path imported
+	else
+		match kind = ast.kind
+		as import-whole-module-ast
+			# This is entirely confined to the path
+			throw unreachable
+		as array
+			first kind, of name
+				if has-pos name.range, pos
+					position-imported-name name, exports imported, ast.import-min-visibility
+		as import-file-ast
+			# These aren't in 'walk-explicit-imports'
+			throw unreachable
 
 -position-in-doc-comment position-kind?(a doc-comment-container, pos pos)
 	if index = find-index a.doc-comment.ast.references, of x then has-pos x.range, pos
@@ -516,21 +538,20 @@ do keen-module, common-types
 		expression-position container, a, equals-expression
 
 -pos-is-at-call bool(a call-expr-source, pos pos)
-	has-pos a.range-for-pos-is-at-call, pos
--range-for-pos-is-at-call source-range(a call-expr-source)
 	match a
 	as assignment-ast
 		() # TODO
 	as assignment-call-ast
 		() # TODO
 	as call-ast
-		range-for-pos-is-at-call a
+		pos-is-at-call a, pos
 	as call-named-ast
-		() # TODO
+		some a.names, of name
+			has-pos name.range, pos
 	as call-subscript-ast
-		() # TODO
+		()
 	as for-or-with-ast
-		a.keyword-range
+		has-pos a.keyword-range, pos
 	as if-ast
 		()
 	as interpolated-ast
@@ -544,12 +565,12 @@ do keen-module, common-types
 	as logical-ast
 		()
 	as name-and-range
-		a.range
+		has-pos a.range, pos
 	as var-decl-ast
 		()
 	as typed-ast
 		()
--range-for-pos-is-at-call source-range(ast call-ast)
+-pos-is-at-call bool(ast call-ast, pos pos)
 	has-name bool = match ast.style
 	as dot
 		true
@@ -562,7 +583,7 @@ do keen-module, common-types
 	as question-name
 		true
 	if has-name
-		ast.fun-name.range
+		has-pos ast.fun-name.range, pos
 
 -position-at-match-enum position-kind?(a match-enum-expr, pos pos) expr-ctx
 	position-at-match-keyword a, a, a.ast, pos or

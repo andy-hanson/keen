@@ -29,25 +29,30 @@ get-references uri-and-line-and-character-range[](program program, pos position,
 	do if target = target-for-position pos
 	lcgs = program.line-and-character-getters
 	sort with out in build
-		definition-for-target target, of where
-			out ~= lcgs[where]
+		add-definition = of
+			definition-for-target target, of where
+				out ~= lcgs[where]
 		match target
 		as position-imported-name
-			# TODO: Walk everything in this module.
-			# If it matches the name and comes from this module, count it as a reference.
-			throw todo
+			out ~= lcgs[pos.uri, target.name.range]
+			for where, _, thing in walk-module pos.module
+				do if references thing, target, kind, where
+				out ~= lcgs[pos.uri, where.reference-range]
 		as position-local
+			add-definition[]
 			for ref in references-for-local target
-				out ~= lcgs[pos.module.uri, ref]
+				out ~= lcgs[pos.uri, ref]
 		as keen-module
 			for ref in references-for-module program, target
 				out ~= lcgs[ref]
 		as type-param-with-container
+			add-definition[]
 			walk-any-decl target.container, of where, _, what
 				do if what.type-param-index == target.type-param
-				out ~= lcgs[pos.module.uri, where.reference-range]
+				out ~= lcgs[pos.uri, where.reference-range]
 		else
-			walk-program program, of uri, where, _, thing
+			add-definition[]
+			for uri, where, _, thing in walk-program program
 				do if references thing, target, kind, where
 				out ~= lcgs[uri, where.reference-range]
 
@@ -70,9 +75,10 @@ get-references uri-and-line-and-character-range[](program program, pos position,
 		else
 			()
 	as fun-decl
-		ref.fun-decl == target
+		references ref, target
 	as position-imported-name
-		throw unreachable
+		(type = target.type) and references ref, type, kind, where or
+		some target.funs, of x then references ref, x
 	as position-local
 		throw unreachable
 	as keen-module
@@ -94,18 +100,11 @@ get-references uri-and-line-and-character-range[](program program, pos position,
 	as signature
 		ref.called-spec-sig.?non-instantiated-sig == target
 	as spec-decl
-		ref.spec-decl == target
+		references ref, target
 	as type-alias
-		ref.type-decl == target.target.decl and where.type-ast and where.name-and-range and where.name == target.name
+		references ref, target, where
 	as type-decl
-		match ref
-		as type-decl
-			ref == target
-		as doc-comment-reference-context
-			if kind == document-highlights
-				ref.type.decl == target
-		else
-			()
+		references ref, target, kind
 	as type-param-with-container
 		throw unreachable
 	as var-decl
@@ -122,6 +121,34 @@ get-references uri-and-line-and-character-range[](program program, pos position,
 			ref == target
 		else
 			()
+
+-references bool(ref doc-comment-reference, target fun-decl)
+	ref.fun-decl == target
+
+-references bool(ref doc-comment-reference, target spec-or-type, kind references-kind, where reference-ast)
+	match target
+	as spec-decl
+		references ref, target
+	as type-alias
+		references ref, target, where
+	as type-decl
+		references ref, target, kind
+
+-references bool(ref doc-comment-reference, target spec-decl)
+	ref.spec-decl == target
+
+-references bool(ref doc-comment-reference, target type-alias, where reference-ast)
+	ref.type-decl == target.target.decl and where.type-ast and where.name-and-range and where.name == target.name
+
+-references bool(ref doc-comment-reference, target type-decl, kind references-kind)
+	match ref
+	as type-decl
+		ref == target
+	as doc-comment-reference-context
+		if kind == document-highlights
+			ref.type.decl == target
+	else
+		()
 
 -references-for-local source-range[](a position-local)
 	do if container, body = a.container.container-and-body
