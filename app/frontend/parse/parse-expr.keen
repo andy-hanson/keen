@@ -14,13 +14,16 @@ parse-fun-expr-body expr-ast?() parser
 	elif try-take-token newline-indent
 		parse-statements-and-dedent
 
+-allowed enum(none, it-scope, block)
+- == bool(a allowed, b allowed)
+- <=> comparison(a allowed, b allowed)
 -arg-ctx record
 	| Allow things like 'if' that continue into an indented block.
-	allowed-block bool
+	allowed allowed
 	| Only parse operators if their precedence is greater than this.
 	min-precedence-exclusive precedence
 -allow-everything arg-ctx()
-	true, min-precedence
+	block, min-precedence
 -precedence enum
 	| Dummy value so that 'min-precedence-exclusive' can allow everything
 	min-precedence
@@ -49,15 +52,15 @@ parse-fun-expr-body expr-ast?() parser
 	comma
 
 -without-block arg-ctx(a arg-ctx)
-	allowed-block: false
+	allowed: min a.allowed, it-scope
 	min-precedence-exclusive: a.min-precedence-exclusive
 -require-precedence-gt arg-ctx(a arg-ctx, precedence precedence)
-	allowed-block: a.allowed-block
+	allowed: a.allowed
 	min-precedence-exclusive: max a.min-precedence-exclusive, precedence
 
 -parse-comma-call expr-ast(arg-ctx arg-ctx, first expr-ast) parser
 	args = parse-args arg-ctx, first
-	with args2 in it-scope args
+	with args2 in it-scope-if arg-ctx.allowed, args
 		list-ast first.start.range, map args2, it.identity
 
 -parse-args expr-ast[](ctx arg-ctx) parser
@@ -67,7 +70,7 @@ parse-fun-expr-body expr-ast?() parser
 	if first
 		out ~= first
 	assert ctx.min-precedence-exclusive >= comma
-	do if peek-token-expression ctx.allowed-block
+	do if peek-token-expression ctx.allowed >= block
 	out ~= parse-expr-and-calls ctx
 	while try-take-token comma
 		out ~= parse-expr-and-calls ctx
@@ -172,7 +175,7 @@ parse-fun-expr-body expr-ast?() parser
 	name-pos = next-start
 	advance
 	args expr-ast[] = lhs, parse-expr-and-calls require-precedence-gt arg-ctx, precedence
-	res = with args2 in it-scope-if args, precedence > comma
+	res = with args2 in it-scope-if arg-ctx.allowed, precedence > comma, args
 		call-ast infix, (name-pos, name), args2, ()
 	parse-calls res, arg-ctx
 
@@ -300,35 +303,35 @@ parse-fun-expr-body expr-ast?() parser
 	else
 		throw unreachable
 
--try-parse-dots-and-subscripts expr-ast(initial expr-ast) parser
+-try-parse-dots-and-subscripts expr-ast(allowed allowed, initial expr-ast) parser
 	dot-pos = next-start
 	match peek
 	as dot
 		advance
-		try-parse-dots-and-subscripts parse-after-dot initial
+		try-parse-dots-and-subscripts allowed, parse-after-dot allowed, initial
 	as bracket-left
 		advance
-		try-parse-dots-and-subscripts parse-subscript initial, dot-pos, false
+		try-parse-dots-and-subscripts allowed, parse-subscript allowed, initial, dot-pos, false
 	as question-bracket
 		advance
-		try-parse-dots-and-subscripts parse-subscript initial, dot-pos, true
+		try-parse-dots-and-subscripts allowed, parse-subscript allowed, initial, dot-pos, true
 	as colon2
-		try-parse-dots-and-subscripts with initial2 in it-scope initial
+		try-parse-dots-and-subscripts allowed, with initial2 in it-scope-if allowed, initial
 			advance
 			typed-ast initial2, dot-pos, parse-type-for-typed-expr
 	as bang
-		try-parse-dots-and-subscripts with initial2 in it-scope initial
+		try-parse-dots-and-subscripts allowed, with initial2 in it-scope-if allowed, initial
 			advance
 			force-ast initial2, dot-pos
 	else
 		initial
 
--parse-after-dot expr-ast(initial expr-ast) parser
+-parse-after-dot expr-ast(allowed allowed, initial expr-ast) parser
 	call = of style call-ast-style, name name-and-range, type-arg type-ast?
-		with initial2 in it-scope-single initial
+		with initial2 in it-scope-if allowed, initial
 			call-ast style, name, (initial2,), type-arg
 	if name = try-take-name-like-token name-bang
-		with x in it-scope call[dot, name, ()]
+		with x in it-scope-if allowed, call[dot, name, ()]
 			force-ast x, name.range.end
 	elif name = try-take-name-like-token name-after-question
 		call[dot-question, name, ()]
@@ -337,14 +340,14 @@ parse-fun-expr-body expr-ast?() parser
 	else
 		initial
 
--parse-subscript expr-ast(initial expr-ast, subscript-pos pos, is-question-bracket bool) parser
+-parse-subscript expr-ast(allowed allowed, initial expr-ast, subscript-pos pos, is-question-bracket bool) parser
 	arg expr-ast = if try-take-token bracket-right
 		list-ast (range subscript-pos), ()
 	else
-		res = parse-expr-no-block
+		res = parse-expr-no-block allowed
 		_ = take-or-add-diag-expected-token bracket-right, closing-bracket
 		res
-	with args in it-scope (initial, arg)
+	with args in it-scope-if allowed, (initial, arg)
 		left, right = only2! args
 		call-subscript-ast left, is-question-bracket, subscript-pos, right, prev-end
 
@@ -393,11 +396,11 @@ parse-fun-expr-body expr-ast?() parser
 	as quote-double-no-interpolated then double
 	else then ()
 
--parse-quote-no-interpolated expr-ast(kind quote-kind, allowed-block bool) parser
+-parse-quote-no-interpolated expr-ast(kind quote-kind, allowed allowed) parser
 	string literal-string-ast = kind, prev-range, prev-string
-	after-quote string, allowed-block
+	after-quote string, allowed
 
--parse-quote-then-interpolated expr-ast(kind quote-kind, allowed-block bool) parser
+-parse-quote-then-interpolated expr-ast(kind quote-kind, allowed allowed) parser
 	template interpolated-template-part mut[] =
 		- prev-range, prev-string
 	parts expr-ast mut[] = ()
@@ -406,36 +409,36 @@ parse-fun-expr-body expr-ast?() parser
 			add-diag-at-next-token parse-diag-missing-interpolated
 			bogus-ast next-range
 		else
-			parse-expr-no-block
+			parse-expr-no-block allowed
 		do if take-after-interpolated else bogus-ast range template[0].range.start
 		token = take-next-token
 		template ~= prev-range, prev-string
 		if token == kind.no-interpolated
-			with parts2 in it-scope parts.move-to
+			with parts2 in it-scope-if allowed, move-to parts
 				interpolated-ast kind, template.move-to, parts2
 		else
 			token is kind.then-interpolated
 			()
-	after-quote res, allowed-block
+	after-quote res, allowed
 
--after-quote expr-ast(expr expr-ast, allowed-block bool) parser
+-after-quote expr-ast(expr expr-ast, allowed allowed) parser
 	if try-take-token colon and string = as-string-like expr
-		parse-single-line-named-new-after-first-name string, allowed-block
+		parse-single-line-named-new-after-first-name string, allowed
 	else
-		try-parse-dots-and-subscripts expr
+		try-parse-dots-and-subscripts allowed, expr
 -as-string-like name-or-string-ast?(a expr-ast)
 	match a
 	as literal-string-ast then a
 	as interpolated-ast then a
 	else then ()
 
--parse-if expr-ast(start pos, is-else-of-parent bool, allowed-block bool, is-unless bool) parser
-	condition = parse-condition false
+-parse-if expr-ast(start pos, is-else-of-parent bool, allowed allowed, is-unless bool) parser
+	condition = parse-condition min allowed, it-scope
 	then-pos = next-start
 	if !is-else-of-parent and try-take-token then_
-		then_ = parse-expr-and-calls (false, else_.precedence)
+		then_ = parse-expr-and-calls ((min allowed, it-scope), else_.precedence)
 		else-pos = next-start
-		else_ expr-ast? = if try-take-token else_ then parse-expr-no-block
+		else_ expr-ast? = if try-take-token else_ then parse-expr-no-block allowed
 		start: start
 		is-unless: is-unless
 		kind: if else_ then if-then-else else if-then
@@ -446,12 +449,12 @@ parse-fun-expr-body expr-ast?() parser
 		first-branch: then_
 		second-branch: else_
 	else
-		then_ = parse-indented-statements start, allowed-block, if_
-		elif-or-else = if allowed-block then try-take-newline-then-elif-or-else
+		then_ = parse-indented-statements start, allowed, if_
+		elif-or-else = if allowed >= block then try-take-newline-then-elif-or-else
 		else_ expr-ast? = if elif-or-else
 			match kind elif-or-else
 			as elif_
-				parse-if elif-or-else.pos, true, allowed-block, false
+				parse-if elif-or-else.pos, true, allowed, false
 			as else_
 				parse-indented-statements
 		start: start
@@ -484,20 +487,20 @@ parse-fun-expr-body expr-ast?() parser
 		advance
 		kind, prev-start
 
--parse-condition expr-ast(allow-block bool) parser
+-parse-condition expr-ast(allowed allowed) parser
 	if lookahead-equals
 		left = parse-destructure-no-require-parens
 		equals-pos = next-start
 		_ = take-or-add-diag-expected-token equal, equals
-		value = parse-expr-and-calls (allow-block, and_.precedence)
+		value = parse-expr-and-calls (allowed, and_.precedence)
 		unpack = unpack-option-ast left, equals-pos, value
 		and-pos = next-start
 		if try-take-token and_
-			logical-ast unpack, and_, and-pos, parse-condition allow-block
+			logical-ast unpack, and_, and-pos, parse-condition allowed
 		else
-			parse-calls unpack, (allow-block, else_.precedence)
+			parse-calls unpack, (allowed, else_.precedence)
 	else
-		parse-expr-and-calls (allow-block, else_.precedence)
+		parse-expr-and-calls (allowed, else_.precedence)
 
 -parse-single-statement-or-block expr-ast() parser
 	if try-take-token newline-indent
@@ -509,7 +512,7 @@ parse-fun-expr-body expr-ast?() parser
 	advance
 	start: prev-start
 	is-forbid: is-forbid
-	condition: parse-condition true
+	condition: parse-condition block
 	thrown: if try-take-token else_
 		prev-start, parse-expr-no-let
 	after: try-parse-next-lines
@@ -530,14 +533,14 @@ parse-fun-expr-body expr-ast?() parser
 
 -parse-for-or-with expr-ast
 	start pos
-	allowed-block bool
+	allowed allowed
 	kind for-or-with-ast-keyword
 	block-kind parse-diag-needs-block-ctx
 do parser
 	type = maybe-parse-type-annotation
 	param, in-pos = parse-for-or-with-parameter
-	arg = parse-expr-no-block
-	then-pos, body = parse-then-or-indented-statements start, allowed-block, block-kind
+	arg = parse-expr-no-block allowed
+	then-pos, body = parse-then-or-indented-statements start, allowed, block-kind
 	maybe-typed type,
 		:: for-or-with-ast
 		start: start
@@ -565,7 +568,7 @@ do parser
 		:: while-or-until-ast
 		start: start
 		is-until: is-until
-		condition: parse-condition true
+		condition: parse-condition block
 		body: must-parse-next-lines after-do-line
 		after: ()
 
@@ -576,7 +579,7 @@ do parser
 		:: while-or-until-ast
 		start: start
 		is-until: is-until
-		condition: parse-condition false
+		condition: parse-condition none
 		body: parse-indented-statements
 		after: try-parse-next-lines
 
@@ -607,84 +610,90 @@ do parser
 
 -if-allow-block expr-ast
 	start pos
-	allowed-block bool
+	allowed allowed
 	kind parse-diag-needs-block-ctx
 	cb-allow-block expr-ast mut()
 do parser
-	if allowed-block
+	if allowed >= block
 		cb-allow-block[]
 	else
 		expr-block-not-allowed start, kind
 
 -parse-expr-before-call expr-ast(arg-ctx arg-ctx) parser
 	start = next-start
-	allowed-block = arg-ctx.allowed-block
+	allowed = arg-ctx.allowed
 	if-allow-block = of kind parse-diag-needs-block-ctx, cb expr-ast mut()
-		if-allow-block start, allowed-block, kind, cb
-	do if !is-newline-token peek or peek == newline-indent and allowed-block else
+		if-allow-block start, allowed, kind, cb
+	do if !is-newline-token peek or peek == newline-indent and allowed >= block else
 		bad-next-token
 	match take-next-token
 	as paren-left
-		if try-take-token paren-right
-			expr = list-ast start.range, ()
-			try-parse-dots-and-subscripts expr
+		try-parse-dots-and-subscripts allowed, if try-take-token paren-right
+			list-ast start.range, ()
 		else
-			try-parse-dots-and-subscripts with inner in it-scope parse-expr-no-block
+			with inner in it-scope-if allowed, parse-expr-no-block allowed
 				_ = take-or-add-diag-expected-token paren-right, closing-paren
 				parenthesized-ast start.range, inner
+	as brace-left
+		inner expr-ast = if peek brace-right
+			list-ast start.range, ()
+		else
+			parse-expr-and-calls (none, min-precedence)
+		_ = take-or-add-diag-expected-token brace-right, closing-brace
+		try-parse-dots-and-subscripts allowed, it-scope-ast start.range, inner
 	as quote-bar-no-interpolated
-		parse-quote-no-interpolated bar, allowed-block
+		parse-quote-no-interpolated bar, allowed
 	as quote-block-no-interpolated
-		if allowed-block
+		if allowed >= block
 			(indented, prev-range, prev-string)::literal-string-ast
 		else
 			expr-block-not-allowed start, quote_
 	as quote-double-no-interpolated
-		parse-quote-no-interpolated double, allowed-block
+		parse-quote-no-interpolated double, allowed
 	as quote-bar-then-interpolated
-		parse-quote-then-interpolated bar, allowed-block
+		parse-quote-then-interpolated bar, allowed
 	as quote-block-then-interpolated
-		if allowed-block
-			parse-quote-then-interpolated indented, allowed-block
+		if allowed >= block
+			parse-quote-then-interpolated indented, allowed
 		else
 			expr-block-not-allowed start, quote_
 	as quote-double-then-interpolated
-		try-parse-dots-and-subscripts parse-quote-then-interpolated double, allowed-block
+		try-parse-dots-and-subscripts allowed, parse-quote-then-interpolated double, allowed
 	as bang
-		with inner in it-scope parse-expr-before-call arg-ctx.without-block
+		with inner in it-scope-if allowed, parse-expr-before-call without-block arg-ctx
 			not-ast start, inner
 	as for_
-		parse-for-or-with start, allowed-block, for_, for_
+		parse-for-or-with start, allowed, for_, for_
 	as for-star
-		parse-for-or-with start, allowed-block, for-star, for-star
+		parse-for-or-with start, allowed, for-star, for-star
 	as if_
-		parse-if start, false, allowed-block, false
+		parse-if start, false, allowed, false
 	as it_
-		try-parse-dots-and-subscripts it-scope-ast it-ast start
+		try-parse-dots-and-subscripts allowed, it-scope-if-allowed arg-ctx, start
 	as in_
 		# It's allowed to access 'in' just in order to access Java's `System.in`
-		handle-name (start, "in")
+		handle-name allowed, (start, "in")
 	as match_
 		if-allow-block[match_, of then parse-match start]
 	as name
-		handle-name (start, prev-symbol)
+		handle-name allowed, (start, prev-symbol)
 	as name-after-bang
 		name = prev-symbol
-		inner = try-parse-dots-and-subscripts if name == "it"
-			it-scope-ast it-ast start + 1
+		inner = try-parse-dots-and-subscripts allowed, if name == "it"
+			it-scope-if-allowed arg-ctx, start + 1
 		else
 			name-and-range start + 1, name
-		with inner2 in it-scope inner
+		with inner2 in it-scope-if allowed, inner
 			not-ast start, inner2
 	as name-after-question
 		call-ast question-name, (name-and-range start + 1, prev-symbol), (), ()
 	as name-bang
-		try-parse-dots-and-subscripts
+		try-parse-dots-and-subscripts allowed,
 			force-ast (name-and-range start, prev-symbol), start.range.end - 1
 	as name-colon
-		parse-single-line-named-new-after-first-name (start, prev-symbol), allowed-block
+		parse-single-line-named-new-after-first-name (start, prev-symbol), allowed
 	as newline-indent
-		assert allowed-block # The 'do if' at top handled the false case
+		assert allowed >= block # The 'do if' at top handled the false case
 		parse-statements-and-dedent
 	as of_
 		type = maybe-parse-type-annotation
@@ -692,19 +701,19 @@ do parser
 			void-destructure-ast (prev-end, prev-end)
 		else
 			parse-destructure-no-require-parens
-		then-pos, body = parse-then-or-indented-statements start, allowed-block, of_
+		then-pos, body = parse-then-or-indented-statements start, allowed, of_
 		lambda-ast start, param, then-pos, maybe-typed type, body
 	as operator-prefix
 		operator = prev-symbol
-		with arg in it-scope parse-expr-before-call arg-ctx
+		with arg in it-scope-if allowed, parse-expr-before-call arg-ctx
 			call-ast prefix, (start, operator), (arg,), ()
 	as literal-number
-		try-parse-dots-and-subscripts literal-number range start
+		try-parse-dots-and-subscripts allowed, literal-number range start
 	as shared_
 		shared-ast start, parse-expr-and-calls arg-ctx
 	as the_
 		if take-or-add-diag-expected-token colon2, colon2
-			try-parse-dots-and-subscripts the-ast start, parse-type-for-typed-expr
+			try-parse-dots-and-subscripts allowed, the-ast start, parse-type-for-typed-expr
 		else
 			bogus-ast start.range
 	as throw_
@@ -716,13 +725,20 @@ do parser
 	as underscore
 		underscore-ast start
 	as unless_
-		parse-if start, false, allowed-block, true
+		parse-if start, false, allowed, true
 	as until_
 		parse-while-or-until start, true
 	as with_
-		parse-for-or-with start, allowed-block, with_, with_
+		parse-for-or-with start, allowed, with_, with_
 	else
 		bad-prev-token
+
+-it-scope-if-allowed expr-ast(arg-ctx arg-ctx, pos pos)
+	it_ = it-ast pos
+	if arg-ctx.allowed >= it-scope
+		it-scope-ast (), it_
+	else
+		it_
 
 -bad-prev-token expr-ast() parser
 	add-diag-unexpected-prev-token
@@ -731,17 +747,19 @@ do parser
 	add-diag-unexpected-next-token
 	skip-rest-of-line-and-return-bogus-no-diag next-range
 
--handle-name expr-ast(name name-and-range) parser
+-handle-name expr-ast(allowed allowed, name name-and-range) parser
 	if type-arg = try-parse-type-arg-for-expr
 		call-ast prefix, name, (), type-arg
 	else
-		try-parse-dots-and-subscripts name
+		try-parse-dots-and-subscripts allowed, name
 
 -parse-expr-no-block expr-ast() parser
-	parse-expr-and-all-calls false
+	parse-expr-no-block it-scope
+-parse-expr-no-block expr-ast(allowed allowed) parser
+	parse-expr-and-all-calls min allowed, it-scope
 
--parse-expr-and-all-calls expr-ast(allowed-block bool) parser
-	parse-expr-and-calls (allowed-block, min-precedence)
+-parse-expr-and-all-calls expr-ast(allowed allowed) parser
+	parse-expr-and-calls (allowed, min-precedence)
 
 -parse-expr-and-calls expr-ast(arg-ctx arg-ctx) parser
 	parse-calls (parse-expr-before-call arg-ctx), arg-ctx
@@ -770,7 +788,7 @@ do parser
 		()
 
 -parse-expr-no-let expr-ast() parser
-	parse-expr-and-all-calls true
+	parse-expr-and-all-calls block
 
 parse-single-statement-line expr-ast() parser
 	start = next-start
@@ -834,7 +852,7 @@ parse-single-statement-line expr-ast() parser
 
 -parse-do-if-or-unless expr-ast(start pos, is-unless bool) parser
 	advance
-	condition = parse-condition true
+	condition = parse-condition block
 	else-pos = next-start
 	else_ expr-ast? = if try-take-token else_ then parse-expr-no-let
 	start: start
@@ -859,31 +877,31 @@ parse-single-statement-line expr-ast() parser
 	advance
 	res
 
--parse-single-line-named-new-after-first-name expr-ast(first-name name-or-string-ast, allowed-block bool) parser
-	value = parse-expr-and-calls (allowed-block, comma)
+-parse-single-line-named-new-after-first-name expr-ast(first-name name-or-string-ast, allowed allowed) parser
+	value = parse-expr-and-calls (allowed, comma)
 	if try-take-token comma
 		if second-name = try-take-name-or-string
-			parse-single-line-named-new-after-second-name first-name, value, second-name, allowed-block
+			parse-single-line-named-new-after-second-name first-name, value, second-name, allowed
 		else
-			value2 = parse-comma-call (allowed-block, comma), value
+			value2 = parse-comma-call (allowed, comma), value
 			call-named-ast (first-name,), (value2,)
 	else
-		value2 = parse-calls value, (allowed-block, min-precedence)
+		value2 = parse-calls value, (allowed, min-precedence)
 		call-named-ast (first-name,), (value2,)
 
 -parse-single-line-named-new-after-second-name call-named-ast
 	first-name name-or-string-ast
 	first-value expr-ast
 	second-name name-or-string-ast
-	allowed-block bool
+	allowed allowed
 do parser
-	second-value = parse-expr-and-calls (allowed-block, comma)
+	second-value = parse-expr-and-calls (allowed, comma)
 	names name-or-string-ast mut[] = first-name, second-name
 	values expr-ast mut[] = first-value, second-value
 	while try-take-token comma
 		if name = take-name-or-string
 			names ~= name
-			values ~= parse-expr-and-calls (allowed-block, comma)
+			values ~= parse-expr-and-calls (allowed, comma)
 	names.move-to, values.move-to
 
 -parse-multi-line-named-new call-named-ast(initial call-named-ast) parser
@@ -971,22 +989,22 @@ do parser
 # Returns position of 'then' (or max-value no 'then' keyword) and the body.
 -parse-then-or-indented-statements (pos, expr-ast)
 	start pos
-	allow-block bool
+	allowed allowed
 	block-kind parse-diag-needs-block-ctx
 do parser
 	then-pos = next-start
 	if try-take-token then_
-		then-pos, parse-expr-no-block
+		then-pos, parse-expr-no-block allowed
 	else
 		- max-value
-		- parse-indented-statements start, allow-block, block-kind
+		- parse-indented-statements start, allowed, block-kind
 
 -parse-indented-statements expr-ast
 	start pos
-	allow-block bool
+	allowed allowed
 	block-kind parse-diag-needs-block-ctx
 do parser
-	if allow-block
+	if allowed >= block
 		parse-indented-statements
 	else
 		expr-block-not-allowed start, block-kind
@@ -1026,3 +1044,22 @@ do parser
 		advance
 		advance
 		prev-start
+
+-it-scope-if record(allowed allowed, args expr-ast[])
+-it-scope-if it-scope-if(allowed allowed, also-required bool, args expr-ast[])
+	(if also-required then allowed else none), args
+-with-block expr-ast(a it-scope-if, f expr-ast mut(args expr-ast[]))
+	if a.allowed >= it-scope and some a.args, of arg then arg.it-scope-ast and !arg.is-explicit
+		it-scope-ast (), f[map a.args, of x then x.it-scope-ast.?inner else x]
+	else
+		f[a.args]
+
+-it-scope-single record(allowed allowed, arg expr-ast)
+-it-scope-if it-scope-single(allowed allowed, arg expr-ast)
+	allowed, arg
+-with-block expr-ast(a it-scope-single, f expr-ast mut(arg expr-ast))
+	arg = a.arg
+	if a.allowed >= it-scope and arg.it-scope-ast and !arg.is-explicit
+		it-scope-ast (), f[arg.inner]
+	else
+		f[arg]
