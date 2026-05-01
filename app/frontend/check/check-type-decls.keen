@@ -58,7 +58,7 @@ check-type-bodies void(types type-decl[], asts type-decl-ast[]) check-ctx, types
 	if depth == 0
 		true
 	elif members = as-union type.body
-		some members, {union-contains-cycle depth - 1, it.member.decl}
+		some members, {union-contains-cycle depth - 1, it.case-type.decl}
 
 -check-sum-type sum-type
 	type type-decl
@@ -90,7 +90,7 @@ do check-ctx, types-get
 		for type-ast in ast.types
 			type = type-from-ast type-ast, sum-type.type-param-asts, yes
 			if type.type-inst
-				if some res, it.member.decl == type.decl
+				if some res, it.case-type.decl == type.decl
 					add-diag type-ast.range, diag-duplicate-declaration union-member, type.decl.name
 				else
 					res ~= type, ()
@@ -172,27 +172,24 @@ check-method-impls void(types type-decl[]) check-ctx, common-types, funs-map
 		member-asts = type.source.type-decl-ast!.body.sum-type-ast!.types
 		for i, x in with-index members
 			range = if members.size == member-asts.size then member-asts[i].range else type.name-range.range
-			x.method-impls := check-method-impls-for-case type, x.member, range, inst, type.body.sum-type!.methods
+			x.method-impls := check-method-impls-for-case type, x.case-type, range, inst, type.body.sum-type!.methods
 
 	unless is-empty type.sum-type-cases
-		member-type = type.instantiated-with-own-type-params
+		case-type = type.instantiated-with-own-type-params
 		for x in type.sum-type-cases
 			x.method-impls :=
-				check-method-impls-for-case type, member-type, x.ast!.range, x.sum-type, x.sum-type-decl-methods
+				check-method-impls-for-case type, case-type, x.ast!.range, x.sum-type, x.sum-type-decl-methods
 
 -check-method-impls-for-case fun-inst?[]
-	type type-decl
+	# This may be the union type, or it may be a case type of a variant. It's used for specs.
+	type-container type-decl
 	member-type type-inst
 	diag-range source-range
 	sum-type type-inst
 	method-decls signature[]
 do check-ctx, common-types, funs-map
 	member = member-type.decl
-	# Use the best case for the member type, because:
-	# * Union cases have the same type parameters as the union.
-	# * Interface or variant cases can't be templates anyway.
-	unless is-mutability-always-compatible sum-type.mutability-range, member-type.mutability-range.best-case
-		add-diag diag-range, diag-mutability-more-than-sum-type member, sum-type
+	check-mutability-compatible sum-type.decl, member-type, diag-range
 
 	do for sig in method-decls
 	types return-and-param-types =
@@ -201,10 +198,9 @@ do check-ctx, common-types, funs-map
 			out ~= member-type
 			for x in sig.params
 				out ~= instantiate-type x.type, sum-type.type-args
-	called = check-method-impl type, sig.name, types, diag-range
-	if called
-		if called.decl.visibility < min sum-type.decl.visibility, member.visibility
-			add-diag diag-range, diag-method-impl-visibility member, sum-type, called
+	called = check-method-impl type-container, sig.name, types, diag-range
+	if called and called.decl.visibility < min sum-type.decl.visibility, member.visibility
+		add-diag diag-range, diag-method-impl-visibility member, sum-type, called
 	called
 
 -mutability-and-forced record(mutability mutability, forced bool)
@@ -447,21 +443,26 @@ do check-ctx, types-get
 	mutability-ast field-mutability-ast?
 	type-ast type-ast?
 do check-ctx, types-get
-	member-type = if type-ast
-		type-from-ast type-ast, record_.type-param-asts, yes
+	field-type = if type-ast
+		res = type-from-ast type-ast, record_.type-param-asts, yes
+		check-mutability-compatible record_, res, type-ast.range
+		res
 	else
-		add-diag name.range, name.name.diag-record-field-needs-type
+		add-diag name.range, diag-record-field-needs-type name.name
 		bogus-type
-	check-reference-mutability record_, source.range, member-type
 
 	visibility = visibility-from-default-with-diag record_.visibility, visibility-ast,
 		visibility-warning-field record_, name.name
 	mutability visibility? = if mutability-ast
 		if record_.mutability != mut_ and !record_.mutability-is-forced
-			add-diag mutability-ast.range, diag-mut-field-not-allowed
+			add-diag mutability-ast.range, diag-mutability-of-field-more-than-parent record_, name.name
 		visibility-from-default-with-diag visibility, mutability-ast.visibility,
 			visibility-warning-field-mutability name.name
-	source, record_, visibility, mutability, member-type, ()
+	source, record_, visibility, mutability, field-type, ()
+
+-check-mutability-compatible void(parent type-decl, child type, diag-range source-range) check-context
+	unless is-possibly-compatible parent.mutability, child.mutability-range or mutability-is-forced parent
+		add-diag diag-range, diag-mutability-more-than-parent parent, child
 
 -visibility-from-default-with-diag visibility
 	default visibility
@@ -500,11 +501,6 @@ do check-ctx
 
 -is-new-visibility bool(a modifier-keyword)
 	a == new-internal or a == new-private or a == new-public
-
--check-reference-mutability void(type type-decl, range source-range, referenced-type type) check-ctx
-	do unless is-mutability-possibly-compatible type.mutability, referenced-type.mutability-range
-	do unless type.mutability-is-forced
-	add-diag range, diag-mutability-more-than-parent type, referenced-type.type-inst!
 
 -record-new-visibility visibility
 	record_ type-decl
