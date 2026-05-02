@@ -2,6 +2,7 @@ import
 	keen/string/unicode
 	../../lib/private/parse-util
 	../frontend/parse/lex-tokens
+	../frontend/walk-model
 	../model/ast
 	../model/lsp
 	../model/model
@@ -16,7 +17,6 @@ get-position-kind enum
 	exact-or-end
 	| The cursor may be to the right of the thing; used for speculative requests such as completions.
 	after
-== bool(a get-position-kind, b get-position-kind)
 get-position position?(program program, where text-document-position-params, pos-kind get-position-kind)
 	get-position program, where.to, pos-kind
 get-position position?(program program, where uri-line-and-character, pos-kind get-position-kind)
@@ -94,7 +94,7 @@ get-position position?(program program, where uri-line-and-character, pos-kind g
 	do if ast = a.source.fun-decl-ast
 	position-in-decl a, pos, of
 		position-in-visibility a, ast.visibility, pos or
-		(if has-pos ast.name.range, pos then a) or
+		(if has-pos ast.name-range, pos then a) or
 		position-in-type-params a, ast.type-params, pos or
 		position-in-type a.return-type, ast.return-type, pos or
 		position-in-params a.params, ast.params, pos or
@@ -135,7 +135,7 @@ do type-ctx
 		spec-index = count modifiers[0 .. index], !!it.spec-use-ast
 		spec_ = specs.inner[spec-index]
 		if type-arg = ast.type-arg and has-pos type-arg.range, pos
-			zip-each-type-arg-may-unpack-tuple spec_.type-args, type-arg, of type, type-ast
+			first (type-args-and-asts-may-unpack-tuple spec_.type-args, type-arg), of type, type-ast
 				position-in-type type, type-ast, pos
 		elif has-pos ast.name-range, pos
 			match spec_
@@ -413,8 +413,10 @@ do keen-module, common-types
 	as call-named-new-expr
 		call[a.ast, a]
 	as call-option-expr
-		keyword-at[a.ast.question-range!, question-before-name-or-subscript] or
-		if pos-is-at-call a.ast.to, pos then expression-position[a]
+		if pos == a.ast.question-pos
+			expression-position[question-before-name-or-subscript]
+		elif pos-is-at-call a.ast.to, pos
+			expression-position[a]
 	as finally-expr
 		keyword-at[a.ast.finally-keyword-range, finally_]
 	as force-expr
@@ -539,11 +541,23 @@ do keen-module, common-types
 		() # TODO
 	as assignment-call-ast
 		() # TODO
-	as call-ast
-		pos-is-at-call a, pos
+	as call-ast-dot
+		has-pos a.name-range, pos
+	as call-ast-dot-question
+		has-pos a.name-range-including-question, pos
+	as call-ast-infix
+		has-pos a.name-range, pos
+	as call-ast-prefix
+		has-pos a.name-range, pos
+	as call-ast-prefix-question
+		has-pos a.name-range-including-question, pos
+	as call-ast-prefix-with-type-arg
+		has-pos a.name-range, pos
 	as call-named-ast
 		some a.names, {has-pos it.range, pos}
 	as call-subscript-ast
+		()
+	as call-question-subscript-ast
 		()
 	as for-or-with-ast
 		has-pos a.keyword-range, pos
@@ -557,28 +571,10 @@ do keen-module, common-types
 		()
 	as literal-string-ast
 		()
-	as logical-ast
-		()
 	as name-and-range
 		has-pos a.range, pos
-	as var-decl-ast
-		()
 	as typed-ast
 		()
--pos-is-at-call bool(ast call-ast, pos pos)
-	has-name bool = match ast.style
-	as dot
-		true
-	as dot-question
-		true
-	as infix
-		true
-	as prefix
-		true
-	as question-name
-		true
-	if has-name
-		has-pos ast.fun-name.range, pos
 
 -position-at-match-enum position-kind?(a match-enum-expr, pos pos) expr-ctx
 	position-at-match-keyword a, a, a.ast, pos or
@@ -704,61 +700,4 @@ do expr-ctx
 	as type-param-index
 		()
 	as type-inst
-		find-in-type-args type.type-args, ast, f
-
--find-in-type-args[out] out?(type-args type-args, ast type-ast, f out? mut(x type, ast type-ast))
-	match ast
-	as bogus-type-ast
-		()
-	as fun-type-ast
-		return-type, param-type = only2! type-args
-		f[return-type, ast.return-type] or each-type-in-destructure param-type, ast.param, f
-	as map-type-ast
-		zip-each-type-arg type-args, (ast.key, ast.value), f
-	as name-and-range
-		# For a type alias, 'typeArgs' may be non-empty as it comes from the alias' target type.
-		# But ignore them in any case.
-		()
-	as suffix-name-type-ast
-		zip-each-type-arg-may-unpack-tuple type-args, ast.left, f
-	as suffix-special-type-ast
-		zip-each-type-arg-may-unpack-tuple type-args, ast.left, f
-	as tuple-type-ast
-		zip-each-type-arg type-args, ast.members, f
-
--zip-each-type-arg-may-unpack-tuple[out] out?
-	type-args type-args
-	type-arg-ast type-ast
-	f out? mut(x type, ast type-ast)
-do
-	type-arg-asts type-ast[] = if type-args.size == 1
-		type-arg-ast,
-	else
-		type-arg-ast.tuple-type-ast!.members
-	zip-each-type-arg type-args, type-arg-asts, f
-
--zip-each-type-arg[out] out?
-	type-args type-args
-	type-arg-asts type-ast[]
-	f out? mut(x type, ast type-ast)
-do
-	first (zip type-args.slow-to-array, type-arg-asts), f
-
--each-type-in-destructure[out] out?
-	type type
-	ast destructure-ast
-	f out? mut(x type, ast type-ast)
-do
-	match ast
-	as name-and-range
-		()
-	as single-destructure-ast
-		if t = ast.type then f[type, t]
-	as ignore-destructure-ast
-		if t = ast.type then f[type, t]
-	as void-destructure-ast
-		()
-	as array
-		do unless is-bogus type
-		first (zip type.type-inst!.type-args.slow-to-array, ast), of type-arg, param
-			each-type-in-destructure type-arg, param, f
+		first (type-args-and-asts type.type-args, ast), f

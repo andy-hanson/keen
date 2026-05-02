@@ -1,14 +1,23 @@
 import
 	../../model/ast
 	../../model/model
+	../../model/uri
+	../../util/enum-map
+	./check-call/check-call-specs
 	./check-ctx
 	./instantiate
 	./get-common-funs
+	./type-from-ast
 
 funs-out alias
 	fun-decl builder
 
-add-funs-for-type void(out funs-out, type type-decl) check-ctx, common-types
+add-funs-for-type void
+	out funs-out
+	auto-funs auto-funs
+	type type-decl
+	auto-fun-overrides auto-fun-overrides
+do check-ctx, common-types
 	inst = instantiated-with-own-type-params type
 	match body = type.body
 	as type-body-bogus
@@ -16,16 +25,302 @@ add-funs-for-type void(out funs-out, type type-decl) check-ctx, common-types
 	as builtin-type
 		()
 	as enum_
-		add-funs-for-enum out, type, body
+		add-funs-for-enum out, type, body, auto-fun-overrides
 	as flags_
-		add-funs-for-flags out, type, body
+		add-funs-for-flags out, type, body, auto-fun-overrides
 	as java-class
 		throw unreachable
 	as record_
 		add-funs-for-record out, type, inst, body
 	as sum-type
-		add-funs-for-sum-type out, type, inst, body
+		add-funs-for-sum-type out, type, inst, body, auto-fun-overrides
 	add-funs-for-sum-type-cases out, type, inst
+
+	if has-standard-auto-funs type
+		emit = of kind fancy-auto-fun-kind, return-type type, parameters destructure[]
+			do unless auto-fun-overrides[type, kind.to]
+			fun = fun-for-type type, return-type, parameters, auto-fun kind.to, ()
+			out ~= fun
+			auto-funs[kind][type] := fun
+		two-of-it = make-params (inst, inst)
+		emit[equals, bool, two-of-it]
+		emit[compare, comparison, two-of-it]
+		emit[hash, void, make-params (inst, hash-state)]
+		unless cur-module-is-no-std
+			emit[to-json, must-get-json, make-params (inst,)]
+
+auto-funs alias
+	(fancy-auto-fun-kind, fun-decl mut[type-decl]) enum-map
+auto-funs-for-kind alias
+	fun-decl mut[type-decl]
+fancy-auto-fun-kind enum(compare, equals, hash, to-json)
+to auto-fun-kind(a fancy-auto-fun-kind)
+	match a
+	as compare then compare
+	as equals then equals
+	as hash then hash
+	as to-json then to-json
+
+-must-get-json type-inst() check-ctx
+	only-inst must-get-type-from-std "json"
+
+fill-auto-fun-bodies void(auto-funs auto-funs) check-ctx, common-types, funs-map
+	for kind, map in auto-funs
+		unless is-empty map
+			fill-auto-fun-bodies-for-kind kind, map
+
+-fill-auto-fun-bodies-for-kind void(kind fancy-auto-fun-kind, map auto-funs-for-kind) check-ctx, common-types, funs-map
+	spec_ = spec-and-extra-type-arg kind
+
+	# The key is a referenced type.
+	# The value is a tuple of the type that references it, and the type-inst it's referenced as.
+	# The values may contain duplicates.
+	referenced-by (type-decl, type-inst) mut[] mut[type-decl] = ()
+
+	# For each auto function, it may need specs to implement the function for some of its members.
+	specs-per-type spec-inst mut[] mut[type-decl] = ()
+	initial-specs-to-propagate type-decl mut[] = ()
+	for type, fun in map
+		needed-specs spec-inst mut[] = ()
+		members called[] = for member in direct-members type
+			spec-inst-for-member = spec_[member]
+			do unless is-bogus member else bogus-impl fun, spec-inst-for-member
+			has-type-param mut bool = false
+			recur mut void mut(x type) = {}
+			recur := of x
+				match x
+				as bogus-type
+					()
+				as type-param-index
+					has-type-param := true
+				as type-inst
+					if map[x.decl]
+						(ensure referenced-by, x.decl) ~= type, x
+						# If we have a 'foo bar' where 'foo' and 'bar' are both types in the map, we need to recurse.
+						# If we have a 't bar', we don't need to do anything special with 't', since 'bar' handles it.
+					each x.type-args, recur
+			recur[member]
+
+			# NOTE: At this point, none of the auto funs have specs yet.
+			# This means that calls to them will succeed at this point.
+			# They will also generate invalid insts, but that's fine,
+			# because we don't actually use the result of try-find-auto-fun-implementation here.
+			if has-type-param
+				_ = push-unique needed-specs, spec_[member]
+				bogus-impl fun, spec-inst-for-member # Won't be used
+			elif called = try-find-auto-fun-implementation fun, spec-inst-for-member
+				called
+			else
+				if push-unique needed-specs, spec_[member]
+					initial-specs-to-propagate ~= type
+				bogus-impl fun, spec-inst-for-member # Won't be used
+		if is-empty needed-specs
+			# Optimistically write the body. This may be overwritten if specs are propagated.
+			fun.body := with-members fun.body, members
+		else
+			specs-per-type[type] := move-to needed-specs
+
+	for type in initial-specs-to-propagate
+		propagate-needs-specs spec_, referenced-by, specs-per-type, type
+
+	for type, specs in specs-per-type
+		update-fun-specs-and-reset-insts map[type]!, get-or-add-specs map specs, {it}
+
+	for type, _ in specs-per-type
+		fill-auto-fun-members map[type]!, type, spec_
+
+# If 'foo' depends on 'bar' and the auto fun for 'bar' has specs:
+# Ignore the specific specs and just have the auto fun for 'foo' have a spec for the auto fun for 'bar'.
+-propagate-needs-specs void
+	spec_ auto-fun-spec
+	referenced-by (type-decl, type-inst) mut[] mut[type-decl]
+	specs-per-type spec-inst mut[] mut[type-decl]
+	type type-decl
+do instantiate-ctx
+	for referencing-type, reference-inst in referenced-by[type] else ()
+		specs = ensure specs-per-type, referencing-type
+		was-empty = is-empty specs
+		_ = push-unique specs, spec_[reference-inst]
+		if was-empty
+			propagate-needs-specs spec_, referenced-by, specs-per-type, referencing-type
+
+-add-spec void
+	out spec-or-type-inst mut[] mut[type-decl]
+	map auto-funs-for-kind
+	referenced-by (type-decl, type-inst) mut[] mut[type-decl]
+	type type-decl
+	spec-inst spec-inst
+do check-ctx, common-types, funs-map
+	do if push-unique (ensure out, type), spec-inst
+	do for ref, ref-type in referenced-by[type] else ()
+	instantiated = instantiate-spec-inst spec-inst, ref-type.type-args, ()
+	do unless contains (ensure out, ref), instantiated
+	do unless try-find-auto-fun-implementation map[ref]!, instantiated
+	add-spec out, map, referenced-by, ref, instantiated
+
+-push-unique[t] bool(a t mut[], value t) t equal
+	unless contains a, value
+		a ~= value
+		true
+
+-direct-members record(type type-decl)
+-size nat(a direct-members)
+	match body = a.type.body
+	as type-body-bogus then throw unreachable
+	as builtin-type then throw unreachable
+	as enum_ then 0
+	as flags_ then 0
+	as java-class then throw unreachable
+	as record_ then body.fields.size
+	as sum-type then body.as-union!.size
+-some bool(a direct-members, f bool mut(a type))
+	match body = a.type.body
+	as type-body-bogus then throw unreachable
+	as builtin-type then throw unreachable
+	as enum_ then ()
+	as flags_ then ()
+	as java-class then throw unreachable
+	as record_ then some body.fields, f[it.type]
+	as sum-type then some body.as-union!, f[it.case-type]
+
+-fill-auto-fun-members void(fun fun-decl, type type-decl, spec_ auto-fun-spec) check-ctx, common-types, funs-map
+	fun.body := with-members fun.body, for member-type in members type.body
+		spec-inst = spec_[member-type]
+		if is-bogus member-type
+			bogus-impl fun, spec-inst
+		else
+			try-find-auto-fun-implementation! fun, spec-inst
+
+-bogus-impl called(fun fun-decl, spec-inst-for-member spec-inst)
+	sig = only! spec-inst-for-member.all-sigs
+	called-bogus fun, make-return-and-param-types sig.return-type, sig.params, it.type
+
+-with-members auto-fun(body fun-body, members called[])
+	auto-fun body.auto-fun!.kind, members
+
+-auto-fun-spec record(spec_ spec-decl, extra-type-arg type?)
+-spec-and-extra-type-arg auto-fun-spec(a fancy-auto-fun-kind) check-ctx, common-types
+	match a
+	as equals
+		equal-spec, ()
+	as compare
+		compare-spec, ()
+	as hash
+		hash-spec, ()
+	as to-json
+		to-spec, must-get-json
+-subscript spec-inst(a auto-fun-spec, type type) instantiate-ctx
+	instantiate-spec a.spec_, if t = a.extra-type-arg
+		to-type-array (t, type)
+	else
+		as-type-args type
+
+-has-standard-auto-funs bool(type type-decl)
+	match body = type.body
+	as type-body-bogus then false
+	as builtin-type then false
+	as enum_ then true
+	as flags_ then true
+	as java-class then throw unreachable
+	as record_ then is-data type and every body.fields, it.visibility == type.visibility
+	as sum-type then is-data type and as-union body
+
+-members record(body type-body)
+-size nat(a members)
+	match body = a.body
+	as type-body-bogus then throw unreachable
+	as builtin-type then 0
+	as enum_ then 0
+	as flags_ then 0
+	as java-class then throw unreachable
+	as record_ then body.fields.size
+	as sum-type then body.listed-members.size
+-some bool(a members, f bool mut(a type))
+	match body = a.body
+	as type-body-bogus then throw unreachable
+	as builtin-type then false
+	as enum_ then false
+	as flags_ then false
+	as java-class then throw unreachable
+	as record_ then some body.fields, f[it.type]
+	as sum-type then some body.listed-members, f[it.case-type]
+
+auto-fun-overrides alias
+	(type-decl, auto-fun-kind) mut-set
+auto-fun-override alias
+	(type-decl, auto-fun-kind)
+
+as-auto-fun-override auto-fun-override?(fun fun-decl) common-types, common-uris
+	return = fun.return-type
+	match fun.name
+	as "=="
+		if is-bool return and decl = as-binary fun
+			decl, equals
+	as "<=>"
+		if return == comparison and decl = as-binary fun
+			decl, compare
+	as hash
+		do if is-void return
+		do if a, state = only2 fun.params
+		a-type = a.type
+		do if type-inst a-type
+		do if state.type == hash-state
+		a-type.decl, hash
+	as members
+		do if enum-inst = as-array return
+		do if type-inst enum-inst
+		enum_ = enum-inst.decl
+		do if is-enum-or-flags enum_
+		do if is-empty fun.params
+		enum_, members-of-enum-or-flags
+	as to
+		do if param = ?type-inst ?type only fun.params
+		if is-json return
+			param.decl, to-json
+		elif inner = unwrap-option return
+			do if type-inst inner
+			enum_ = inner.decl
+			do if is-enum-or-flags enum_
+			if is-nat64 param
+				enum_, to-enum-or-flags-option-from-nat
+			elif is-symbol param
+				enum_, to-enum-or-flags-option-from-symbol
+		elif as-nat-type return
+			enum_ = param.decl
+			do if is-enum-or-flags enum_
+			enum_, to-nat-from-enum-or-flags
+		elif is-symbol return
+			enum_ = param.decl
+			do if is-enum enum_
+			enum_, to-symbol-from-enum
+		elif is-symbol-array return
+			flags_  = param.decl
+			do if is-flags flags_
+			flags_, to-symbol-array-from-flags
+	else
+		()
+
+-is-json bool(a type) common-uris
+	a.type-inst and a.decl.module-uri == (the::common-uris)[json] and a.decl.name == "json"
+
+-is-symbol bool(a type) common-types
+	a == symbol
+-is-symbol-array bool(a type) common-types
+	(elem = as-array a) and is-symbol elem
+
+-is-enum bool(a type-decl)
+	!!a.body.enum_
+-is-flags bool(a type-decl)
+	!!a.body.flags_
+-is-enum-or-flags bool(a type-decl)
+	is-enum a or is-flags a
+
+-as-binary type-decl?(fun fun-decl)
+	do if a, b = only2 fun.params
+	type = a.type
+	do if b.type == type
+	do if type-inst type
+	type.decl
 
 -add-funs-for-sum-type-cases void(out funs-out, type type-decl, inst type-inst) check-ctx, common-types
 	for x in type.sum-type-cases
@@ -62,7 +357,6 @@ add-funs-for-var void(out funs-out, var var-decl) check-ctx, common-types
 		return-type: var.type
 		params: ()
 		specs: global-unsafe-specs
-		doc-comment-references: ()
 		body: var-get var
 	out ~=
 		hash: next-hash
@@ -71,7 +365,6 @@ add-funs-for-var void(out funs-out, var var-decl) check-ctx, common-types
 		return-type: void
 		params: make-params (var.type,)
 		specs: global-unsafe-specs
-		doc-comment-references: ()
 		body: var-set var
 
 -fun-for-type fun-decl
@@ -79,23 +372,33 @@ add-funs-for-var void(out funs-out, var var-decl) check-ctx, common-types
 	return-type type
 	params destructure[]
 	body fun-body
-do check-ctx
+do instantiate-ctx
 	hash: next-hash
 	source: type
 	visibility: type.visibility
 	return-type: return-type
 	params: params
 	specs: type.specs
-	doc-comment-references: ()
 	body: body
 
--add-funs-for-enum void(out funs-out, type type-decl, enum_ enum_) check-ctx
+-add-funs-for-enum void
+	out funs-out
+	type type-decl
+	enum_ enum_
+	overrides auto-fun-overrides
+do instantiate-ctx, common-types
 	inst = type.only-inst
 	for member in enum_.members
 		out ~= enum-or-flags-constructor type.visibility, inst, member
+	add-funs-for-enum-or-flags out, type, overrides
 
--add-funs-for-flags void(out funs-out, type type-decl, flags_ flags_) check-ctx, common-types
-	inst = type.only-inst
+-add-funs-for-flags void
+	out funs-out
+	type type-decl
+	flags_ flags_
+	overrides auto-fun-overrides
+do instantiate-ctx, common-types
+	inst = only-inst type
 	out ~= fun-for-type type, inst, ().make-params, none
 	out ~= fun-for-type type, inst, (inst,).make-params, negate
 	out ~= fun-for-type type, inst, (inst, inst).make-params, union_
@@ -103,15 +406,35 @@ do check-ctx
 	out ~= fun-for-type type, bool, (inst, inst).make-params, subscript::flags-function
 	for member in flags_.members
 		out ~= enum-or-flags-constructor type.visibility, inst, member
+	add-funs-for-enum-or-flags out, type, overrides
 
--enum-or-flags-constructor fun-decl(visibility visibility, enum_ type-inst, member enum-or-flags-member) check-ctx
+-add-funs-for-enum-or-flags void
+	out funs-out
+	type type-decl
+	overrides auto-fun-overrides
+do instantiate-ctx, common-types
+	inst = only-inst type
+	unless overrides[type, members-of-enum-or-flags]
+		out ~= fun-for-type type, array[inst], (), auto-fun members-of-enum-or-flags, ()
+	unless overrides[type, to-enum-or-flags-option-from-nat]
+		out ~= fun-for-type type, option[inst], (nat64,).make-params, auto-fun to-enum-or-flags-option-from-nat, ()
+	unless overrides[type, to-enum-or-flags-option-from-symbol]
+		out ~= fun-for-type type, option[inst], (symbol,).make-params, auto-fun to-enum-or-flags-option-from-symbol, ()
+	unless overrides[type, to-nat-from-enum-or-flags]
+		storage = must-be-enum-or-flags-storage type
+		out ~= fun-for-type type, storage.to, (inst,).make-params, auto-fun to-nat-from-enum-or-flags, ()
+	unless overrides[type, to-symbol-from-enum]
+		out ~= fun-for-type type, symbol, (inst,).make-params, auto-fun to-symbol-from-enum, ()
+	unless overrides[type, to-symbol-array-from-flags]
+		out ~= fun-for-type type, array[symbol], (inst,).make-params, auto-fun to-symbol-array-from-flags, ()
+
+-enum-or-flags-constructor fun-decl(visibility visibility, enum_ type-inst, member enum-or-flags-member) instantiate-ctx
 	hash: next-hash
 	source: member
 	visibility: visibility
 	return-type: enum_
 	params: ()
 	specs: enum_.decl.specs
-	doc-comment-references: ()
 	body: member
 
 -add-funs-for-record void(out funs-out, type type-decl, inst type-inst, record_ record_) check-ctx, common-types
@@ -128,7 +451,6 @@ do check-ctx
 	params: for x in record_.fields
 		make-param x.name, x.type
 	specs: specs type
-	doc-comment-references: ()
 	body: new-record nominal_
 
 -add-funs-for-record-field void
@@ -144,7 +466,6 @@ do check-ctx, common-types
 		return-type: field.type
 		params: make-params (record-type,)
 		specs: type.specs
-		doc-comment-references: ()
 		body: record-field-get field
 
 	if set-visibility = field.mutability
@@ -157,7 +478,6 @@ do check-ctx, common-types
 				- make-param "a", record-type
 				- make-param field.name, field.type
 			specs: type.specs
-			doc-comment-references: ()
 			body: record-field-set field
 
 -add-funs-for-sum-type void
@@ -165,12 +485,16 @@ do check-ctx, common-types
 	type type-decl
 	inst type-inst
 	sum-type sum-type
+	auto-fun-overrides auto-fun-overrides
 do check-ctx, common-types
+	the common-uris = common-uris
 	if can-convert-back type and !is-empty sum-type.listed-members
 		for x in sum-type.listed-members
 			add-funs-for-sum-type-case out, type, inst, x.case-type
 	for index, method in with-index sum-type.methods
-		out ~= fun-for-method type, inst, index, method, ()
+		fun = fun-for-method type, inst, index, method, ()
+		out ~= fun
+		auto-fun-overrides ~~= from-option as-auto-fun-override fun
 	if sum-type.kind == interface_
 		out ~~= from-option interface-constructor type, inst, sum-type
 
@@ -185,7 +509,6 @@ do check-ctx, common-types
 	return-type: inst
 	params: params
 	specs: type.specs
-	doc-comment-references: ()
 	body: new-interface
 
 -lambda-param-type type?(params destructure[]) common-types

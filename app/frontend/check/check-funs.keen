@@ -1,16 +1,15 @@
 import
-	../../../lib/col/experimental/object-memoizer
 	../../model/ast
 	../../model/model
 	../../model/source-range
 	../../model/uri
-	../../util/by-name
-	./check-auto-fun
+	../../util/enum-map
 	./check-ctx
 	./check-expr
 	./check-type-decls
 	./check-util
 	./funs-for-type
+	./get-builtin-fun
 	./instantiate
 	./type-from-ast
 
@@ -29,9 +28,10 @@ check-funs funs-and-map
 	asts fun-decl-ast[]
 	test-asts test-ast[]
 do check-ctx, common-types, types-get
-	funs = check-funs-initial structs, vars, file-imports-and-exports, asts
+	funs, auto-funs = check-funs-initial structs, vars, file-imports-and-exports, asts
 	assert funs.size >= asts.size
-	the funs-map = funs.to
+	the funs-map = make-funs-map funs
+	fill-auto-fun-bodies auto-funs
 	check-method-impls structs
 	check-funs-with-asts funs[0 .. asts.size], asts
 	for i, f in with-index file-imports-and-exports.imports
@@ -42,61 +42,53 @@ do check-ctx, common-types, types-get
 	tests: check-tests test-asts
 	funs-map: the::funs-map
 
--check-funs-initial fun-decl[]
+-check-funs-initial (fun-decl[], auto-funs)
 	types type-decl[]
 	vars var-decl[]
 	file-imports-and-exports file-imports-and-exports
 	asts fun-decl-ast[]
 do check-ctx, types-get
-	do with out in build
-	for fun-ast in asts
-		out ~= check-fun fun-ast
-	for f in file-imports-and-exports.imports
-		out ~= fun-decl-for-file-import-or-export f, private
-	for f in file-imports-and-exports.exports
-		out ~= fun-decl-for-file-import-or-export f, public
-	for type in types
-		add-funs-for-type out, type
-	for var in vars
-		add-funs-for-var out, var
+	the common-uris = common-uris
+	auto-funs auto-funs = ()
+	funs fun-decl[] = with out in build
+		auto-fun-overrides auto-fun-overrides = ()
+		for fun-ast in asts
+			fun = check-fun-initial fun-ast
+			auto-fun-overrides ~~= from-option as-auto-fun-override fun
+			out ~= fun
+		for f in file-imports-and-exports.imports
+			out ~= fun-decl-for-file-import-or-export f, private
+		for f in file-imports-and-exports.exports
+			out ~= fun-decl-for-file-import-or-export f, public
+		for type in types
+			add-funs-for-type out, auto-funs, type, auto-fun-overrides
+		for var in vars
+			add-funs-for-var out, var
+	funs, auto-funs
 
--check-fun fun-decl(fun-ast fun-decl-ast) check-ctx, types-get
-	fun fun-decl =
-		hash: next-hash
-		source: fun-ast
-		visibility: visibility-from-explicit-top-level fun-ast.visibility
-		return-type: bogus-type
-		params: ()
-		specs: check-fun-modifiers fun-ast.type-params, fun-ast.modifiers
-		doc-comment-references: ()
-		body: fun-body-uninitialized
+# Get the function signature, but not yet fill in the body.
+-check-fun-initial fun-decl(fun-ast fun-decl-ast) check-ctx, types-get
+	visibility = visibility-from-explicit-top-level fun-ast.visibility
+	specs = check-fun-modifiers fun-ast.type-params, fun-ast.modifiers
 	check-type-params fun-ast.type-params
+	fun fun-decl = unfinished-fun-decl next-hash, fun-ast, visibility, fun-ast.name, specs
 	return-type, params = check-return-type-and-params fun, fun-ast.return-type, fun-ast.params, fun-ast.type-params
-	fun.return-type := return-type
-	fun.params := params
-	param-types type[] = map params, it.type
-	fun.param-types := param-types
-	match insts = fun.insts
-	as fun-inst
-		insts.return-type := return-type
-		insts.param-types := param-types
-	as object-memoizer
-		()
+	fill-in-fun-types fun, return-type, params
 	fun
 
 -file-import-function-body fun-body(a import-or-export-file)
 	fun-body-file-import a.source.kind.import-file-ast!.type, a.content
 
 -fun-decl-for-file-import-or-export fun-decl(a import-or-export-file, visibility visibility) check-ctx, common-types
-	ast = a.source.kind.import-file-ast!
+	ast = import-file-ast! a.source.kind
+	return-type = type-for-file-import ast.type
 	hash: next-hash
 	source: fun-source-file-import cur-uri, a.source
 	visibility: visibility
-	return-type: type-for-file-import ast.type
+	return-type: return-type
 	params: ()
 	specs: ()
-	doc-comment-references: ()
-	body: fun-body-bogus
+	body: fun-body-uninitialized
 
 -type-for-file-import type(type import-file-type) common-types
 	match type
@@ -120,10 +112,7 @@ do check-ctx, types-get
 		if !is-empty specs.instantiated-sigs
 			add-diag ast.keyword-range, test_.diag-spec-use-invalid
 		test_ test_ = next-hash, ast, cur-uri, specs, (bogus-expr (), void), ()
-		if body = ast.body
-			test_.body := check-fun-or-test-body test_, void, (), body, (), false
-		else
-			add-diag ast.range, diag-test-missing-body
+		test_.body := check-fun-or-test-body test_, void, (), ast.body, false
 		test_
 
 -check-funs-with-asts void
@@ -135,11 +124,11 @@ do check-ctx, common-types, types-get, funs-map
 		fun-ast = asts[i]
 		do if fun.body.fun-body-uninitialized
 		fun.body := if is-bogus fun.return-type
-			fun-body-bogus
-		elif body = fun-ast.body
-			check-fun-or-test-body fun, fun.return-type, fun.params, body, (), must-be-auto fun.name 'to
+			bogus-expr fun-ast.body.range, fun.return-type
+		elif bogus-ast fun-ast.body
+			get-builtin-fun fun
 		else
-			check-auto-fun fun
+			check-fun-or-test-body fun, fun.return-type, fun.params, fun-ast.body, must-be-auto fun.name 'to
 
 -must-be-auto bool(a symbol)
 	match a

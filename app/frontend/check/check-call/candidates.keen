@@ -1,6 +1,6 @@
 import
+	../../../model/ast
 	../../../model/model
-	../../../util/by-name
 	../../../util/util
 	../allocators
 	../check-ctx
@@ -8,49 +8,49 @@ import
 	../inferring-type
 
 candidates-for-diag called-decl[](candidates candidates)
-	map candidates, it.called
+	sort map candidates, it.called
 
 get-all-candidates-for-diag called-decl[](fun-name fun-name) check-expr-ctx
-	do with out in build
-	match fun-name
-	as symbol
-		each-fun-in-expr-scope fun-name, {out ~= it}
-	as fun-name-list-new
-		each-fun-in-expr-scope "new", {out ~= it}
-		each-fun-in-expr-scope "list-new", of called
-			if as-list-new called
-				out ~= called
-	as named-new
-		each-fun-in-expr-scope "new", {out ~= it}
-		each-fun-in-expr-scope "named-new", of called
-			if as-named-new called
-				out ~= called
+	sort with out in build
+		each-fun-in-expr-scope-with-name fun-name.regular-name, {out ~= it}
+		match fun-name
+		as name-and-arity
+			()
+		as fun-name-list-new
+			each-fun-in-expr-scope list-new-1, of called
+				if as-list-new called
+					out ~= called
+		as named-new
+			each-fun-in-expr-scope named-new-2, of called
+				if as-named-new called
+					out ~= called
 
 with-candidates[t] t
 	funs funs-in-scope
 	fun-name fun-name
-	actual-arity nat
+	return-type type?
+	arg0-type type?
 	initial-filter bool mut(x candidate)
 	f t mut(candidates candidates)
 do check-ctx, common-types
 	candidates, restore = trusted allocate-candidates
 	finally trusted free-candidates candidates, restore
+	add-initial-candidates candidates, funs, fun-name.regular-name, return-type, arg0-type, initial-filter
 	match fun-name
-	as symbol
-		add-initial-candidates candidates, funs, fun-name, actual-arity, initial-filter
+	as name-and-arity
+		()
 	as fun-name-list-new
-		add-initial-candidates candidates, funs, "new", actual-arity, initial-filter
-		each-fun-in-scope funs, "list-new", of called
+		list-new-1 = list-new-1
+		each-fun-in-scope funs, list-new-1, of called
 			do if element-type = as-list-new called
-			candidate = init-candidate-for-list-new called, actual-arity, element-type
+			candidate = init-variadic-candidate called, element-type
 			do if initial-filter[candidate]
 			candidates ~= candidate
 	as named-new
-		add-initial-candidates candidates, funs, "new", actual-arity, of candidate
-			parameter-names-are candidate.called, fun-name.names and initial-filter[candidate]
-		each-fun-in-scope funs, "named-new", of called
+		filter-unordered candidates, {parameter-names-are it.called, fun-name.names}
+		each-fun-in-scope funs, named-new-2, of called
 			do if element-type = as-named-new called
-			candidate = init-candidate-for-named-new called, actual-arity, element-type
+			candidate = init-variadic-candidate called, element-type
 			do if initial-filter[candidate]
 			candidates ~= candidate
 	f[candidates]
@@ -58,23 +58,23 @@ do check-ctx, common-types
 -add-initial-candidates void
 	candidates candidate stack-array
 	funs funs-in-scope
-	name symbol
-	actual-arity nat
+	name-and-arity name-and-arity
+	return-type type?
+	arg0-type type?
 	initial-filter bool mut(x candidate)
-do check-ctx
-	each-fun-in-scope funs, name, of called
-		do if called.arity == actual-arity
+do check-ctx, common-types
+	each-fun-with-types funs, name-and-arity, return-type, arg0-type, of called
 		candidate = init-candidate called
 		do if initial-filter[candidate]
 		candidates ~= candidate
 
 | Returns `t` if the signature matches `(values t[])`
 as-list-new type?(called called-decl)
-	?as-array only called.param-types
+	as-array only! called.param-types
 
 | Returns `t` if the signature matches `(names symbol[], values t[])`.
 -as-named-new type?(called called-decl) common-types
-	do if names, values = only2 called.param-types
+	names, values = only2! called.param-types
 	do if names.as-array == symbol
 	as-array values
 
@@ -88,40 +88,88 @@ as-list-new type?(called called-decl)
 	as called-spec-sig
 		a.non-instantiated-sig.params
 
-each-candidate void(funs funs-in-scope, fun-name symbol, actual-arity nat, f void mut(x candidate)) check-ctx
-	each-fun-in-scope funs, fun-name, of called
-		if called.arity == actual-arity
-			f[init-candidate called]
-	if fun-name == "new" and actual-arity == 0
-		each-fun-in-scope funs, "list-new", of called
+each-candidate-with-signature void
+	funs funs-in-scope
+	name-and-arity name-and-arity
+	signature return-and-param-types
+	f void mut(x candidate)
+do check-ctx
+	any mut bool = false
+	each-fun-with-exact-signature funs, name-and-arity, signature, of fun
+		any := true
+		f[init-candidate fun]
+	# If we had an exact match, ignore other candidates
+	unless any
+		each-candidate funs, name-and-arity, f
+
+each-candidate void(funs funs-in-scope, name-and-arity name-and-arity, f void mut(x candidate)) check-ctx
+	each-fun-in-scope funs, name-and-arity, of called
+		f[init-candidate called]
+	if name-and-arity == new-0
+		each-fun-in-scope funs, list-new-1, of called
 			if element-type = as-list-new called
-				f[init-candidate-for-list-new called, actual-arity, element-type]
+				f[init-variadic-candidate called, element-type]
 
 funs-in-scope record mut
 	fun-specs specs
 	funs-map funs-map
-funs-in-non-expr-scope funs-in-scope(specs specs) funs-map
-	specs, the::funs-map
 funs-in-expr-scope funs-in-scope() expr-ctx
 	specs, funs-map
 
--each-fun-in-expr-scope void(fun-name symbol, cb void mut(x called-decl)) check-expr-ctx
-	each-fun-in-scope funs-in-expr-scope, fun-name, cb
-each-fun-in-scope void(a funs-in-scope, fun-name symbol, cb void mut(x called-decl)) check-ctx
+-each-fun-in-expr-scope-with-name void(fun-name symbol, f void mut(x called-decl)) check-expr-ctx
+	each-fun-in-scope-with-name funs-in-expr-scope, fun-name, f
+each-fun-in-scope-with-name void(a funs-in-scope, fun-name symbol, f void mut(x called-decl)) check-ctx
 	for sig in a.fun-specs.instantiated-sigs
 		if sig.name == fun-name
-			cb[sig]
-	for f in a.funs-map[fun-name]
-		cb[f]
+			f[sig]
+	for fun in all-with-name a.funs-map, fun-name
+		f[fun]
 	for exports in imports-and-re-exports
-		for f in exports.funs[fun-name]
-			cb[f]
+		for fun in all-with-name exports.funs, fun-name
+			f[fun]
+-each-fun-in-expr-scope void(name-and-arity name-and-arity, f void mut(x called-decl)) check-expr-ctx
+	each-fun-in-scope funs-in-expr-scope, name-and-arity, f
+each-fun-in-scope void(a funs-in-scope, name-and-arity name-and-arity, f void mut(x called-decl)) check-ctx
+	for sig in a.fun-specs.instantiated-sigs
+		if sig.name-and-arity == name-and-arity
+			f[sig]
+	for fun in all-with-name-and-arity a.funs-map, name-and-arity
+		f[fun]
+	for exports in imports-and-re-exports
+		for fun in all-with-name-and-arity exports.funs, name-and-arity
+			f[fun]
+| This only loosely matches return-type, so caller must re-check
+each-fun-with-types void
+	a funs-in-scope
+	name-and-arity name-and-arity
+	return-type type?
+	arg0-type type?
+	f void mut(x called-decl)
+do check-ctx, common-types
+	for sig in a.fun-specs.instantiated-sigs
+		if sig.name-and-arity == name-and-arity
+			f[sig]
+	each-with-name-and-types a.funs-map, name-and-arity, return-type, arg0-type, f[it]
+	for exports in imports-and-re-exports
+		each-with-name-and-types exports.funs, name-and-arity, return-type, arg0-type, f[it]
+each-fun-with-exact-signature void
+	a funs-in-scope
+	name-and-arity name-and-arity
+	signature return-and-param-types
+	f void mut(x called-decl)
+do check-ctx
+	for sig in a.fun-specs.instantiated-sigs
+		if sig.name-and-arity == name-and-arity and sig.return-and-param-types == signature
+			f[sig]
+	each-with-name-and-signature a.funs-map, name-and-arity, signature, f[it]
+	for exports in imports-and-re-exports
+		each-with-name-and-signature exports.funs, name-and-arity, signature, f[it]
 
 allow-implicit-conversions enum(no-conversions, allow-conversions)
 test-candidate-for-spec-sig bool
 	spec-impl candidate
 	expected return-and-param-types
-	call-type-context type-context
+	context type-context
 	conv allow-implicit-conversions
 do common-types
 	return-conv implicit-conversions = match conv
@@ -129,14 +177,18 @@ do common-types
 		exact
 	as allow-conversions
 		a-to-b
-	spec-return-type type-and-context = spec-impl.called.return-type, spec-impl.inferring-type-args
-	do if match-types spec-return-type, (expected.return-type, call-type-context), return-conv
+	expected-return = type-and-maybe-context expected.return-type, context
+	do if match-types spec-impl.return-type-and-context, expected-return, return-conv
 	every expected.param-types.with-index, of arg-idx, param-type
-		!!(test-candidate-param-type spec-impl, arg-idx, (param-type, call-type-context), no-conversions)
+		expected-param = type-and-maybe-context param-type, context
+		!!(test-candidate-param-type spec-impl, arg-idx, expected-param, no-conversions)
+
+return-type-and-context type-and-context(a candidate)
+	type-and-maybe-context a.called.return-type, a.inferring-type-args
 
 | Also does type inference on the candidate
 test-candidate-return-type type-match-kind?(expected expected, candidate candidate) common-types
-	match-expected-vs-return-type-no-diagnostic expected, (candidate.called.return-type, candidate.inferring-type-args)
+	match-expected-vs-return-type-no-diagnostic expected, candidate.return-type-and-context
 | Also does type inference on the candidate
 test-candidate-param-type type-match-kind?
 	candidate candidate
@@ -151,18 +203,24 @@ do common-types
 		exact
 
 get-candidate-expected-parameter-type type-and-context(candidate candidate, arg-index nat)
-	decl-type = candidate.param-types[arg-index]
-	if instantiated = try-get-exact-non-inferring-type (decl-type, candidate.inferring-type-args)
-		non-inferring instantiated
-	else
-		decl-type, inferring-type-args candidate
+	match candidate
+	as fun-inst
+		non-inferring candidate.param-types[arg-index]
+	as called-spec-sig
+		non-inferring candidate.param-types[arg-index]
+	as full-candidate
+		decl-type = candidate.variadic-type else candidate.called.param-types[arg-index]
+		tc = type-and-maybe-context decl-type, candidate.inferring-type-args
+		if instantiated = get-exact-non-inferring-type tc
+			non-inferring instantiated
+		else
+			tc
 
 candidate-bogus-called called(candidate candidate)
 	:: called-bogus
 	decl: candidate.called
-	return-type: get-candidate-type-or-bogus candidate, candidate.called.return-type
-	param-types: for t in candidate.param-types
-		get-candidate-type-or-bogus candidate, t
+	return-and-param-types: map candidate.called.return-and-param-types, {get-candidate-type-or-bogus candidate, it}
 
 -get-candidate-type-or-bogus type(candidate candidate, declared-type type)
-	try-get-inexact-non-inferring-type (declared-type, candidate.inferring-type-args) else bogus-type
+	type = type-and-maybe-context declared-type, candidate.inferring-type-args
+	try-get-inexact-non-inferring-type type else bogus-type

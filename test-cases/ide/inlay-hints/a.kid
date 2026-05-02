@@ -36,11 +36,3 @@
 	label: "nat64"
 	kind: "Type"
 	paddingLeft: true
--
-	position: line: 16, character: 33
-	label: "mut"
-	paddingLeft: true
--
-	position: line: 16, character: 54
-	label: "mut"
-	paddingLeft: true

@@ -8,15 +8,16 @@ import
 	./token
 	./token-util
 
-parse-fun-expr-body expr-ast?() parser
+parse-fun-expr-body expr-ast(diag parse-diag-missing-body?) parser
 	if try-take-token equal
 		parse-expr-no-block
 	elif try-take-token newline-indent
 		parse-statements-and-dedent
+	else
+		if diag then add-diag prev-range, diag
+		bogus-ast prev-range
 
 -allowed enum(none, it-scope, block)
-- == bool(a allowed, b allowed)
-- <=> comparison(a allowed, b allowed)
 -arg-ctx record
 	| Allow things like 'if' that continue into an indented block.
 	allowed allowed
@@ -45,8 +46,6 @@ parse-fun-expr-body expr-ast?() parser
 	op-add-subtract
 	op-times-divide
 	op-pow
-- == bool(a precedence, b precedence)
-- <=> comparison(a precedence, b precedence)
 
 -name-after-tick-precedence precedence()
 	comma
@@ -144,7 +143,7 @@ parse-fun-expr-body expr-ast?() parser
 		advance
 		inner-ctx = require-precedence-gt arg-ctx, name-after-tick-precedence
 		args = parse-args inner-ctx, lhs
-		call = call-ast infix, (pos + 1, name), args, ()
+		call = call-ast-infix pos + 1, name, args
 		parse-calls call, arg-ctx
 	as name-colon-equals
 		parse-assignment-call lhs, arg-ctx
@@ -175,7 +174,7 @@ parse-fun-expr-body expr-ast?() parser
 	advance
 	args expr-ast[] = lhs, parse-expr-and-calls require-precedence-gt arg-ctx, precedence
 	res = with args2 in it-scope-if arg-ctx.allowed, precedence > comma, args
-		call-ast infix, (name-pos, name), args2, ()
+		call-ast-infix name-pos, name, args2
 	parse-calls res, arg-ctx
 
 -parse-logical-ast expr-ast(lhs expr-ast, kind logical-ast-kind, arg-ctx arg-ctx) parser
@@ -190,52 +189,56 @@ parse-fun-expr-body expr-ast?() parser
 	parse-calls expr, arg-ctx
 
 -callable-kind enum(plain, force, not, question)
-- == bool(a callable-kind, b callable-kind)
 -callable-expr record
 	kind callable-kind
-	fun-name name-and-range
+	fun-pos pos
+	fun-name symbol
 	type-arg type-ast?
 	type-annotation (pos, type-ast)?
 -as-callable-expr callable-expr?(a expr-ast)
 	match a
 	as name-and-range
-		plain, a, (), ()
-	as call-ast
-		do if is-empty a.args
-		match a.style
-		as prefix
-			if is-empty a.args
-				plain, a.fun-name, a.type-arg, ()
-		as question-name
-			question, a.fun-name, a.type-arg, ()
-		else
-			()
+		plain, a.start, a.name, (), ()
+	as call-ast-prefix
+		if is-empty a.args
+			plain, a.start, a.fun-name.name, (), ()
+	as call-ast-prefix-with-type-arg
+		if is-empty a.args
+			plain, a.start, a.fun-name.name, a.type-arg, ()
+	as call-ast-prefix-question
+		if is-empty a.args
+			question, a.name-start, a.fun-name.name, (), ()
 	as force-ast
 		if arg = as-callable-expr a.arg and arg.kind == plain
-			force, arg.fun-name, arg.type-arg, ()
+			force, arg.fun-pos, arg.fun-name, arg.type-arg, ()
 	as not-ast
 		if arg = as-callable-expr a.arg and arg.kind == plain
-			not, arg.fun-name, arg.type-arg, ()
+			not, arg.fun-pos, arg.fun-name, arg.type-arg, ()
 	as typed-ast
 		if expr = a.expr and arg = as-callable-expr expr and !arg.type-annotation
-			arg.kind, arg.fun-name, arg.type-arg, (a.colon-pos, a.type)
+			arg.kind, arg.fun-pos, arg.fun-name, arg.type-arg, (a.colon-pos, a.type)
 	else
 		()
--to-expr expr-ast(a callable-expr, args expr-ast[])
+-to-expr expr-ast(a callable-expr, args expr-ast[]) parser
 	plain = of::expr-ast
 		if is-empty args and !a.type-arg
-			a.fun-name
+			name-and-range a.fun-pos, a.fun-name
 		else
-			call-ast prefix, a.fun-name, args, a.type-arg
+			if t = a.type-arg
+				call-ast-prefix-with-type-arg a.fun-pos, a.fun-name, t, args
+			else
+				call-ast-prefix a.fun-pos, a.fun-name, args
 	res = match a.kind
 	as plain
 		plain[]
 	as not
-		not-ast a.fun-name.start - 1, plain[]
+		not-ast a.fun-pos - 1, plain[]
 	as force
-		force-ast plain[], a.fun-name.end
+		force-ast plain[], (name-and-range a.fun-pos, a.fun-name).end
 	as question
-		call-ast question-name, a.fun-name, args, a.type-arg
+		if t = a.type-arg
+			add-diag t.range, parse-diag-unexpected-token at
+		call-ast-prefix-question a.fun-pos - 1, a.fun-name, args
 	if colon-pos, type = a.type-annotation
 		typed-ast res, colon-pos, type
 	else
@@ -244,7 +247,7 @@ parse-fun-expr-body expr-ast?() parser
 -parse-assignment-call expr-ast(lhs expr-ast, arg-ctx arg-ctx) parser
 	do if arg-ctx.min-precedence-exclusive < assignment-operator else lhs
 	advance
-	assignment-call-ast (prev-start, prev-symbol), lhs,
+	assignment-call-ast prev-start, prev-symbol, lhs,
 		parse-expr-and-calls require-precedence-gt arg-ctx, assignment-operator
 
 -precedence precedence(a logical-ast-kind)
@@ -326,16 +329,15 @@ parse-fun-expr-body expr-ast?() parser
 		initial
 
 -parse-after-dot expr-ast(allowed allowed, initial expr-ast) parser
-	call = of style call-ast-style, name name-and-range, type-arg type-ast?
-		with initial2 in it-scope-if allowed, initial
-			call-ast style, name, (initial2,), type-arg
 	if name = try-take-name-like-token name-bang
-		with x in it-scope-if allowed, call[dot, name, ()]
-			force-ast x, name.range.end
+		with initial2 in it-scope-if allowed, initial
+			force-ast (call-ast-dot initial2, name), name.range.end
 	elif name = try-take-name-like-token name-after-question
-		call[dot-question, name, ()]
+		with initial2 in it-scope-if allowed, initial
+			call-ast-dot-question initial2, name
 	elif name = try-take-name-and-range-or-diag
-		call[dot, name, try-parse-type-arg-for-expr]
+		with initial2 in it-scope-if allowed, initial
+			call-ast-dot initial2, name
 	else
 		initial
 
@@ -348,7 +350,10 @@ parse-fun-expr-body expr-ast?() parser
 		res
 	with args in it-scope-if allowed, (initial, arg)
 		left, right = only2! args
-		call-subscript-ast left, is-question-bracket, subscript-pos, right, prev-end
+		if is-question-bracket
+			call-question-subscript-ast left, subscript-pos, right, prev-end
+		else
+			call-subscript-ast left, subscript-pos, right, prev-end
 
 -parse-match expr-ast(start pos) parser
 	local = parse-name-equals
@@ -685,7 +690,7 @@ do parser
 		with inner2 in it-scope-if allowed, inner
 			not-ast start, inner2
 	as name-after-question
-		call-ast question-name, (name-and-range start + 1, prev-symbol), (), ()
+		call-ast-prefix-question start, prev-symbol, ()
 	as name-bang
 		try-parse-dots-and-subscripts allowed,
 			force-ast (name-and-range start, prev-symbol), start.range.end - 1
@@ -705,7 +710,7 @@ do parser
 	as operator-prefix
 		operator = prev-symbol
 		with arg in it-scope-if allowed, parse-expr-before-call arg-ctx
-			call-ast prefix, (start, operator), (arg,), ()
+			call-ast-prefix start, operator, (arg,)
 	as literal-number
 		try-parse-dots-and-subscripts allowed, literal-number range start
 	as shared_
@@ -748,7 +753,7 @@ do parser
 
 -handle-name expr-ast(allowed allowed, name name-and-range) parser
 	if type-arg = try-parse-type-arg-for-expr
-		call-ast prefix, name, (), type-arg
+		call-ast-prefix-with-type-arg name.start, name.name, type-arg, ()
 	else
 		try-parse-dots-and-subscripts allowed, name
 

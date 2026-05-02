@@ -1,0 +1,334 @@
+import
+	keen/bits
+	../../lib/col/mut-map: mut-map-with-capacity
+	../../lib/symbol: seeded-hash-value
+	./util
+
+-just-get-key[k, t] spec
+	key k(a t)
+get-key[k, t] spec k key, (k, t) just-get-key
+	hash-value nat(a k)
+
+hash-value nat(a symbol)
+	trusted seeded-hash-value a
+
+by-key[k, t] record
+	-impl (k, t) impl
+-impl[k, t] union(t[], (k, t) large-by-key)
+==[k, t] bool(_ (k, t) by-key, _ (k, t) by-key)
+	trusted throw todo
+<=>[k, t] comparison(_ (k, t) by-key, _ (k, t) by-key)
+	trusted throw todo
+hash[k, t] void(_ (k, t) by-key, _ hash-state)
+	trusted throw todo
+to[k, t] json(_ (k, t) by-key)
+	throw todo
+
+-large-by-key[k, t] record
+	values t[]
+	next nat32[]
+
+new[k, t] (k, t) by-key()
+	()::t[],
+
+is-empty[k, t] bool(a (k, t) by-key)
+	is-empty a.to::t[]
+size[k, t] nat(a (k, t) by-key)
+	size a.to::t[]
+| This does not allocate
+-to[k, t] t[](a (k, t) by-key)
+	match impl = a.impl
+	as array
+		impl
+	as large-by-key
+		impl.values
+
+some[k, t] bool(a (k, t) by-key, f bool mut(x t))
+	some a.to::t[], f
+
+# Entry in {next} that indicates that we are at the end of the chain.
+-no-next nat32()
+	max-value
+# This special value is used temporarily in {to}. The final {next} has no unused values.
+-unused nat32()
+	max-value - 1
+
+to-by-key-combine-duplicates[k, t-set, t-single] (k, t-set) by-key
+	values t-single[]
+	make-set t-set mut(values t-single[])
+do (k, t-single) get-key, (k, t-set) just-get-key
+	map t-single mut[] mut[k] = mut-map-with-capacity values.size
+	for value in values
+		ensure map, value.key ~= value
+	sets t-set[] = for _, v in map
+		make-set[move-to v]
+	to-by-key sets, {throw unreachable}
+
+| If two have the same name, reports both in 'on-duplicate' and omits an arbitrary one from the result
+to-by-key[k, t] (k, t) by-key(values t[], on-duplicate void mut(x t, y t)) (k, t) get-key
+	if values.size <= 4
+		if i, j = find-duplicate-small values
+			on-duplicate[values[i], values[j]]
+			remove-at values, j 'to-by-key on-duplicate
+		else
+			values,
+	else
+		try
+			values.to-large-by-key,
+		catch as duplicate
+			# Slow path
+			res t mut[k] = ()
+			for value in values
+				if v = res[value.key]
+					on-duplicate[v, value]
+				else
+					res[value.key] := value
+			to-by-key res.values, {throw unreachable}
+
+filter[k, t] (k, t) by-key(a (k, t) by-key, f bool mut(x t)) (k, t) get-key
+	match impl = a.impl
+	as array
+		impl: filter::t[] impl, f
+	as large-by-key
+		filter impl.values, f 'to-by-key {throw unreachable}
+
+choose-keys[k, t] (k, t) by-key(a (k, t) by-key, keys k set) (k, t) get-key
+	values t[] = for* k in keys then from-option a[k]
+	to-by-key values, {throw unreachable}
+filter-keys[k, t] (k, t) by-key(a (k, t) by-key, filter bool mut(key k)) (k, t) get-key
+	values t[] = filter a, filter[it.key]
+	to-by-key values, {throw unreachable}
+
+-find-duplicate-small[k, t] (nat, nat)?(values t[]) (k, t) get-key
+	first 0::nat .. values.size, of i
+		first i + 1 .. values.size, of j
+			if values[i].key == values[j].key
+				i, j
+
+-to-large-by-key[k, t] (k, t) large-by-key(values t[]) (k, t) get-key
+	n = values.size
+	res t buffer = trusted uninitialized-buffer n
+
+	next nat32 buffer = n-of n, unused
+	delay t mut[] = ()
+
+	for x in values
+		i = x.key.hash-value % n
+		if next[i] == unused
+			res[i] := x
+			next[i] := no-next
+		else
+			delay ~= x
+
+	unused-spots nat32 mut[] = ()
+	for i, x in with-index next
+		if x == unused
+			unused-spots ~= i.to
+
+	# Try to minimize the maximum cost. Cost = the length of the chain that we would create.
+	max-cost mut = 2
+	until is-empty delay
+		filter-unordered delay, {!place-delayed res, next, it, unused-spots, max-cost}
+		max-cost +:= 1
+
+	trusted res.cast-immutable, next.cast-immutable
+-duplicate record exception case
+-show string(_ duplicate)
+	throw unreachable
+| Returns true if the value was placed, false if it should be delayed.
+-place-delayed[k, t] bool
+	res t buffer
+	next nat32 buffer
+	x t
+	unused-spots nat32 mut[]
+	max-cost nat
+do (k, t) get-key
+	cur mut = x.key.hash-value % res.size
+	cost mut = 1
+	do until
+	forbid next[cur] == unused
+	forbid x.key == res[cur].key else duplicate
+	if next[cur] == no-next
+		# Found the end
+		dest = pop! unused-spots
+		next[cur] := dest
+		res[dest] := x
+		next[dest] := no-next
+		true
+	elif cost == max-cost
+		false
+	else
+		cur := next[cur]
+		cost +:= 1
+		()
+
+subscript[k, t] t?(a (k, t) by-key, key k) (k, t) get-key
+	match impl = a.impl
+	as array
+		find impl, it.key == key
+	as large-by-key
+		i mut = key.hash-value % impl.values.size
+		do until
+		value = impl.values[i]
+		if value.key == key
+			value
+		else
+			next = impl.next[i]
+			if next == no-next
+				()::t?
+			else
+				i := next
+				()
+
+test
+	rs test-type[] =
+		- "a", 0
+		- "b", 1
+		- "b", 2
+		- "c", 3
+	duplicates (test-type, test-type) mut[] = ()
+	a (symbol, test-type) by-key = to-by-key rs, {duplicates ~= it}
+	duplicates.to::(test-type, test-type)[] is ((("b", 1), ("b", 2)),)
+	assert array a.impl
+	a["a"] is ("a", 0)
+	a["b"] is ("b", 1)
+	a["c"] is ("c", 3)
+	a["d"] is ()
+test
+	rs test-type[] =
+		- "a", 0
+		- "b", 1
+		- "c", 2
+		- "d", 3
+		- "e", 4
+		- "e", 5
+	duplicates (test-type, test-type) mut[] = ()
+	a (symbol, test-type) by-key = to-by-key rs, {duplicates ~= it}
+	duplicates.to::(test-type, test-type)[] is ((("e", 4), ("e", 5)),)
+	assert large-by-key a.impl # Make sure we are testing this case
+	a.size is 5
+	for r in rs
+		a[r.key] is if r.key == "e"
+			"e", 4
+		else
+			r
+	a["f"] is ()
+
+-test-type record
+	key symbol
+	whatever nat
+
+multi-by-key[k, t] record
+	-impl (k, t) multi-by-key-impl
+==[k, t] bool(_ (k, t) multi-by-key, _ (k, t) multi-by-key)
+	trusted throw todo
+<=>[k, t] comparison(_ (k, t) multi-by-key, _ (k, t) multi-by-key)
+	trusted throw todo
+hash[k, t] void(_ (k, t) multi-by-key, _ hash-state)
+	trusted throw todo
+to[k, t] json(_ (k, t) multi-by-key)
+	throw todo
+-multi-by-key-impl[k, t] union(t[], t large-multi-by-key)
+-large-multi-by-key[t] record
+	# Each nat64 is effectively (start nat32, next nat32)
+	starts-and-nexts nat64[]
+	| All values stored contiguously
+	values t[]
+
+is-empty[k, v] bool(a (k, v) multi-by-key)
+	is-empty a.all
+all[k, t] t[](a (k, t) multi-by-key)
+	match impl = a.impl
+	as array
+		impl
+	as large-multi-by-key
+		impl.values
+
+choose-keys[k, t] (k, t) multi-by-key(a (k, t) multi-by-key, keys k set) (k, t) get-key
+	for* k in keys then a[k].to::t[]
+
+to[k, t] (k, t) multi-by-key(values t[]) (k, t) get-key
+	list-new values
+list-new[k, t] (k, t) multi-by-key(values t[]) (k, t) get-key
+	do if values.size > 8 else impl: sort::t[] values, it.key
+	groups = group-by-key values
+	groups-by-key (k, t[]) large-by-key = to-large-by-key groups
+	starts nat32 buffer = trusted uninitialized-buffer groups.size
+	out-values t buffer = trusted uninitialized-buffer values.size
+	next-value mut = 0
+	for i, subarray in with-index groups-by-key.values
+		starts[i] := next-value.to
+		values-end = next-value + subarray.size
+		out-values[next-value .. values-end] := subarray
+		next-value := values-end
+	starts-and-nexts nat64 buffer = trusted uninitialized-buffer starts.size
+	for i in 0::nat .. starts-and-nexts.size
+		starts-and-nexts[i] := starts[i] 'bits-cat groups-by-key.next[i]
+	impl: trusted large-multi-by-key starts-and-nexts.cast-immutable, out-values.cast-immutable
+-group-by-key[k, t] t[][](values t[]) (k, t) get-key
+	res t mut[] mut[k] = mut-map-with-capacity values.size
+	for x in values
+		ensure res, x.key ~= x
+	trusted map res.unsorted, it.b.move-to
+-key[k, t] k(a t[]) (k, t) get-key
+	a[0].key
+###
+TODO:PERF consider this instead, once I have a faster 'sort'
+| Sorts the array and returns subarrays of that with the same name
+-group-by-key[t] t array-view[](values t[]) (k, t) name
+	sorted = values sort it.name
+	with out in build
+		cur-name mut = sorted[0] name
+		start mut = 0
+		for i in 1::nat .. sorted.size
+			if sorted[i].name != cur-name
+				out ~= sorted[start .. i]
+				cur-name := sorted[i] name
+				start := i
+		out ~= sorted[start .. end]
+-name[t] symbol(a t array-view) (k, t) name
+	a[0] name
+###
+
+subscript[k, t] t array-view(a (k, t) multi-by-key, key k) (k, t) get-key
+	match impl = a.impl
+	as array
+		i mut = 0
+		do until
+		if i == impl.size
+			()::(t array-view)
+		elif impl[i].key == key
+			j mut = i + 1
+			until j == impl.size or impl[j].key != key
+				j +:= 1
+			impl[i .. j]
+		else
+			i +:= 1
+			()
+	as large-multi-by-key
+		cur mut = key.hash-value % impl.starts-and-nexts.size
+		do until
+		start-and-next = impl.starts-and-nexts[cur]
+		start = start-and-next >> 32
+		next = start-and-next & 0xffffffff
+		if impl.values[start].key == key
+			end = if cur + 1 == impl.starts-and-nexts.size
+				impl.values.size
+			else
+				impl.starts-and-nexts[cur + 1] >> 32
+			impl.values[start .. end]
+		elif next == no-next
+			()::(t array-view)
+		else
+			cur := next
+			()
+
+test
+	r0 test-type = "a", 1
+	r1 test-type = "b", 2
+	r2 test-type = "a", 3
+	sort (group-by-key (r0, r1, r2)), it[0].key is (r0, r2), (r1,)
+	a (symbol, test-type) multi-by-key = to (r0, r1, r2)
+	a["a"] is (r0, r2)
+	a["b"] is (r1,)
+	a["c"] is ()

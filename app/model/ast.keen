@@ -1,12 +1,14 @@
 import
+	keen/bits
+	keen/unsafe
+	../../lib/col/experimental/object-memoizer
+	../util/by-key
 	../util/util
 	./parse-diag
 	./source-range
 	./uri
 
 mutability enum(data_, shared_, mut_)
-== bool(a mutability, b mutability)
-<=> comparison(a mutability, b mutability)
 to symbol(a mutability)
 	match a
 	as data_
@@ -23,7 +25,6 @@ to json(a mutability)
 	a.to::string.to
 
 sum-type-kind enum(java-interface, interface_, union_, variant_)
-== bool(a sum-type-kind, b sum-type-kind)
 to symbol(a sum-type-kind)
 	match a
 	as java-interface
@@ -34,9 +35,7 @@ to symbol(a sum-type-kind)
 		"union"
 	as variant_
 		"variant"
-to json(a sum-type-kind)
 var-kind enum(global_, thread-local_)
-to json(a var-kind)
 
 string-of-var-kind-lower-case string(a var-kind)
 	match a
@@ -53,26 +52,24 @@ string-of-var-kind-upper-case string(a var-kind)
 		"Thread-local"
 
 visibility enum(private, internal, public)
-== bool(a visibility, b visibility)
-<=> comparison(a visibility, b visibility)
-to symbol(a visibility)
-to json(a visibility)
-
 export-visibility enum(internal, public)
-to visibility(a export-visibility)
-	match a
-	as internal then internal
-	as public then public
+
+-names-and-arities global((name-and-arity, (symbol, nat32)) object-memoizer) = ()
+name-and-arity record(name symbol, arity nat32) -new
+hash nat((name symbol, arity nat32)) = trusted name.hash-value ^ arity
+hash-value nat(a name-and-arity) = a.name.hash-value ^ a.arity
+-memoizer-key (symbol, nat32)(a name-and-arity) = a.name, a.arity
+get-name-and-arity name-and-arity(name symbol, arity nat)
+	trusted memoize names-and-arities, (name, arity.to), {name, arity.to}
+== bool(a name-and-arity, b name-and-arity) = trusted reference-equal a, b
 
 name-and-range record(start pos, name symbol)
-to json(a name-and-range)
 end pos(a name-and-range)
 	a.start + a.name.to::char8[].size.to
 range source-range(a name-and-range)
 	range-of-start-and-length a.start, a.name.to::char8[]
 
 field-mutability-ast record(pos pos, visibility_ visibility?)
-to json(a field-mutability-ast)
 range source-range(a field-mutability-ast)
 	range-of-start-and-length a.pos, if a.visibility_ then "-mut" else "mut"
 visibility visibility-and-range?(a field-mutability-ast)
@@ -91,7 +88,6 @@ end pos(a the-ast)
 	a.type.end
 keyword-range source-range(a the-ast)
 	range-of-start-and-length a.start, "the"
-to json(a the-ast)
 
 type-ast union
 	bogus-type-ast
@@ -103,7 +99,6 @@ type-ast union
 	tuple-type-ast
 do
 	range source-range()
-to json(a type-ast)
 start pos(a type-ast) = a.range.start
 end pos(a type-ast) = a.range.end
 name-range-or-range source-range(a type-ast)
@@ -124,36 +119,28 @@ name-range-or-range source-range(a type-ast)
 		range a
 
 bogus-type-ast record(range source-range)
-to json(a bogus-type-ast)
 fun-type-ast record
 	return-type type-ast
 	kind-pos pos
 	kind mutability
 	param destructure-ast
-to json(a fun-type-ast)
 range source-range(a fun-type-ast)
 	a.return-type.start, a.param.end
 kind-range source-range(a fun-type-ast)
 	range-of-start-and-length a.kind-pos, a.kind.to::symbol.to
 
 map-type-ast record(kind mutability, value type-ast, key type-ast)
-to json(a map-type-ast)
 range source-range(a map-type-ast)
 	a.value.range.start, a.key.range.end + "]"::char8[].size.to
 
 suffix-name-type-ast record(left type-ast, name name-and-range)
-to json(a suffix-name-type-ast)
 range source-range(a suffix-name-type-ast)
 	a.left.start, a.suffix-range.end
 suffix-range source-range(a suffix-name-type-ast)
 	a.name.range
 
 suffix-special-type-ast record(left type-ast, suffix-pos pos, kind suffix-special-type-ast-kind)
-to json(a suffix-special-type-ast)
 suffix-special-type-ast-kind enum(array, mut-array, option, shared-array)
-== bool(a suffix-special-type-ast-kind, b suffix-special-type-ast-kind)
-to symbol(a suffix-special-type-ast-kind)
-to json(a suffix-special-type-ast-kind)
 range source-range(a suffix-special-type-ast)
 	a.left.range.start, a.suffix-end
 suffix-range source-range(a suffix-special-type-ast)
@@ -173,16 +160,21 @@ suffix-range source-range(a suffix-special-type-ast)
 		"shared[]"
 
 tuple-type-ast record(range source-range, members type-ast[])
-to json(a tuple-type-ast)
 
 expr-ast union
 	assert-or-forbid-ast
 	assignment-ast
 	assignment-call-ast
 	bogus-ast
-	call-ast
+	call-ast-dot
+	call-ast-dot-question
+	call-ast-infix
+	call-ast-prefix
+	call-ast-prefix-question
+	call-ast-prefix-with-type-arg
 	call-named-ast
 	call-subscript-ast
+	call-question-subscript-ast
 	finally-ast
 	force-ast
 	for-or-with-ast
@@ -216,7 +208,6 @@ expr-ast union
 do
 	start pos()
 	end pos()
-to json(a expr-ast)
 range source-range(a expr-ast)
 	a.start, a.end
 
@@ -226,7 +217,6 @@ assert-or-forbid-ast record
 	condition expr-ast
 	thrown assert-or-forbid-thrown-ast?
 	after expr-ast?
-to json(a assert-or-forbid-ast)
 end pos(a assert-or-forbid-ast)
 	if after = a.after
 		end after
@@ -241,7 +231,6 @@ keyword-range source-range(a assert-or-forbid-ast)
 	range-of-start-and-length a.start, "assert"
 
 assert-or-forbid-thrown-ast record(else-pos pos, expr expr-ast)
-to json(a assert-or-forbid-thrown-ast)
 else-range source-range(a assert-or-forbid-thrown-ast)
 	range-of-start-and-length a.else-pos, ":"
 end pos(a assert-or-forbid-thrown-ast)
@@ -249,7 +238,6 @@ end pos(a assert-or-forbid-thrown-ast)
 
 | {left} := {right}
 assignment-ast record(left expr-ast, assignment-pos pos, right expr-ast)
-to json(a assignment-ast)
 start pos(a assignment-ast) = a.left.start
 end pos(a assignment-ast) = a.right.end
 range source-range(a assignment-ast) = a.start, a.end
@@ -257,86 +245,106 @@ keyword-range source-range(a assignment-ast)
 	range-of-start-and-length a.assignment-pos, ":="
 
 | {left} {fun-name}:= {right}"
-assignment-call-ast record(fun-name name-and-range, left expr-ast, right expr-ast)
-to json(a assignment-call-ast)
+assignment-call-ast record
+	fun-pos pos
+	| Arity is always 2
+	fun-name name-and-arity
+	left expr-ast
+	right expr-ast
+assignment-call-ast assignment-call-ast(fun-pos pos, fun-name symbol, left expr-ast, right expr-ast)
+	fun-pos, (get-name-and-arity fun-name, 2), left, right
 start pos(a assignment-call-ast) = a.left.start
 end pos(a assignment-call-ast) = a.right.end
 range source-range(a assignment-call-ast) = a.start, a.end
+name-range source-range(a assignment-call-ast) = range name-and-range a.fun-pos, a.fun-name.name
 keyword-range source-range(a assignment-call-ast)
-	range-of-start-and-length a.fun-name.range.end, ":="
+	range-of-start-and-length a.name-range.end, ":="
 
 bogus-ast record(range source-range)
-to json(a bogus-ast)
 start pos(a bogus-ast) = a.range.start
 end pos(a bogus-ast) = a.range.end
 
-call-ast record
-	style call-ast-style
-	fun-name name-and-range
+call-ast-dot record
+	left expr-ast
+	fun-pos pos
+	fun-name name-and-arity
+call-ast-dot call-ast-dot(left expr-ast, name name-and-range)
+	left, name.start, get-name-and-arity name.name, 1
+start pos(a call-ast-dot) = a.left.start
+end pos(a call-ast-dot) = a.name-range.end
+name-range source-range(a call-ast-dot) = range name-and-range a.fun-pos, a.fun-name.name
+range source-range(a call-ast-dot) = a.start, a.end
+
+call-ast-dot-question record
+	left expr-ast
+	fun-pos pos
+	fun-name name-and-arity
+call-ast-dot-question call-ast-dot-question(left expr-ast, name name-and-range)
+	left, name.start, get-name-and-arity name.name, 1
+start pos(a call-ast-dot-question) = a.left.start
+end pos(a call-ast-dot-question) = a.name-range.end
+name-range source-range(a call-ast-dot-question) = range name-and-range a.fun-pos, a.fun-name.name
+name-range-including-question source-range(a call-ast-dot-question) = a.question-pos, a.name-range.end
+question-pos pos(a call-ast-dot-question) = a.start
+range source-range(a call-ast-dot-question) = a.start, a.end
+
+| E.g., `a + b` or `a 'foo b, c`
+call-ast-infix record
+	fun-pos pos
+	fun-name name-and-arity
 	args expr-ast[]
-	type-arg type-ast?
-to json(a call-ast)
-call-ast-style enum
-	| `a.b`
-	dot
-	| `a.?b`
-	dot-question
-	| `a 'b`, `a 'b c`, `a 'b c, d`, etc. Also operators like `a + b`.
-	infix
-	prefix
-	| `?foo`
-	question-name
-is-option-call bool(a call-ast)
-	a.style == dot-question or a.style == question-name
-== bool(a call-ast-style, b call-ast-style)
-to json(a call-ast-style)
-range source-range(a call-ast)
-	a.start, a.end
-start pos(a call-ast)
-	match a.style
-	as dot
-		a.args[0].start
-	as dot-question
-		a.args[0].start
-	as infix
-		a.args[0].start
-	as prefix
-		a.fun-name.start
-	as question-name
-		a.fun-name.start - 1
-end pos(a call-ast)
-	is-fun bool = match a.style
-	as dot
-		true
-	as dot-question
-		true
-	as infix
-		a.args.size == 1
-	as prefix
-		a.args.size == 0
-	as question-name
-		a.args.size == 0
-	if is-fun then a.fun-name.end else a.args[end - 1].end
-keyword-range source-range?(a call-ast)
-	match a.style
-	as dot
-		a.fun-name.start - 1, a.fun-name.start
-	as dot-question
-		a.fun-name.start - 2, a.fun-name.start
-	as question-name
-		a.fun-name.start - 1, a.fun-name.start
+call-ast-infix call-ast-infix(name-pos pos, name symbol, args expr-ast[])
+	name-pos, (get-name-and-arity name, args.size), args
+range source-range(a call-ast-infix) = a.start, a.end
+start pos(a call-ast-infix) = a.args[0].start
+end pos(a call-ast-infix)
+	if a.args.size == 1 then a.name-range.end else a.args[end - 1].end
+name-range source-range(a call-ast-infix)
+	range name-and-range a.fun-pos, a.fun-name.name
+
+| This will never have empty args; that is a {name-and-range} instead.
+call-ast-prefix record
+	start pos
+	fun-name name-and-arity
+	args expr-ast[]
+call-ast-prefix call-ast-prefix(start pos, fun-name symbol, args expr-ast[])
+	start, (get-name-and-arity fun-name, args.size), args
+name-range source-range(a call-ast-prefix) = range name-and-range a.start, a.fun-name.name
+range source-range(a call-ast-prefix) = a.start, a.end
+end pos(a call-ast-prefix) = a.args[end - 1].end
+
+call-ast-prefix-question record
+	start pos
+	fun-name name-and-arity
+	args expr-ast[]
+call-ast-prefix-question call-ast-prefix-question(start pos, fun-name symbol, args expr-ast[])
+	start, (get-name-and-arity fun-name, args.size), args
+name-start pos(a call-ast-prefix-question) = a.start + 1
+name-range source-range(a call-ast-prefix-question) = range name-and-range a.name-start, a.fun-name.name
+name-range-including-question source-range(a call-ast-prefix-question) = a.question-pos, a.name-range.end
+question-pos pos(a call-ast-prefix-question) = a.start
+range source-range(a call-ast-prefix-question) = a.start, a.end
+end pos(a call-ast-prefix-question)
+	if is-empty a.args
+		a.name-range.end
 	else
-		()
-question-range source-range?(a call-ast)
-	if is-option-call a
-		keyword-range! a
-name-range source-range(a call-ast)
-	a.fun-name.range
-name-range-including-question source-range(a call-ast)
-	if a.style == question-name or a.style == dot-question
-		a.fun-name.start - 1, a.fun-name.end
+		a.args[end - 1].end
+
+| Unlike {call-ast-prefix}, this can have empty args.
+call-ast-prefix-with-type-arg record
+	start pos
+	fun-name name-and-arity
+	type-arg type-ast
+	args expr-ast[]
+call-ast-prefix-with-type-arg call-ast-prefix-with-type-arg(start pos, name symbol, type-arg type-ast, args expr-ast[])
+	start, (get-name-and-arity name, args.size), type-arg, args
+range source-range(a call-ast-prefix-with-type-arg) = a.start, a.end
+name-range source-range(a call-ast-prefix-with-type-arg) = range name-and-range a.start, a.fun-name.name
+end pos(a call-ast-prefix-with-type-arg)
+	if is-empty a.args
+		a.type-arg.end
 	else
-		a.fun-name.range
+		a.args[end - 1].end
 
 name-or-string-ast union(name-and-range, literal-string-ast, interpolated-ast, it-scope-ast)
 	range source-range()
@@ -353,28 +361,32 @@ name symbol?(a name-or-string-ast)
 	as interpolated-ast
 		()
 call-named-ast record(names name-or-string-ast[], args expr-ast[])
-to json(a call-named-ast)
 start pos(a call-named-ast) = a.names[0].start
 end pos(a call-named-ast) = a.args[end - 1].end
 range source-range(a call-named-ast) = a.start, a.end
 
+| `left[right]`
 call-subscript-ast record
 	left expr-ast
-	is-question-subscript bool
 	keyword-pos pos
 	right expr-ast
 	end pos
-to json(a call-subscript-ast)
-start pos(a call-subscript-ast) = a.left.start
 range source-range(a call-subscript-ast) = a.start, a.end
-question-range source-range?(a call-subscript-ast)
-	if a.is-question-subscript
-		a.keyword-pos, a.keyword-pos + 1
-subscript-range source-range(a call-subscript-ast)
-	a.keyword-pos, a.end
+start pos(a call-subscript-ast) = a.left.start
+subscript-range source-range(a call-subscript-ast) =a.keyword-pos, a.end
+
+| `left?[right]`
+call-question-subscript-ast record
+	left expr-ast
+	keyword-pos pos
+	right expr-ast
+	end pos
+range source-range(a call-question-subscript-ast) = a.start, a.end
+start pos(a call-question-subscript-ast) = a.left.start
+question-pos pos(a call-question-subscript-ast) = a.keyword-pos
+subscript-range source-range(a call-question-subscript-ast) =a.keyword-pos, a.end
 
 finally-ast record(start pos, right expr-ast, below expr-ast)
-to json(a finally-ast)
 end pos(a finally-ast)
 	a.below.end
 range source-range(a finally-ast)
@@ -385,7 +397,6 @@ finally-keyword-range source-range(a finally-ast)
 force-ast record
 	arg expr-ast
 	keyword-pos pos
-to json(a force-ast)
 start pos(a force-ast) = a.arg.start
 end pos(a force-ast) = max a.keyword-range.end, a.arg.end
 range source-range(a force-ast) = a.start, a.end
@@ -409,22 +420,12 @@ for-or-with-ast-keyword enum(for_, for-star, with_)
 		4
 	as with_
 		4
-to json(a for-or-with-ast-keyword)
-to json(a for-or-with-ast)
 end pos(a for-or-with-ast)
 	a.body.end
 range source-range(a for-or-with-ast)
 	a.start, a.end
 keyword-range source-range(a for-or-with-ast)
 	range-of-start-and-length a.start, a.keyword.size
-called-function symbol(a for-or-with-ast)
-	match a.keyword
-	as for_
-		"for-loop"
-	as for-star
-		"for-star"
-	as with_
-		"with-block"
 in-range source-range(a for-or-with-ast)
 	range-of-start-and-length a.in-pos, "else"
 then-range source-range?(a for-or-with-ast)
@@ -445,7 +446,6 @@ if-ast record
 	| This may not be present for a 'do if' or 'do unless'
 	first-branch expr-ast?
 	second-branch expr-ast?
-to json(a if-ast)
 if-ast-kind enum
 	do-if
 	do-if-else
@@ -456,8 +456,6 @@ if-ast-kind enum
 	if-else
 	if-then
 	if-then-else
-== bool(a if-ast-kind, b if-ast-kind)
-to json(a if-ast-kind)
 end pos(a if-ast)
 	if x = a.second-branch
 		x.end
@@ -527,29 +525,16 @@ interpolated-ast record
 	quote-kind quote-kind
 	template interpolated-template-part[]
 	interpolated expr-ast[]
-	-dummy void
-interpolated-ast interpolated-ast
-	quote-kind quote-kind
-	template interpolated-template-part[]
-	interpolated expr-ast[]
-do
-	template.size is interpolated.size + 1
-	quote-kind, template, interpolated, ()
-to json(a interpolated-ast)
 range source-range(a interpolated-ast)
 	a.start, a.end
 start pos(a interpolated-ast) = a.template[0].range.start
 end pos(a interpolated-ast) = a.template[end - 1].range.end
 quote-kind enum(bar, double, indented)
-== bool(a quote-kind, b quote-kind)
-to json(a quote-kind)
 interpolated-template-part record
 	range source-range
 	value string
-to json(a interpolated-template-part)
 
 it-ast record(start pos)
-to json(a it-ast)
 end pos(a it-ast) = a.range.end
 range source-range(a it-ast) = range-of-start-and-length a.start, "it"
 
@@ -559,7 +544,6 @@ it-scope-ast record
 	braces-range source-range?
 	inner expr-ast
 is-explicit bool(a it-scope-ast) = !!a.braces-range
-to json(a it-scope-ast)
 start pos(a it-scope-ast) = a.range.start
 end pos(a it-scope-ast) = a.range.end
 range source-range(a it-scope-ast) = a.braces-range else a.inner.range
@@ -577,7 +561,6 @@ lambda-ast record
 	| {max-value} if there is no 'then' keyword.
 	then-pos pos
 	body expr-ast
-to json(a lambda-ast)
 end pos(a lambda-ast)
 	a.body.end
 range source-range(a lambda-ast)
@@ -594,7 +577,6 @@ destructure-ast union
 	ignore-destructure-ast
 	void-destructure-ast
 	destructure-ast[]
-to json(a destructure-ast)
 start pos(a destructure-ast)
 	match a
 	as name-and-range
@@ -645,7 +627,6 @@ mut-range source-range?(a single-destructure-ast)
 		range-of-start-and-length x, "mut"
 
 ignore-destructure-ast record(start pos, type type-ast?)
-to json(a ignore-destructure-ast)
 end pos(a ignore-destructure-ast)
 	a.type.?end else a.start
 underscore-range source-range(a ignore-destructure-ast)
@@ -653,14 +634,12 @@ underscore-range source-range(a ignore-destructure-ast)
 
 | `()` is a destructure matching only void values
 void-destructure-ast record(range source-range)
-to json(a void-destructure-ast)
 
 range source-range(a single-destructure-ast)
 	end-range = a.type.?range or a.mut-range else a.name.range
 	a.name.start, end-range.end
 
 let-ast record(destructure destructure-ast, value expr-ast, then_ expr-ast?)
-to json(a let-ast)
 start pos(a let-ast) = a.destructure.start
 end pos(a let-ast) = (a.then_ else a.value).end
 
@@ -669,7 +648,6 @@ let-the-ast record
 	type type-ast
 	value expr-ast
 	then_ expr-ast?
-to json(a let-the-ast)
 end pos(a let-the-ast)
 	a.then_.?end else a.value.end
 keyword-range source-range(a let-the-ast)
@@ -677,7 +655,6 @@ keyword-range source-range(a let-the-ast)
 
 | Could be `()`, `x, y`, or a multi-line list with `- x` and `-- xs`
 list-ast record(range source-range, parts list-ast-part[])
-to json(a list-ast)
 start pos(a list-ast) = a.range.start
 end pos(a list-ast) = a.range.end
 | Range of the initial '-' or '--'
@@ -707,19 +684,15 @@ arg expr-ast(a list-ast-part)
 		a.arg
 
 literal-number record(range source-range)
-to json(a literal-number)
 start pos(a literal-number) = a.range.start
 end pos(a literal-number) = a.range.end
 
 literal-string-ast record(kind quote-kind, range source-range, value string)
-to json(a literal-string-ast)
 start pos(a literal-string-ast) = a.range.start
 end pos(a literal-string-ast) = a.range.end
 
 logical-ast record(left expr-ast, kind logical-ast-kind, keyword-pos pos, right expr-ast)
-to json(a logical-ast)
 logical-ast-kind enum(and_, else_, or_)
-to json(a logical-ast-kind)
 range source-range(a logical-ast) = a.start, a.end
 start pos(a logical-ast) = a.left.start
 end pos(a logical-ast) = a.right.end
@@ -738,7 +711,6 @@ match-ast record
 	matched expr-ast
 	cases case-ast[]
 	else_ match-else-ast?
-to json(a match-ast)
 end pos(a match-ast)
 	if x = a.else_
 		x.end
@@ -751,14 +723,12 @@ keyword-range source-range(a match-ast)
 	range-of-start-and-length a.start, "match"
 
 not-ast record(keyword-pos pos, arg expr-ast)
-to json(a not-ast)
 start pos(a not-ast) = min a.keyword-pos, a.arg.start
 end pos(a not-ast) = a.arg.end
 range source-range(a not-ast) = a.start, a.end
 keyword-range source-range(a not-ast) = a.keyword-pos, a.keyword-pos + 1
 
 parenthesized-ast record(range source-range, inner expr-ast)
-to json(a parenthesized-ast)
 start pos(a parenthesized-ast) = a.range.start
 end pos(a parenthesized-ast) = a.range.end
 
@@ -769,7 +739,6 @@ skip-parentheses expr-ast(a expr-ast)
 		a
 
 case-ast record(keyword-pos pos, member case-member-ast, then_ expr-ast)
-to json(a case-ast)
 end pos(a case-ast)
 	a.then_.end
 name-range source-range(a case-ast)
@@ -778,7 +747,6 @@ keyword-and-member-name-range source-range(a case-ast)
 	a.keyword-pos, a.name-range.end
 
 case-member-ast union(as-name-ast, literal-number, literal-string-ast, as-bogus-ast)
-to json(a case-member-ast)
 name-range source-range(a case-member-ast)
 	match a
 	as as-name-ast
@@ -791,24 +759,19 @@ name-range source-range(a case-member-ast)
 		a.range
 
 as-bogus-ast record(range source-range)
-to json(a as-bogus-ast)
 as-name-ast record(name name-and-range)
-to json(a as-name-ast)
 
 match-else-ast record(keyword-pos pos, expr expr-ast)
-to json(a match-else-ast)
 end pos(a match-else-ast)
 	a.expr.end
 keyword-range source-range(a match-else-ast)
 	range-of-start-and-length a.keyword-pos, "else"
 
 seq-ast record(first expr-ast, then_ expr-ast)
-to json(a seq-ast)
 start pos(a seq-ast) = a.first.start
 end pos(a seq-ast) = a.then_.end
 
 shared-ast record(start pos, inner expr-ast)
-to json(a shared-ast)
 end pos(a shared-ast)
 	a.inner.end
 range source-range(a shared-ast)
@@ -817,7 +780,6 @@ keyword-range source-range(a shared-ast)
 	range-of-start-and-length a.start, "shared"
 
 throw-ast record(start pos, thrown expr-ast)
-to json(a throw-ast)
 end pos(a throw-ast)
 	a.thrown.end
 range source-range(a throw-ast)
@@ -826,7 +788,6 @@ keyword-range source-range(a throw-ast)
 	range-of-start-and-length a.start, "throw"
 
 trusted-ast record(start pos, inner expr-ast)
-to json(a trusted-ast)
 end pos(a trusted-ast)
 	a.inner.end
 range source-range(a trusted-ast)
@@ -838,7 +799,6 @@ try-ast record
 	start pos
 	tried expr-ast
 	catches catch-ast[]
-to json(a try-ast)
 end pos(a try-ast)
 	if is-empty a.catches
 		a.tried.end
@@ -850,13 +810,11 @@ try-keyword-range source-range(a try-ast)
 	range-of-start-and-length a.start, "try"
 
 catch-ast record(start pos, name name-and-range?, as_ catch-as-ast?, then_ expr-ast)
-to json(a catch-ast)
 end pos(a catch-ast)
 	a.then_.end
 keyword-range source-range(a catch-ast)
 	range-of-start-and-length a.start, "catch"
 catch-as-ast record(start pos, type-name name-and-range)
-to json(a catch-as-ast)
 keyword-range source-range(a catch-as-ast)
 	range-of-start-and-length a.start, "as"
 
@@ -866,7 +824,6 @@ try-let-ast record
 	value expr-ast
 	catch_ catch-ast
 	after expr-ast?
-to json(a try-let-ast)
 end pos(a try-let-ast)
 	if after = a.after
 		after.end
@@ -879,13 +836,12 @@ try-keyword-range source-range(a try-let-ast)
 
 | `expr :: t` or `:: t \n expr` or `of::t` or `fun-name::t args...` or `for::t ...`
 | For `of::t`, this is body of the lambda even though {type} is actually in the lambda signature and not the body.
-| For `fun-name::t` or `for::t`, {expr} will be a {call-ast} or {for-or-with-ast}. So {type} will be inside of {expr}.
+| For `fun-name::t` or `for::t`, {expr} is a {call-ast-prefix} or {for-or-with-ast}. So {type} will be inside of {expr}.
 typed-ast record
 	| This may be missing for `:: t` with no line following it
 	expr expr-ast?
 	colon-pos pos
 	type type-ast
-to json(a typed-ast)
 start pos(a typed-ast)
 	if expr = a.expr
 		min a.type.start, expr.start
@@ -902,12 +858,10 @@ keyword-range source-range(a typed-ast)
 
 underscore-ast record
 	start pos
-to json(a underscore-ast)
 end pos(a underscore-ast)
 	a.start + 1
 
 unpack-option-ast record(destructure destructure-ast, equals-pos pos, option expr-ast)
-to json(a unpack-option-ast)
 keyword-range source-range(a unpack-option-ast)
 	range-of-start-and-length a.equals-pos, "="
 start pos(a unpack-option-ast) = a.destructure.start
@@ -919,7 +873,6 @@ while-or-until-ast record
 	condition expr-ast
 	body expr-ast
 	after expr-ast?
-to json(a while-or-until-ast)
 end pos(a while-or-until-ast) = (a.after else a.body).end
 range source-range(a while-or-until-ast) = a.start, a.end
 keyword-range source-range(a while-or-until-ast)
@@ -933,7 +886,6 @@ while-or-until-body-ast record
 keyword-range source-range(a while-or-until-body-ast)
 	"while"::char8[].size is "until"::char8[].size
 	range-of-start-and-length a.start, "until"
-to json(a while-or-until-body-ast)
 end pos(a while-or-until-body-ast) = end a.body
 
 signature-ast record
@@ -942,7 +894,6 @@ signature-ast record
 	name symbol
 	return-type type-ast
 	params destructure-ast[]
-to json(a signature-ast)
 name-and-range name-and-range(a signature-ast) = a.range.start, a.name
 name-range source-range(a signature-ast) = a.name-and-range.range
 
@@ -954,7 +905,6 @@ type-alias-ast record
 	type-params name-and-range[]
 	keyword-pos pos
 	target type-ast
-to json(a type-alias-ast)
 name-range source-range(a type-alias-ast) = a.name.range
 keyword-range source-range(a type-alias-ast)
 	range-of-start-and-length a.keyword-pos, "alias"
@@ -967,7 +917,6 @@ type-params-range source-range(type-params name-and-range[])
 
 modifier-ast union(modifier-keyword-ast, spec-use-ast)
 	range source-range()
-to json(a modifier-ast)
 name-or-keyword symbol(a modifier-ast)
 	match a
 	as modifier-keyword-ast
@@ -976,7 +925,6 @@ name-or-keyword symbol(a modifier-ast)
 		a.name.name
 
 modifier-keyword-ast record(type-arg type-ast?, keyword-pos pos, keyword modifier-keyword)
-to json(a modifier-keyword-ast)
 range source-range(a modifier-keyword-ast)
 	if x = a.type-arg
 		x.start, a.keyword-range.end
@@ -986,7 +934,6 @@ keyword-range source-range(a modifier-keyword-ast)
 	range-of-start-and-length a.keyword-pos, a.keyword.to
 
 spec-use-ast record(type-arg type-ast?, name name-and-range)
-to json(a spec-use-ast)
 range source-range(a spec-use-ast)
 	if x = a.type-arg
 		x.start, a.name.end
@@ -1005,8 +952,6 @@ modifier-keyword enum
 	new-public
 	new-private
 	shared_
-== bool(a modifier-keyword, b modifier-keyword)
-to modifier-keyword?(a symbol)
 to symbol(a modifier-keyword)
 	match a
 	as builtin_
@@ -1034,28 +979,21 @@ to string(a modifier-keyword) = a.to::symbol.to
 to json(a modifier-keyword) = a.to::string.to
 
 type-body-ast union(builtin-type-ast, enum-ast, flags-ast, record-ast, sum-type-ast)
-to json(a type-body-ast)
 
 builtin-type-ast record
-to json(a builtin-type-ast)
 enum-ast record(params destructure-ast[]?, members enum-or-flags-member-ast[])
-to json(a enum-ast)
 flags-ast record(params destructure-ast[]?, members enum-or-flags-member-ast[])
-to json(a flags-ast)
 record-ast record(params destructure-ast[]?, fields record-field-ast[])
-to json(a record-ast)
 sum-type-ast record(kind sum-type-kind, types type-ast[], methods signature-ast[])
 types-range source-range(a sum-type-ast)
 	unless is-empty a.types
 		a.types[0].start, a.types[end - 1].end
-to json(a sum-type-ast)
 
 enum-or-flags-member-ast record
 	doc-comment doc-comment-ast
 	range source-range
 	name symbol
 	value literal-number?
-to json(a enum-or-flags-member-ast)
 name-and-range name-and-range(a enum-or-flags-member-ast)
 	a.range.start, a.name
 name-range source-range(a enum-or-flags-member-ast)
@@ -1068,7 +1006,6 @@ record-field-ast record
 	name name-and-range
 	mutability field-mutability-ast?
 	type type-ast?
-to json(a record-field-ast)
 visibility visibility-and-range?(a record-field-ast)
 	get-visibility-and-range a.range.start, a.visibility_
 name-range source-range(a record-field-ast)
@@ -1085,7 +1022,6 @@ type-decl-ast record
 	keyword-pos pos
 	modifiers modifier-ast[]
 	body type-body-ast
-to json(a type-decl-ast)
 name-range source-range(a type-decl-ast)
 	a.name.range
 keyword-range source-range(a type-decl-ast)
@@ -1114,7 +1050,6 @@ spec-decl-ast record
 	spec-keyword-pos pos
 	modifiers modifier-ast[]
 	sigs signature-ast[]
-to json(a spec-decl-ast)
 name-range source-range(a spec-decl-ast) = a.name.range
 keyword-range source-range(a spec-decl-ast)
 	range-of-start-and-length a.spec-keyword-pos, "spec"
@@ -1124,34 +1059,38 @@ visibility visibility-and-range?(a spec-decl-ast)
 fun-decl-ast record
 	module-uri uri
 	doc-comment doc-comment-ast
-	range source-range
+	start pos
 	visibility_ visibility?
-	name name-and-range
+	name-pos pos
+	name name-and-arity
 	type-params name-and-range[]
 	return-type type-ast
 	params destructure-ast[]
 	modifiers modifier-ast[]
-	body expr-ast?
-to json(a fun-decl-ast)
+	| If the body is missing this will be {bogus-ast}
+	body expr-ast
+range source-range(a fun-decl-ast) = a.start, a.end
+end pos(a fun-decl-ast) = a.body.end
 visibility visibility-and-range?(a fun-decl-ast)
-	get-visibility-and-range a.range.start, a.visibility_
+	get-visibility-and-range a.start, a.visibility_
 name-range uri-and-range(a fun-decl-ast)
 	a.module-uri, a.name-range
-name-range source-range(a fun-decl-ast) = a.name.range
+name-range source-range(a fun-decl-ast)
+	range name-and-range a.name-pos, a.name.name
 
 test-ast record
 	doc-comment doc-comment-ast
-	range source-range
+	start pos
 	modifiers modifier-ast[]
-	body expr-ast?
-to json(a test-ast)
+	body expr-ast
+range source-range(a test-ast) = a.start, a.body.end
 keyword-range source-range(a test-ast)
-	range-of-start-and-length a.range.start, "test"
+	range-of-start-and-length a.start, "test"
 
 | 'global' or 'thread-local'
 var-decl-ast record
 	doc-comment doc-comment-ast
-	range source-range
+	start pos
 	visibility_ visibility?
 	name name-and-range
 	type-params name-and-range[]
@@ -1159,14 +1098,13 @@ var-decl-ast record
 	kind var-kind
 	type type-ast
 	modifiers modifier-ast[]
-	initializer expr-ast?
-to json(a var-decl-ast)
-name-range source-range(a var-decl-ast)
-	a.name.range
+	initializer expr-ast
+range source-range(a var-decl-ast) = a.start, a.initializer.end
+name-range source-range(a var-decl-ast) = a.name.range
 keyword-range source-range(a var-decl-ast)
 	range-of-start-and-length a.keyword-pos, a.kind.string-of-var-kind-lower-case.to
 visibility visibility-and-range?(a var-decl-ast)
-	get-visibility-and-range a.range.start, a.visibility_
+	get-visibility-and-range a.start, a.visibility_
 
 import-or-export-ast record
 	range source-range
@@ -1174,7 +1112,6 @@ import-or-export-ast record
 	kind import-or-export-ast-kind
 path-range source-range(a import-or-export-ast)
 	range-of-start-and-length a.range.start, a.path.show.size.to
-to json(a import-or-export-ast)
 import-min-visibility export-visibility(a import-or-export-ast)
 	match a.path
 	as path
@@ -1190,16 +1127,11 @@ import-or-export-ast-kind union
 	import-whole-module-ast
 	name-and-range[]
 	import-file-ast
-to json(a import-or-export-ast-kind)
 import-whole-module-ast record
-to json(a import-whole-module-ast)
 import-file-ast record(name name-and-range, type-ast type-ast, type import-file-type)
-to json(a import-file-ast)
 import-file-type enum(nat8-array, string)
-to json(a import-file-type)
 
 imports-or-exports-ast record(range source-range, paths import-or-export-ast[])
-to json(a imports-or-exports-ast)
 
 doc-comment-ast record(content doc-comment-content?)
 to json(a doc-comment-ast) = a.content.?to else ()
@@ -1210,7 +1142,6 @@ range source-range?(a doc-comment-ast) = a.content.?range
 references name-and-range[](a doc-comment-ast) = a.content.?references else ()
 
 doc-comment-content record(range source-range, references name-and-range[])
-to json(a doc-comment-content)
 
 file-ast record
 	line-and-column-getter line-and-column-getter
@@ -1292,11 +1223,23 @@ some bool(a children, f bool mut(x expr-ast))
 		f[x.left] or f[x.right]
 	as bogus-ast
 		()
-	as call-ast
+	as call-ast-dot
+		f[x.left]
+	as call-ast-infix
+		some x.args, f
+	as call-ast-dot-question
+		f[x.left]
+	as call-ast-prefix
+		some x.args, f
+	as call-ast-prefix-question
+		some x.args, f
+	as call-ast-prefix-with-type-arg
 		some x.args, f
 	as call-named-ast
 		some x.args, f
 	as call-subscript-ast
+		f[x.left] or f[x.right]
+	as call-question-subscript-ast
 		f[x.left] or f[x.right]
 	as finally-ast
 		f[x.right] or f[x.below]

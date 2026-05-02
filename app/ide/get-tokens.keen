@@ -100,7 +100,6 @@ token record
 	character nat32
 	length nat32
 	type token-type
-to json(a token)
 decode-semantic-tokens record(inner semantic-tokens)
 to token[](a decode-semantic-tokens)
 	map a, {it}
@@ -145,9 +144,6 @@ token-type enum
 	type
 	typeParameter
 	variable
--to token-type?(a nat64)
--to nat(a token-type)
--members token-type[]()
 show string(a token-type)
 	a.to
 to string(a token-type)
@@ -380,19 +376,19 @@ do tokens-builder
 	add-type-params-tokens a.type-params
 	add-type-tokens a.type
 	add-modifier-tokens a.modifiers
-	?add-expr-tokens a.initializer
+	add-expr-tokens a.initializer
 
 -add-fun-tokens void(a fun-decl-ast) tokens-builder
 	add-doc-comment-tokens a.doc-comment
-	emit function_, a.name.range
+	emit function_, a.name-range
 	add-type-params-tokens a.type-params
 	add-sig-return-type-and-params-tokens a.return-type, a.params
 	add-modifier-tokens a.modifiers
-	?add-expr-tokens a.body
+	add-expr-tokens a.body
 
 -add-test-tokens void(a test-ast) tokens-builder
 	add-doc-comment-tokens a.doc-comment
-	?add-expr-tokens a.body
+	add-expr-tokens a.body
 
 -add-expr-tokens void(a expr-ast) tokens-builder
 	match a
@@ -405,31 +401,35 @@ do tokens-builder
 		add-expr-tokens a.right
 	as assignment-call-ast
 		add-expr-tokens a.left
-		emit function_, a.fun-name.range
+		emit function_, a.name-range
 		add-expr-tokens a.right
 	as bogus-ast
 		()
-	as call-ast
-		prefix = of
-			add-name-for-call a
-			add-exprs-tokens a.args
-		name-in-middle = of
-			add-expr-tokens a.args[0]
-			if a.fun-name.name != "is"
-				add-name-for-call a
-			add-exprs-tokens a.args[1 .. end]
-		match a.style
-		as dot
-			name-in-middle[]
-		as dot-question
-			name-in-middle[]
-		as infix
-			name-in-middle[]
-		as prefix
-			prefix[]
-		as question-name
-			prefix[]
+	as call-ast-dot
+		add-expr-tokens a.left
+		emit function_, a.name-range
+	as call-ast-dot-question
+		add-expr-tokens a.left
+		emit function_, a.name-range
+	as call-ast-infix
+		add-expr-tokens a.args[0]
+		unless a.fun-name.name == "is"
+			emit function_, a.name-range
+		add-exprs-tokens a.args[1 .. end]
+	as call-ast-prefix
+		emit function_, a.name-range
+		add-exprs-tokens a.args
+	as call-ast-prefix-question
+		emit function_, a.name-range
+		add-exprs-tokens a.args
+	as call-ast-prefix-with-type-arg
+		emit function_, a.name-range
+		add-type-tokens a.type-arg
+		add-exprs-tokens a.args
 	as call-subscript-ast
+		add-expr-tokens a.left
+		add-expr-tokens a.right
+	as call-question-subscript-ast
 		add-expr-tokens a.left
 		add-expr-tokens a.right
 	as call-named-ast
@@ -527,10 +527,9 @@ do tokens-builder
 				# expr :: t
 				add-expr-tokens expr
 				add-type-tokens a.type
-			elif expr.call-ast
+			elif expr.call-ast-prefix
 				# fun-name::t args...
-				assert expr.style == prefix
-				add-name-for-call expr
+				emit function_, expr.name-range
 				add-type-tokens a.type
 				add-exprs-tokens expr.args
 			else
@@ -550,10 +549,6 @@ do tokens-builder
 		add-expr-tokens a.condition
 		add-expr-tokens a.body
 		?add-expr-tokens a.after
-
--add-name-for-call void(a call-ast) tokens-builder
-	emit function_, a.fun-name.range
-	?add-type-tokens a.type-arg
 
 -add-catch-tokens void(a catch-ast) tokens-builder
 	?emit variable, a.name.?range

@@ -34,21 +34,29 @@ check-lambda spec
 -check-lambda expr(source lambda-source, expected expected) check-expr-ctx, check-lambda
 	check-lambda the::instantiate-ctx, the::check-context, the::common-types, the::expr-ctx, source, expected
 
-check-call expr(ast call-ast, expected expected) check-expr-ctx, check-expr
+check-call expr(ast call-ast-dot, expected expected) check-expr-ctx, check-expr
+	check-call-common (ast.left,), expected,
+		ast, ast.name-range, ast.fun-name, ()
+check-call expr(ast call-ast-dot-question, expected expected) check-expr-ctx, check-expr
+	check-option-call ast, expected, ast.name-range-including-question, ast.fun-name, (ast.left,)
+check-call expr(ast call-ast-infix, expected expected) check-expr-ctx, check-expr
+	check-call-common ast.args, expected,
+		ast, ast.name-range, ast.fun-name, ()
+check-call expr(ast call-ast-prefix, expected expected) check-expr-ctx, check-expr
 	check-call-should-use-syntax ast
-	if is-option-call ast
-		check-option-call ast, expected, ast.name-range-including-question, ast.fun-name.name, ast.args
-	else
-		check-call-common ast.args, expected,
-			ast, ast.name-range-including-question, ast.fun-name.name, ast.type-arg.?type-from-ast, ast.args.size
+	check-call-common ast.args, expected,
+		ast, ast.name-range, ast.fun-name, ()
+check-call expr(ast call-ast-prefix-with-type-arg, expected expected) check-expr-ctx, check-expr
+	check-call-common ast.args, expected,
+		ast, ast.name-range, ast.fun-name, type-from-ast ast.type-arg
+check-call expr(ast call-ast-prefix-question, expected expected) check-expr-ctx, check-expr
+	check-option-call ast, expected, ast.name-range-including-question, ast.fun-name, ast.args
 
-check-call-subscript expr(ast call-subscript-ast, expected expected) check-expr-ctx, check-expr
-	args expr-ast[] = ast.left, ast.right
-	if is-question-subscript ast
-		check-option-call ast, expected, ast.subscript-range, "subscript", args
-	else
-		check-call-common args, expected,
-			ast, ast.subscript-range, "subscript", (), args.size
+check-call expr(ast call-subscript-ast, expected expected) check-expr-ctx, check-expr
+	check-call-common (ast.left, ast.right), expected,
+		ast, ast.subscript-range, subscript-2
+check-call expr(ast call-question-subscript-ast, expected expected) check-expr-ctx, check-expr
+	check-option-call ast, expected, ast.subscript-range, subscript-2, (ast.left, ast.right)
 
 # Used for a list expression with no '--' parts
 check-call-list-no-multi expr
@@ -58,7 +66,9 @@ check-call-list-no-multi expr
 	expected expected
 do check-expr-ctx, check-expr
 	check-call-common parts, expected,
-		ast, range, fun-name-list-new, (), parts.size
+		source: ast
+		diag-range: range
+		fun-name: fun-name-list-new new-n parts.size
 
 check-call-named expr(ast call-named-ast, expected expected) check-expr-ctx, check-expr
 	use-names, use-args = filter-together ast.names, ast.args, of index, name, _
@@ -73,37 +83,35 @@ check-call-named expr(ast call-named-ast, expected expected) check-expr-ctx, che
 			add-diag name.range, diag-named-new-interpolated
 			false
 	check-call-common use-args, expected,
-		ast, (names: map use-names, it.name!), use-args.size
+		source: ast
+		fun-name:
+			:: named-new
+			names: map use-names, it.name!
+			regular: new-n use-args.size
 
 check-call-special expr
 	source call-expr-source
 	range source-range
-	fun-name symbol
+	fun-name name-and-arity
 	args expr-ast[]
 	expected expected
 do check-expr-ctx, check-expr
-	check-call-common args, expected,
-		source, range, fun-name, (), args.size
-
-candidates-filter alias
-	bool mut(candidates candidate stack-array)
-candidate-filter alias
-	bool mut(candidate candidate)
+	check-call-common args, expected, (source, range, fun-name, ())
 
 -check-call-common expr
 	arg-asts expr-ast[]
 	expected expected
 	info call-info
 do check-expr-ctx, check-expr
-	cb-before-check candidates-filter = of candidates
+	cb-before-check = of candidates candidates
 		every arg-asts.with-index, of arg-idx, arg
 			infer-candidate-type-args-from-explicitly-typed-argument candidates, arg-idx, arg
 	check-call-special-cb-n info, expected, cb-before-check, of i, arg-expected
 		check-expr arg-asts[i], arg-expected
 
 check-for-or-with expr(ast for-or-with-ast, expected expected) check-expr-ctx, check-expr, check-lambda
-	info call-info = ast, ast.keyword-range, ast.called-function, 2
-	candidates-filter candidates-filter = of candidates
+	info call-info = ast, ast.keyword-range, called-function ast
+	candidates-filter = of candidates candidates
 		infer-candidate-type-args-from-lambda-parameter candidates, 1, ast.param
 	check-call-special-cb-n info, expected, candidates-filter, of i, arg-expected
 		match i
@@ -114,22 +122,27 @@ check-for-or-with expr(ast for-or-with-ast, expected expected) check-expr-ctx, c
 		else
 			throw unreachable
 
+-called-function name-and-arity(a for-or-with-ast)
+	match a.keyword
+	as for_ then for-loop-2
+	as for-star then for-star-2
+	as with_ then with-block-2
+
 find-function-for-interpolate-or-list-new called?
 	diag-range source-range
-	fun-name symbol
+	fun-name fun-name
 	return-type type
 do check-expr-ctx
-	initial-filter candidate-filter = of candidate
-		called = called candidate
-		do if as-list-new called
-		!!(match-types (called.return-type, candidate.inferring-type-args), (return-type, non-inferring), a-to-b)
-	with-candidates funs-in-expr-scope, fun-name, 1, initial-filter, of candidates
+	initial-filter = of x candidate
+		do if as-list-new x.called
+		!!(match-types x.return-type-and-context, return-type.non-inferring, a-to-b)
+	with-candidates funs-in-expr-scope, fun-name, return-type, (), initial-filter, of candidates
 		prefer-exact-candidates candidates, return-type.expect
 		if x = only candidates
 			check-call-after-choosing-overload x, diag-range
 		else
 			add-diag diag-range, if is-empty candidates
-				diag-call-no-match-for-interpolate-or-list-new fun-name, type-with-container return-type
+				diag-call-no-match-for-interpolate-or-list-new fun-name.regular-name, type-with-container return-type
 			else
 				diag-call-multiple-matches fun-name, type-container, candidates-for-diag candidates
 			()
@@ -152,7 +165,6 @@ do check-expr-ctx
 # Within the same category, larger number types are preferred.
 # There is no preference across categories so int8 vs nat64 is ambiguous.
 -number-category enum(int, nat, float)
-- == bool(a number-category, b number-category)
 -return-priority (number-category, nat32)?(type type)
 	do if b = as-builtin-type type
 	match b
@@ -171,11 +183,12 @@ do check-expr-ctx
 check-call-special-cb1 expr
 	source call-expr-source
 	diag-range source-range
-	fun-name symbol
+	fun-name name-and-arity
 	expected expected
 	cb-arg expr mut(x expected)
 do check-expr-ctx
-	check-call-special-cb-n (source, diag-range, fun-name, 1), expected, of i, arg-expected
+	fun-name.arity is 1
+	check-call-special-cb-n (source, diag-range, fun-name), expected, of i, arg-expected
 		i is 0
 		cb-arg[arg-expected]
 
@@ -189,16 +202,16 @@ call-info record
 	diag-range source-range
 	fun-name fun-name
 	type-arg type?
-	n-args nat
-new call-info(source call-expr-source, diag-range source-range, fun-name fun-name, n-args nat)
-	source, diag-range, fun-name, (), n-args
-new call-info(source call-expr-source, fun-name fun-name, n-args nat)
-	source, source.range, fun-name, n-args
+new call-info(source call-expr-source, diag-range source-range, fun-name fun-name)
+	source, diag-range, fun-name, ()
+new call-info(source call-expr-source, fun-name fun-name)
+	source, source.range, fun-name
+n-args nat(a call-info) = a.fun-name.arity
 
 -check-call-special-cb-n expr
 	info call-info
 	expected expected
-	cb-before-check candidates-filter
+	cb-before-check bool mut(candidates candidate stack-array)
 	cb-check-arg cb-check-arg
 do check-expr-ctx
 	args expr buffer = trusted uninitialized-buffer info.n-args
@@ -208,21 +221,12 @@ do check-expr-ctx
 		# Check should always succeed, but we need it to set the inferred type
 		check expected, called.return-type, make-call info.source, called, trusted cast-immutable args
 	else
-		candidates = get-candidate-decls-for-bogus info.fun-name
+		candidates = get-all-candidates-for-diag info.fun-name
 		if is-empty candidates
 			bogus expected, info.source.range
 		else
 			set-to-bogus-if-inferring expected
 			bogus-call-expr info.source, candidates, (trusted cast-immutable args), expected.inferred
--get-candidate-decls-for-bogus called-decl[](fun-name fun-name) check-expr-ctx
-	do with out in build
-	match fun-name
-	as symbol
-		each-fun-in-scope funs-in-expr-scope, fun-name, {out ~= it}
-	as fun-name-list-new
-		() # TODO
-	as named-new
-		() # TODO
 
 -make-call expr(source call-expr-source, called called, args expr[])
 	match source
@@ -258,51 +262,29 @@ do check-expr-ctx
 	cb-check-arg cb-check-arg-void
 	cb-before-check bool mut(x candidates)
 do check-expr-ctx
-	initial-filter candidate-filter = of candidate
+	return = try-get-inexact-non-inferring-type expected
+	arg0-type type? = if is-highly-overloaded info.fun-name and info.n-args != 0
+		# Check the first argument before building the candidates array to improve performance.
+		arg-expected = infer
+		cb-check-arg[0, arg-expected]
+		inferred arg-expected
+	initial-filter = of candidate candidate
 		filter-candidate-by-explicit-type-arg candidate, info.type-arg and
 		test-candidate-return-type expected, candidate
-	with-candidates funs-in-expr-scope, info.fun-name, info.n-args, initial-filter, of candidates
+	with-candidates funs-in-expr-scope, info.fun-name, return, arg0-type, initial-filter, of candidates
 		if cb-before-check[candidates]
-			check-call-inner info, candidates, expected, cb-check-arg
+			check-call-inner info, candidates, expected, cb-check-arg, arg0-type
 
 check-call-identifier expr(ast name-and-range, expected expected) check-expr-ctx, check-expr
 	if ast.name == "new"
 		add-diag ast.range, diag-call-should-use-syntax 0, new_
-	check-call-special ast, ast.range, ast.name, (), expected
-
-check-method-impl fun-inst?
-	type-container type-decl
-	method-name symbol
-	return-and-param-types return-and-param-types
-	diag-range source-range
-do check-ctx, common-types, funs-map
-	arity = return-and-param-types.param-types.size
-	initial-filter bool mut(x candidate) = of candidate
-		test-candidate-for-spec-sig candidate, return-and-param-types, non-inferring, no-conversions
-	funs-in-scope = funs-in-non-expr-scope type-container.specs
-	with-candidates funs-in-scope, method-name, arity, initial-filter, of candidates
-		if x = only candidates
-			res = check-call-specs-except-contexts type-container, funs-in-scope, never-trusted, diag-range, x
-			match res
-			as called-bogus
-				()
-			as fun-inst
-				if check-no-contexts type-container, method-impl, diag-range, res
-					res
-			as called-spec-sig
-				()
-		else
-			add-diag diag-range, if is-empty candidates
-				diag-function-with-signature-not-found method-name, type-container, return-and-param-types
-			else
-				diag-call-multiple-matches method-name, type-container, candidates.candidates-for-diag
-			()
+	check-call-special ast, ast.range, (get-name-and-arity ast.name, 0), (), expected
 
 -check-option-call expr
 	ast call-option-source
 	outer-expected expected
 	diag-range source-range
-	fun-name symbol
+	fun-name fun-name
 	arg-asts expr-ast[]
 do check-expr-ctx, check-expr
 	check-with-modify-expected outer-expected, it.as-void-or-option-type, of inner-expected
@@ -315,7 +297,7 @@ do check-expr-ctx, check-expr
 				option = inferred optional-arg-expected
 				args[index] := expr
 				expr, option.unwrap-if-option-type
-		info call-info = ast.to, diag-range, fun-name, args.size
+		info call-info = ast.to, diag-range, fun-name
 		if called = check-call-cb info, inner-expected, check-arg, {true}
 			type = if is-void called.return-type then called.return-type else to-option called.return-type
 			all-args = trusted cast-immutable args
@@ -339,6 +321,7 @@ do check-expr-ctx, check-expr
 	candidates candidates
 	expected expected
 	cb-check-arg cb-check-arg-void
+	arg0-type type?
 do check-expr-ctx
 	diag-range = info.diag-range
 	fun-name = info.fun-name
@@ -347,35 +330,26 @@ do check-expr-ctx
 	arg-index mut = 0
 	# TODO:PERF Since this is only needed conditionally, consider getting this from the args
 	arg-types type buffer = trusted uninitialized-buffer n-args
-	until
-		do if arg-index != n-args else true
-		do unless is-empty candidates else true
+
+	handle-arg = of arg-type type
+		if is-bogus arg-type
+			some-arg-is-bogus := true
+			clear-candidates candidates
+		else
+			arg-types[arg-index] := arg-type
+			filter-candidates-for-arg-type candidates, arg-index, arg-type
+			arg-index +:= 1
+
+	if arg0-type then handle-arg[arg0-type]
+
+	until arg-index == n-args or is-empty candidates
 		filter-unordered-but-dont-remove-all candidates, of candidate
 			# The point of this function is to infer one type arg from another,
 			# e.g. given type params `[col, elem]` and spec `(col, elem) some` infer `elem` from `col`.
 			# There's no point to doing this if we haven't inferred any type args.
-			if has-some-inferred candidate
-				pre-check-candidate-specs candidate
-			else
-				true
+			!has-some-inferred candidate or pre-check-candidate-specs candidate
 		arg-type = with-param-expected candidates, arg-index, cb-check-arg
-		# If it failed to check, don-t continue, just stop there
-		if is-bogus arg-type
-			some-arg-is-bogus := true
-			clear-candidates candidates
-			true
-		else
-			arg-types[arg-index] := arg-type
-			# Eagerly prefer candidates where the argument type matches exactly.
-			# For example, if you are calling 'x == ()' where 'x' is not an option,
-			# you don't want the '==' on 'option' considered as that makes the '()' ambiguous.
-			filter-unordered-tri candidates, of candidate
-				if match_ = test-candidate-param-type candidate, arg-index, arg-type.non-inferring, allow-conversions
-					if match_ == exact-match then prefer else allow
-				else
-					reject
-			arg-index +:= 1
-			false
+		handle-arg[arg-type]
 
 	do unless some-arg-is-bogus
 
@@ -399,12 +373,20 @@ do check-expr-ctx
 			diag-call-multiple-matches fun-name, type-container, candidates.candidates-for-diag
 		()
 
--check-call-should-use-syntax void(ast call-ast) check-ctx
-	do if ast.style == dot or ast.style == prefix or ast.style == infix
+-filter-candidates-for-arg-type void(candidates candidates, arg-index nat, arg-type type) common-types
+	# Eagerly prefer candidates where the argument type matches exactly.
+	# For example, if you are calling 'x == ()' where 'x' is not an option,
+	# you don't want the '==' on 'option' considered as that makes the '()' ambiguous.
+	filter-unordered-tri candidates, of candidate
+		if match_ = test-candidate-param-type candidate, arg-index, arg-type.non-inferring, allow-conversions
+			if match_ == exact-match then prefer else allow
+		else
+			reject
+
+-check-call-should-use-syntax void(ast call-ast-prefix) check-ctx
 	do if kind = should-use-syntax-kind ast
-	add-diag ast.fun-name.range,
-		diag-call-should-use-syntax ast.args.size, kind
--should-use-syntax-kind diag-call-should-use-syntax-kind?(ast call-ast)
+	add-diag ast.name-range, diag-call-should-use-syntax ast.args.size, kind
+-should-use-syntax-kind diag-call-should-use-syntax-kind?(ast call-ast-prefix)
 	match ast.fun-name.name
 	as for-loop
 		if second-arg-is-lambda ast
@@ -424,7 +406,7 @@ do check-expr-ctx
 	else
 		if ast.args.size == 2 and starts-with ast.fun-name.name.to::string, "set-"
 			set-name
--second-arg-is-lambda bool(a call-ast)
+-second-arg-is-lambda bool(a call-ast-prefix)
 	a.args.size == 2 and is-lambda a.args[1]
 -is-lambda bool(a expr-ast)
 	match a
@@ -446,8 +428,7 @@ do check-expr-ctx
 	out type-and-context mut[] = allocate
 	for candidate in candidates
 		expected = get-candidate-expected-parameter-type candidate, arg-index
-		is-duplicate = !is-inferring expected.context and some out, of x
-			!is-inferring x.context and x.type == expected.type
+		is-duplicate = as-non-inferring expected and some out, {identical expected, it}
 		unless is-duplicate
 			out ~= expected
 	arg-expected = as-expected out
@@ -459,16 +440,15 @@ do check-expr-ctx
 
 -infer-type-args-from-spec-impl void
 	spec-candidate candidate
-	spec-sig signature
-	sig-types return-and-param-types
+	sig called-spec-sig
 	call-inferring-type-args type-context
 	max-depth nat
 do check-expr-ctx
 	check-types = of::void
-		infer-type-args-bidirectional (sig-types.return-type, call-inferring-type-args),
-			spec-candidate.called.return-type, spec-candidate.inferring-type-args
-		for arg-idx in 0::nat .. spec-sig.params.size
-			infer-type-args-bidirectional (sig-types.param-types[arg-idx], call-inferring-type-args),
+		infer-type-args-bidirectional (type-and-maybe-context sig.return-type, call-inferring-type-args),
+			return-type-and-context spec-candidate
+		for arg-idx, param-type in with-index sig.param-types
+			infer-type-args-bidirectional (type-and-maybe-context param-type, call-inferring-type-args),
 				get-candidate-expected-parameter-type spec-candidate, arg-idx
 	check-types[]
 	if max-depth != 0 and !is-fully-inferred spec-candidate.inferring-type-args
@@ -497,7 +477,7 @@ do check-expr-ctx
 		else
 			for candidate in candidates
 				param-type = get-candidate-expected-parameter-type candidate, arg-index
-				if is-inferring param-type.context
+				if full-type-and-context param-type
 					infer-type-args-from-lambda-parameter-type param-type, lambda-param-type
 			true
 	else
@@ -510,30 +490,33 @@ do check-expr-ctx
 	match called = candidate.called
 	as fun-decl
 		every called.specs.instantiated-sigs, of sig
-			pre-check-spec candidate, sig.non-instantiated-sig, sig.instantiated-sig, max-depth
+			pre-check-spec candidate, sig, max-depth
 	as called-spec-sig
 		true
 -has-some-inferred bool(a candidate)
 	some a.inferring-type-args, !!it
 
--pre-check-spec bool
-	call-candidate candidate
-	spec-sig signature
-	sig-types return-and-param-types
-	max-depth nat
-do check-expr-ctx
+-pre-check-spec bool(call-candidate candidate, sig called-spec-sig, max-depth nat) check-expr-ctx
 	call-context = inferring-type-args call-candidate
-	initial-filter candidate-filter = of candidate
-		test-candidate-for-spec-sig candidate, sig-types, call-context, allow-conversions
-	with-candidates funs-in-expr-scope, spec-sig.name, spec-sig.params.size, initial-filter, of spec-candidates
-		match spec-candidates.size
-		as 0
-			false
-		as 1
-			infer-type-args-from-spec-impl spec-candidates.only!, spec-sig, sig-types, call-context, max-depth
-			true
+	single mut candidate? = ()
+	multiple mut bool = false
+	return = get-exact-non-inferring-type type-and-maybe-context sig.return-type, call-context
+	arg = if p = at sig.param-types, 0
+		get-exact-non-inferring-type type-and-maybe-context p, call-context
+	each-fun-with-types funs-in-expr-scope, sig.name-and-arity, return, arg, of called
+		candidate = init-candidate called
+		do if test-candidate-for-spec-sig candidate, sig.return-and-param-types, call-context, allow-conversions
+		if single
+			multiple := true
 		else
-			true
+			single := candidate
+	if multiple
+		true
+	elif single
+		infer-type-args-from-spec-impl single!, sig, call-context, max-depth
+		true
+	else
+		false
 
 -check-call-after-choosing-overload called(candidate candidate, diag-range source-range) check-expr-ctx
 	res = check-call-specs-except-contexts type-container, funs-in-expr-scope, the::expr-ctx, diag-range, candidate

@@ -3,10 +3,10 @@ import
 	../../model/model
 	../../util/object-pools
 
--type-contexts global(inference? buffer-allocator)
+-type-contexts global(inference? buffer-allocator) = ()
 -all-candidates global(candidates) = 0x1000,
--n-live-stack-array global(nat)
--type-and-context-arrays global(type-and-context mut-array-allocator)
+-n-live-stack-array global(nat) = ()
+-type-and-context-arrays global(type-and-context mut-array-allocator) = ()
 
 assert-all-allocated-freed void()
 	do trusted
@@ -28,7 +28,6 @@ inference-kind enum
 	| We would check the return type first. Then `t` would be inferred at `nat?` with `allow-narrower`.
 	| Then if the argument turns out to be a `nat[]`, we would upgrade `t` to `nat` with `exact`.
 	allow-narrower
-== bool(a inference-kind, b inference-kind)
 inference record
 	kind inference-kind
 	type type
@@ -42,32 +41,99 @@ with-type-context-for[t] t(n-type-params nat, f t mut(x type-context))
 	finally free type-contexts, context
 	f[context]
 
-candidate record mut, -new
+| This optimizes for the common case of a non-generic, non-variadic candidate.
+candidate union(fun-inst, called-spec-sig, full-candidate) mut
+| Used for generic or variadic functions.
+| `inferring-type-args` will usually be non-empty,
+| but not for a variadic function or a function with specs but no type params.
+full-candidate record mut, -new
 	called -mut called-decl
-	param-types type[]
-	| This is always empty if calling a {called-spec-sig}
+	variadic-type type?
 	inferring-type-args type-context
 
+called called-decl(a candidate)
+	match a
+	as fun-inst then a.decl
+	as called-spec-sig then a
+	as full-candidate then a.called
+inferring-type-args type-context(a candidate)
+	match a
+	as fun-inst then ()
+	as called-spec-sig then ()
+	as full-candidate then a.inferring-type-args
+
 init-candidate candidate(called called-decl)
+	match called
+	as fun-decl
+		if is-template called
+			called: called
+			variadic-type: ()
+			inferring-type-args: n-of called.n-type-params, ()
+		else
+			only-inst called
+	as called-spec-sig
+		called
+
+init-variadic-candidate candidate(called called-decl, element-type type)
 	called: called
-	param-types: called.param-types
+	variadic-type: element-type
 	inferring-type-args: n-of called.n-type-params, ()
 
-init-candidate-for-list-new candidate(called called-decl, n-args nat, element-type type)
-	called: called
-	param-types: n-of n-args, element-type
-	inferring-type-args: n-of called.n-type-params, ()
+| This optimizes for the common case of a type with no context.
+type-and-context union(bogus-type, type-param-index, type-inst, full-type-and-context) mut
+type type(a type-and-context)
+	match a
+	as bogus-type then a
+	as type-param-index then a
+	as type-inst then a
+	as full-type-and-context then a.type
 
-init-candidate-for-named-new candidate(called called-decl, n-args nat, element-type type)
-	called: called
-	param-types: n-of n-args, element-type
-	inferring-type-args: n-of called.n-type-params, ()
+type-and-maybe-context type-and-context(type type, context type-context)
+	if is-empty context
+		non-inferring type
+	else
+		full-type-and-context type, context
+type-and-new-context type-and-context(a type-with-container)
+	context-size = a.container.n-type-params
+	if context-size == 0
+		non-inferring a.type
+	else
+		full-type-and-context a.type, n-of context-size, ()
 
-type-and-context record mut
-	type -mut type
-	context -mut type-context
+full-type-and-context record mut
+	dummy void
+	type type
+	context type-context
+full-type-and-context full-type-and-context(type type, context type-context)
+	forbid is-empty context
+	(), type, context
+to json(a full-type-and-context)
+	type: a.type.to
+	context: a.context.to
 non-inferring type-and-context(type type)
-	type, ()
+	match type
+	as bogus-type then type
+	as type-param-index then type
+	as type-inst then type
+identical bool(a type-and-context, b type-and-context)
+	trusted reference-equal a, b
+as-non-inferring type?(a type-and-context)
+	match a
+	as bogus-type then a
+	as type-param-index then a
+	as type-inst then a
+	as full-type-and-context then ()
+copy type-and-context(a type-and-context)
+	match a
+	as full-type-and-context then full-type-and-context a.type, copy a.context
+	else then a
+with-type type-and-context(a type-and-context, new-type type)
+	match a
+	as full-type-and-context then with-type a, new-type
+	else then non-inferring new-type
+with-type full-type-and-context(a full-type-and-context, new-type type)
+	full-type-and-context new-type, a.context
+
 allocate type-and-context mut[]()
 	trusted allocate type-and-context-arrays
 free void(value type-and-context mut[])
@@ -75,8 +141,6 @@ free void(value type-and-context mut[])
 
 non-inferring type-context()
 	()
-is-inferring bool(a type-context)
-	!is-empty a
 is-fully-inferred bool(a type-context)
 	every a, !!it
 
@@ -146,7 +210,6 @@ pop-context[t] void(a t stack-array, restore nat)
 			remove-at-unordered a, i
 
 filter-tri-result enum(reject, allow, prefer)
-== bool(a filter-tri-result, b filter-tri-result)
 filter-unordered-tri[t] void(a t stack-array, f filter-tri-result mut(x t))
 	i mut = a.cur-array-start
 	do until
@@ -215,6 +278,9 @@ filter-partial-compare[t] void(a t stack-array, partial-comparison comparison mu
 		as greater
 			remove-at-unordered a, j
 		false
+
+filter-unordered[t] void(a t stack-array, f bool mut(x t))
+	filter-unordered-starting-from a, a.cur-array-start, f
 
 filter-unordered-but-dont-remove-all[t] void(a t stack-array, f bool mut(x t))
 	i mut = a.cur-array-start

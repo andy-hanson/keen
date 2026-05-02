@@ -3,7 +3,7 @@ import
 	../../model/model
 	../../model/source-range
 	../../model/uri
-	../../util/by-name
+	../../util/by-key
 	../../util/perf
 	../lang
 	./allocators
@@ -127,7 +127,7 @@ do check-ctx
 			out ~= x
 		for x in specs
 			out ~= x
-	to-by-name res, of _, y
+	to-by-key res, of _, y
 		add-diag-assert-same-uri y.name-range,
 			diag-duplicate-declaration spec-or-type, y.name
 
@@ -196,8 +196,7 @@ do check-ctx, common-types, types-and-specs-map
 		check-funs types, vars, imports-and-re-exports.files, ast.funs, ast.tests
 	the funs-map = funs-and-map.funs-map
 	for var in vars
-		var.initializer :=
-			check-fun-or-test-body var, var.type, (), var.ast.initializer, var.ast, false
+		var.initializer := check-fun-or-test-body var, var.type, (), var.ast.initializer, false
 	check-doc-comments funs-and-map.funs-map, type-aliases, types, specs, vars, funs-and-map.funs, funs-and-map.tests
 	module-doc-comment-references = check-doc-comment-references funs-and-map.funs-map, (), (), ast.doc-comment
 	exports = get-all-exports imports-and-re-exports.module-re-exports, funs-and-map.funs-map
@@ -223,42 +222,41 @@ do check-ctx, common-types, types-and-specs-map
 		public-exports: exports.public
 		public-and-internal-exports: exports.public-and-internal
 		doc-comment-references: module-doc-comment-references
+	the common-uris = common-uris
 	detect-unused-private the::check-context.diagnostics-builder, res
 	res.check-diagnostics := finish-diagnostics
 	res
 
 -all-exports record(public exports, public-and-internal exports)
 -get-all-exports all-exports(re-exports import-or-export[], funs-map funs-map) check-ctx, types-and-specs-map
-	exported-funs fun-decl mut[] = ()
-	exported-types-and-specs spec-or-type mut[] = ()
+	exported-funs fun-decl[], exported-types-and-specs spec-or-type[] = with out-funs, out-types in build2
+		for e in re-exports
+			its-exports = match e.source!.kind
+			as import-whole-module-ast
+				# TODO: if this is a re-export imported with a non-relative path, only re-export the public members
+				e.module.public-and-internal-exports
+			as array
+				e.named-imported
+			as import-file-ast
+				throw unreachable
+			for x in its-exports.funs
+				out-funs ~= x
+			for x in its-exports.types-and-specs
+				out-types ~= x
 
-	for e in re-exports
-		its-exports = match e.source!.kind
-		as import-whole-module-ast
-			# TODO: if this is a re-export imported with a non-relative path, only re-export the public members
-			e.module.public-and-internal-exports
-		as array
-			e.named-imported
-		as import-file-ast
-			throw unreachable
-		for x in its-exports.funs
-			exported-funs ~= x
-		for x in its-exports.types-and-specs
-			exported-types-and-specs ~= x
-
-	for x in the::types-and-specs-map
-		if x.visibility != private
-			exported-types-and-specs ~= x
-	for x in funs-map
-		if x.visibility != private
-			exported-funs ~= x
+		for x in the::types-and-specs-map
+			if x.visibility != private
+				out-types ~= x
+		for x in funs-map
+			if x.visibility != private
+				out-funs ~= x
 
 	public-and-internal exports =
-		funs: exported-funs.move-to
-		types-and-specs: move-to-by-name exported-types-and-specs, of _, y
+		funs: make-funs-map exported-funs
+		types-and-specs: to-by-key exported-types-and-specs, of _, y
 			add-diag-assert-same-uri y.range, diag-duplicate-exports type, y.name
 	public:
-		funs: filter public-and-internal.funs, it.visibility == public
+		funs: make-funs-map filter exported-funs, it.visibility == public
 		types-and-specs: filter public-and-internal.types-and-specs, it.visibility == public
 	public-and-internal: public-and-internal
 
@@ -279,6 +277,7 @@ do instantiate-ctx
 		cur-uri: uri-and-ast.uri
 		config: uri-and-ast.config
 		cur-file-text: uri-and-ast.ast.line-and-column-getter.source-text
+		cur-module-is-no-std: ast.no-std_
 		module-imports-and-re-exports: imports-and-re-exports.module-imports ~~ imports-and-re-exports.module-re-exports
 		imports-and-re-exports: all-imports
 		json-type: unless ast.no-std_ then get-json-type all-imports[0]
@@ -404,8 +403,8 @@ do
 			if (count names, it.name == name.name) != 1
 				diags-builder ~= name.range, name.name.diag-duplicate-import-name
 	for name in set
-		if exports.funs[name].is-empty and !exports.types-and-specs[name] and !exports.types-and-specs[name]
+		if !any-for-name exports.funs, name and !exports.types-and-specs[name]
 			ast = find! names, it.name == name
 			diags-builder ~= ast.range, name.diag-import-refers-to-nothing
-	funs: choose-keys exports.funs, set
+	funs: filter-by-names exports.funs, set
 	types-and-specs: choose-keys exports.types-and-specs, set

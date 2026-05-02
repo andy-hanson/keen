@@ -12,7 +12,7 @@ import
 is-shared bool(fun-specs specs, type type)
 	is-mutability-always-compatible-considering-specs fun-specs, type, shared_
 
-check-no-contexts bool
+-check-no-contexts bool
 	container type-container
 	kind diag-contexts-not-allowed-kind
 	diag-range source-range
@@ -42,54 +42,80 @@ check-call-specs-except-contexts called
 	diag-range source-range
 	candidate candidate
 do check-ctx, common-types
-	the check-specs-ctx = funs-in-scope, call-scope, false
+	the check-specs-ctx = funs-in-scope, call-scope, false, false
 	match called = get-called-from-candidate-after-type-checks candidate, 0.dummy-trace
 	as called
 		if has-errors the::check-specs-ctx
 			check-call-specs-with-real-trace type-container, funs-in-scope, call-scope, diag-range, candidate
-		elif deep-check-no-contexts-in-specs type-container, diag-range, called
+		elif deep-check-no-contexts-in-specs type-container, spec-impl, diag-range, called
 			called
 		else
-			called-bogus called.fun-inst!.decl, called.return-type, called.param-types
+			called-bogus called.fun-inst!.decl, called.return-and-param-types
 	as no-match
 		check-call-specs-with-real-trace type-container, funs-in-scope, call-scope, diag-range, candidate
 
--deep-check-no-contexts-in-specs bool(container type-container, diag-range source-range, called called) check-ctx
+-deep-check-no-contexts bool
+	container type-container
+	kind diag-contexts-not-allowed-kind
+	diag-range source-range
+	called called
+do check-ctx
+	check-no-contexts container, kind, diag-range, called and
+		deep-check-no-contexts-in-specs container, kind, diag-range, called
+
+-deep-check-no-contexts-in-specs bool
+	container type-container
+	kind diag-contexts-not-allowed-kind
+	diag-range source-range
+	called called
+do check-ctx
 	match called
 	as called-bogus
 		throw unreachable
 	as fun-inst
-		every called.spec-impls, of impl
-			check-no-contexts container, spec-impl, diag-range, impl and
-			deep-check-no-contexts-in-specs container, diag-range, impl
+		every called.spec-impls, {deep-check-no-contexts container, kind, diag-range, it}
 	as called-spec-sig
 		true
 
-check-spec-and-get-last-impl called(decl fun-decl, spec_ spec-inst) check-ctx, common-types, funs-map
-	check-spec-and-get-last-impl the::funs-map, decl.name-range.range, decl, decl.specs, never-trusted, spec_
-check-spec-and-get-last-impl called(diag-range source-range, spec_ spec-inst) check-expr-ctx
-	check-spec-and-get-last-impl funs-map, diag-range, type-container, specs, the::expr-ctx, spec_
--check-spec-and-get-last-impl called
-	funs-map funs-map
+| The spec must have a single signature.
+| This does not emit a diagnostic for a missing implementation.
+try-find-auto-fun-implementation called?(fun fun-decl, spec_ spec-inst) check-ctx, common-types, funs-map
+	sig = spec_.all-sigs.only!
+	name = get-name-and-arity sig.name, sig.params.size
+	find-auto-fun-or-method-impl spec-impl, fun, fun.specs, fun.name-range.range, name, spec_.sig-types.only!, false
+
+get-method-impl fun-inst?
+	type type-decl
 	diag-range source-range
-	caller type-container
-	caller-specs specs
-	call-scope call-scope
-	spec_ spec-inst
-do check-ctx, common-types
+	name name-and-arity
+	return-and-param-types return-and-param-types
+do check-ctx, common-types, funs-map
+	if res = find-auto-fun-or-method-impl method-impl, type, type.specs, diag-range, name, return-and-param-types, true
+		fun-inst! res
+
+-find-auto-fun-or-method-impl called?
+	kind diag-contexts-not-allowed-kind
+	container type-container
+	specs specs
+	diag-range source-range
+	name name-and-arity
+	sig-type return-and-param-types
+	diag bool
+do check-ctx, common-types, funs-map
 	the check-specs-ctx =
-		funs-in-scope: caller-specs, funs-map
-		call-scope: call-scope
+		funs-in-scope: specs, the::funs-map
+		call-scope: never-trusted
 		has-errors: false
-	trace real-trace = caller, diag-range, ()
-	match impls = check-spec-impls-inner trace, (spec_,).get-or-add-specs
-	as array
-		impls[end - 1]
+		prefer-specs: true
+	trace real-trace = container, diag-range, ()
+	match res = find-spec-sig-implementation name, sig-type, trace
+	as called
+		if deep-check-no-contexts container, kind, diag-range, res
+			res
 	as no-match
-		add-diag diag-range, impls.diag!
-		types = spec_.sig-types[end - 1]
-		sig called-spec-sig = 1, spec_.decl, spec_.all-sigs[end - 1], types.return-type, types.param-types
-		called-bogus sig, sig.return-type, sig.param-types
+		if diag
+			add-diag diag-range, res.diag!
+		()
 
 -check-call-specs-with-real-trace called
 	type-container type-container
@@ -98,7 +124,7 @@ do check-ctx, common-types
 	range source-range
 	candidate candidate
 do check-ctx, common-types
-	the check-specs-ctx = funs-in-scope, call-scope, false
+	the check-specs-ctx = funs-in-scope, call-scope, false, false
 	trace real-trace = type-container, range, ()
 	match x = get-called-from-candidate-after-type-checks candidate, trace
 	as called
@@ -112,6 +138,9 @@ do check-ctx, common-types
 	funs-in-scope funs-in-scope
 	call-scope call-scope
 	has-errors mut bool
+	| If true, it will not be an error for a function to be implemented
+	| by both this function's specs and by a regular function.
+	prefer-specs bool
 funs-in-scope funs-in-scope() check-specs-ctx
 	the::check-specs-ctx.funs-in-scope
 call-scope call-scope() check-specs-ctx
@@ -157,7 +186,7 @@ call-scope call-scope() check-specs-ctx
 		diag-spec-no-match a.container, reason, a.trace.to
 
 -check-candidate spec-result
-	sig-decl signature
+	name name-and-arity
 	sig-type return-and-param-types
 	candidate candidate
 	trace trace
@@ -166,12 +195,12 @@ do check-specs
 	if test-candidate-for-spec-sig candidate, sig-type, non-inferring, conv
 		get-called-from-candidate-after-type-checks candidate, trace
 	else
-		no-match trace.depth, spec-no-match trace, spec-impl-not-found sig-decl, sig-type
+		no-match trace.depth, spec-no-match trace, spec-impl-not-found name.name, sig-type
 
 -get-called-from-candidate-after-type-checks spec-result(candidate candidate, trace trace) check-specs
 	do if every candidate.inferring-type-args, !!it else
 		depth: trace.depth
-		diag: spec-no-match trace, candidate.called.fun-decl!.spec-cant-infer-type-args
+		diag: spec-no-match trace, spec-cant-infer-type-args fun-decl! candidate.called
 	match called = candidate.called
 	as fun-decl
 		do if trace.depth < max-spec-depth else
@@ -188,7 +217,7 @@ do check-specs
 		called
 
 -find-spec-sig-implementation spec-result
-	sig-decl signature
+	name name-and-arity
 	sig-type return-and-param-types
 	trace trace
 do check-specs
@@ -196,11 +225,12 @@ do check-specs
 	multiple-matches called mut[] = ()
 	deepest-no-match mut no-match? = ()
 	doit = of allow-implicit-conversions allow-implicit-conversions
-		each-candidate funs-in-scope, sig-decl.name, sig-type.param-types.size, of candidate
-			match checked = check-candidate sig-decl, sig-type, candidate, trace, allow-implicit-conversions
+		each-candidate-with-signature funs-in-scope, name, sig-type, of candidate
+			match checked = check-candidate name, sig-type, candidate, trace, allow-implicit-conversions
 			as called
 				if res
-					multiple-matches ~= checked
+					unless res!.called-spec-sig and !checked.called-spec-sig and the::check-specs-ctx.prefer-specs
+						multiple-matches ~= checked
 				else
 					res := checked
 			as no-match
@@ -232,12 +262,12 @@ do check-specs
 			unless is-empty multiple-matches
 				multiple-matches ~= res!
 				add-diag trace.range,
-					diag-spec-match-multiple trace.container, sig-decl.name, multiple-matches.move-to, trace.trace.to
+					diag-spec-match-multiple trace.container, name.name, multiple-matches.move-to, trace.trace.to
 		res!
 	elif deepest-no-match
 		deepest-no-match!
 	else
-		no-match trace.depth, spec-no-match trace, spec-impl-not-found sig-decl, sig-type
+		no-match trace.depth, spec-no-match trace, spec-impl-not-found name.name, sig-type
 
 -check-builtin-spec bool(kind builtin-spec, type-args type-args) check-specs-ctx
 	fun-specs = the::check-specs-ctx.funs-in-scope.fun-specs
@@ -273,7 +303,7 @@ do check-specs
 		sigs = instantiated-sigs specs
 		no-match mut no-match? = ()
 		result called[]? = map-every sigs, of sig
-			match found = find-spec-sig-implementation sig.non-instantiated-sig, sig.instantiated-sig, trace
+			match found = find-spec-sig-implementation sig.name-and-arity, sig.return-and-param-types, trace
 			as called
 				found
 			as no-match

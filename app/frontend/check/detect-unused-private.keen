@@ -2,11 +2,13 @@ import
 	../../model/ast
 	../../model/model
 	../../model/source-range
-	../../util/by-name
+	../../util/by-key
 	../../util/perf
 	../walk-model
+	./check-ctx
+	./funs-for-type
 
-detect-unused-private void(diags diagnostic mut[], module keen-module) common-types
+detect-unused-private void(diags diagnostic mut[], module keen-module) common-types, common-uris
 	start = perf-now
 	used = gather-used module
 	for fun in module.funs
@@ -48,17 +50,16 @@ detect-unused-private void(diags diagnostic mut[], module keen-module) common-ty
 			()
 	end-detect-unused-private start
 
-ok-if-unused bool(a any-decl)
+ok-if-unused bool(a any-decl) common-types, common-uris
 	a.fun-decl and ok-if-unused a
-ok-if-unused bool(a fun-decl)
+ok-if-unused bool(a fun-decl) common-types, common-uris
 	match a.body
 	as fun-body-uninitialized then throw unreachable
-	as fun-body-bogus then false
 	as fun-body-extern-java then true
-	as auto-fun then false
+	as auto-fun then true
 	as builtin-fun then false
 	as enum-or-flags-member then true
-	as expr then false
+	as expr then !!(as-auto-fun-override a)
 	as expr-with-allocated-locals then false
 	as fun-body-file-import then false
 	as flags-function then true
@@ -87,7 +88,7 @@ ok-if-unused bool(a fun-decl)
 
 -gather-used used(module keen-module) common-types
 	funs fun-decl mut-set = ()
-	structs type-decl mut-set = ()
+	types type-decl mut-set = ()
 	specs spec-decl mut-set = ()
 	vars var-decl mut-set = ()
 
@@ -129,12 +130,19 @@ ok-if-unused bool(a fun-decl)
 		as type-alias
 			()
 		as type-decl
-			structs ~= ref
+			types ~= ref
 		as type-param-index
 			()
 		as var-decl
 			vars ~= ref
-	funs.move-to, structs.move-to, specs.move-to, vars.move-to, unused-locals.move-to, unused-mut-locals.move-to
+
+	if module.ast.no-std_
+		# Ensure return types of auto funs count as used (e.g. 'comparison')
+		for fun in module.funs
+			do if fun.body.auto-fun
+			types ~= fun.return-type.type-inst!.decl
+
+	funs.move-to, types.move-to, specs.move-to, vars.move-to, unused-locals.move-to, unused-mut-locals.move-to
 
 -has bool(module module, used used)
 	exports = module.public-and-internal-exports
@@ -150,6 +158,6 @@ ok-if-unused bool(a fun-decl)
 
 -has-for-name bool(module module, name symbol, used used)
 	exports = module.public-and-internal-exports
-	some exports.funs[name], used[it] or
+	some (all-with-name exports.funs, name), used[it] or
 	x = exports.types-and-specs[name] and used[x] or
 	name == "compare" or name == "equal" # 'equal' and 'compare' are needed when checking certain auto-funs

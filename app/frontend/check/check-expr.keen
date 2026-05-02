@@ -5,7 +5,7 @@ import
 	../../model/ast
 	../../model/model
 	../../model/source-range
-	../../util/by-name
+	../../util/by-key
 	./check-call/check-call
 	./check-call/check-call-specs
 	./check-ctx
@@ -20,8 +20,7 @@ check-fun-or-test-body expr-maybe-allocated-locals
 	container expr-container
 	return-type type
 	params destructure[]
-	ast expr-ast?
-	source-for-empty-new call-expr-source?
+	ast expr-ast
 	must-be-auto bool
 do check-ctx, types-get, funs-map
 	the expr-ctx =
@@ -30,17 +29,14 @@ do check-ctx, types-get, funs-map
 		container: container
 	for param in params
 		add-locals-for-destructure param
-	res expr = if ast
-		if must-be-auto
-			if ast.trusted-ast
-				check-trusted ast, return-type.expect, true
-			else
-				add-diag-assert-same-uri container.name-range, diag-must-be-auto
-				check-and-expect ast, return-type
+	res expr = if must-be-auto
+		if trusted-ast ast
+			check-trusted ast, return-type.expect, true
 		else
+			add-diag-assert-same-uri container.name-range, diag-must-be-auto
 			check-and-expect ast, return-type
 	else
-		check-empty-new source-for-empty-new!, source-for-empty-new!.name-range, return-type.expect
+		check-and-expect ast, return-type
 	if is-empty the::expr-ctx.allocated-locals
 		res
 	else
@@ -71,12 +67,24 @@ do
 		check-assignment-call ast, expected
 	as bogus-ast
 		bogus expected, ast
-	as call-ast
+	as call-ast-dot
+		check-call ast, expected
+	as call-ast-dot-question
+		check-call ast, expected
+	as call-ast-infix
+		check-call ast, expected
+	as call-ast-prefix
+		check-call ast, expected
+	as call-ast-prefix-question
+		check-call ast, expected
+	as call-ast-prefix-with-type-arg
 		check-call ast, expected
 	as call-named-ast
 		check-call-named ast, expected
 	as call-subscript-ast
-		check-call-subscript ast, expected
+		check-call ast, expected
+	as call-question-subscript-ast
+		check-call ast, expected
 	as finally-ast
 		check-finally ast, expected
 	as force-ast
@@ -197,8 +205,8 @@ do
 		# Since anything can implicitly convert to 't?', any expression can match this.
 		# But having this will guide code to prefer to exactly match 'bool' instead of converting to option.
 		res = check-expr ast,
-			- bool, ()
-			- t-option, ((),)
+			- non-inferring bool
+			- full-type-and-context t-option, ((),)
 		# It may implicitly convert to an option and that's what 'expected inferred' gives.
 		# So use 'res type' to get the actual type.
 		type = type-not-json res
@@ -286,21 +294,18 @@ do check-expr-ctx
 	match left
 	as name-and-range
 		check-assign-identifier left, keyword-range, left.name, expected, cb-right
-	as call-ast
-		name symbol? = match style left
-		as dot
-			"set-{left.fun-name.name}"
-		else
-			()
-		do if name else cant-assign[]
-		check-call-special-cb-n (source, keyword-range, name, left.args.size + 1), expected, of i, arg-expected
-			if i == left.args.size
+	as call-ast-dot
+		name = get-name-and-arity "set-{left.fun-name.name}", 2
+		check-call-special-cb-n (source, keyword-range, name), expected, of i, arg-expected
+			match i
+			as 0
+				check-expr left.left, arg-expected
+			as 1
 				cb-right[arg-expected]
 			else
-				check-expr left.args[i], arg-expected
+				throw unreachable
 	as call-subscript-ast
-		do unless left.is-question-subscript else cant-assign[]
-		check-call-special-cb-n (source, keyword-range, "set-subscript", 3), expected, of i, arg-expected
+		check-call-special-cb-n (source, keyword-range, set-subscript-3), expected, of i, arg-expected
 			match i
 			as 0
 				check-expr left.left, arg-expected
@@ -315,7 +320,7 @@ do check-expr-ctx
 
 -check-assignment-call expr(ast assignment-call-ast, expected expected) check-expr-ctx
 	check-assignment ast, ast.left, ast.keyword-range, expected, of arg-expected
-		check-call-special ast, ast.fun-name.range, ast.fun-name.name, (ast.left, ast.right), arg-expected
+		check-call-special ast, ast.name-range, ast.fun-name, (ast.left, ast.right), arg-expected
 
 -check-interpolated expr(ast interpolated-ast, expected expected) check-expr-ctx
 	if type, _ = choose-string-type ast.range, expected
@@ -332,7 +337,7 @@ do check-expr-ctx
 	expected expected
 	type type
 do check-expr-ctx
-	do if called = find-function-for-interpolate-or-list-new range, "interpolate", type else
+	do if called = find-function-for-interpolate-or-list-new range, interpolate-1, type else
 		bogus expected, range
 	arg-expected = expect as-array! only! called.param-types
 	list-expr source, called, for* arg-index in 0 .. template.size + interpolated-exprs.size
@@ -340,12 +345,12 @@ do check-expr-ctx
 			part = template[arg-index / 2]
 			do unless is-empty part.value
 			range2 = if is-empty part.range then part.range else part.range[0 .. 1]
-			- check-call-special-cb1 part, range2, "interpolate-string", arg-expected, of inner2
+			- check-call-special-cb1 part, range2, interpolate-string-1, arg-expected, of inner2
 				check-literal-string-only-string part, inner2
 		else
 			part = interpolated-exprs[arg-index / 2]
 			range2 = if is-empty part.range then part.range else part.range[0 .. 1]
-			- check-call-special source.to, range2, "interpolate-value", (part,), arg-expected
+			- check-call-special source.to, range2, interpolate-value-1, (part,), arg-expected
 
 -access-local local?(diag-range source-range, name symbol) check-expr-ctx
 	# This traverses from the innermost lambda outwards, checking if it was already added to a closure.
@@ -407,7 +412,7 @@ do check-expr-ctx
 			add-diag source.range, local.diag-local-not-mutable
 			bogus expected, source.range
 	else
-		check-call-special-cb1 source, keyword-range, "set-{left}", expected, cb-right
+		check-call-special-cb1 source, keyword-range, (get-name-and-arity "set-{left}", 1), expected, cb-right
 
 -check-literal-number expr(range source-range, expected expected) check-expr-ctx
 	do if number-type = choose-number-type range, expected, range.get-text else bogus expected, range
@@ -612,13 +617,12 @@ do
 			-- map lambda-info.closure-locals, {it}
 			-- map lambda-info.closure-contexts, {it}
 		type: lambda-decl[body-type, param-type]
-	must-check expected, res.type
 	if explicit-shared
 		if lambda-decl.as-lambda-type! != shared_
 			add-diag explicit-shared, diag-shared-not-expected get-expected-for-diag expected
 		if every res.closure, {!it.is-mutable-local and is-shared specs, it.type}
 			add-diag explicit-shared, diag-shared-lambda-unused
-	res
+	check expected, res.type, res
 
 -check-let expr(ast let-ast, expected expected) check-expr-ctx
 	value-expr, value-type = check-and-expect-or-infer ast.value, type-from-destructure ast.destructure
@@ -672,7 +676,7 @@ do check-expr-ctx
 		do if result-type = try-get-inexact-non-inferring-type expected else
 			add-diag ast.range, list::diag-needs-expected-type
 			bogus expected, ast.range
-		do if called = find-function-for-interpolate-or-list-new ast.range, "list-new", result-type else
+		do if called = find-function-for-interpolate-or-list-new ast.range, list-new-1, result-type else
 			bogus expected, ast.range
 		arg-elem-type = as-array! only! called.param-types
 		list-expr ast, called, for part in ast.parts
@@ -828,7 +832,7 @@ do check-expr-ctx
 		do for case-ast in ast.cases
 		as-name = name-from-case-member-ast case-ast.member
 		name = as-name.?name.?name
-		if member = (if name then body.members-by-name[name])
+		if member = (if name then body.members-by-key[name])
 			if remove remaining, member
 				out ~= member, check-expr case-ast.then_, expected
 			else
@@ -987,7 +991,7 @@ do check-expr-ctx
 do check-ctx, common-types
 	do if declared-sum-type.decl == actual-sum-type.decl
 	with-type-context-for case_.n-type-params, of inferring-context
-		inferring-declared-sum-type type-and-context = declared-sum-type, inferring-context
+		inferring-declared-sum-type = type-and-maybe-context declared-sum-type, inferring-context
 		do if match-types inferring-declared-sum-type, actual-sum-type.non-inferring, exact
 		if inferred-types = map-every-type-args inferring-context, it.?type
 			case_[inferred-types]
@@ -1052,12 +1056,8 @@ do check-expr-ctx
 	else_ = check-match-else-required ast, expected, {integral::diag-match-needs-else}
 	match-scalar-expr ast, integral-type, matched-local, matched, cases, else_, expected.inferred
 
--get-matchable-string-like-from-record string-like-type?(inst type-inst) common-types
-	if inst == char32-array
-		char32-array
-	elif inst == char8-array
-		char8-array
-	elif inst == symbol
+-get-matchable-string-like-from-record matchable-string-like-type?(inst type-inst) common-types
+	if inst == symbol
 		symbol
 	elif inst == string
 		string
@@ -1067,14 +1067,9 @@ do check-expr-ctx
 	expected expected
 	matched-local local?
 	matched expr
-	string-type string-like-type
+	string-type matchable-string-like-type
 do check-expr-ctx
 	the types-and-specs-map = the::expr-ctx.types-and-specs-map
-	do if spec_ = get-spec-from-common-module ast.keyword-range, "equal", compare else
-		bogus expected, ast.range
-
-	matched-type = type-inst! type-not-json matched
-	equals = check-spec-and-get-last-impl ast.keyword-range, instantiate-spec spec_, matched-type
 	seen string mut-set = ()
 	cases match-string-like-case[] = with out in build
 		do for case-ast in ast.cases
@@ -1084,7 +1079,7 @@ do check-expr-ctx
 		else
 			add-diag case-ast.name-range, value::diag-match-case-duplicate
 	else_ = check-match-else-required ast, expected, {string-like::diag-match-needs-else}
-	match-string-like-expr ast, string-type, matched-local, matched, equals, cases, else_, expected.inferred
+	match-string-like-expr ast, string-type, matched-local, matched, cases, else_, expected.inferred
 
 -check-match-else-required expr
 	ast match-ast

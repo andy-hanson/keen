@@ -3,9 +3,9 @@ import
 	../../model/ast
 	../../model/model
 	../../model/source-range
-	../../util/by-name
+	../../util/by-key
 	../../util/util
-	./check-call/check-call
+	./check-call/check-call-specs
 	./check-ctx
 	./check-util
 	./instantiate
@@ -77,7 +77,7 @@ check-signatures signature[]
 do check-ctx, types-get
 	for ast in asts
 		return-type, params = check-return-type-and-params container.to, ast.return-type, ast.params, type-params
-		container, ast, return-type, params, ()
+		container, ast, (get-name-and-arity ast.name, params.size), return-type, params, ()
 
 -check-sum-type-listed-members-initial sum-type-case-and-method-impls[]
 	sum-type type-decl
@@ -110,7 +110,7 @@ do check-ctx, types-get
 		as spec-use-ast
 			name = modifier.name.name
 			if name == "global"
-				if decl.mutability == data_
+				if is-data decl
 					add-diag modifier.range, diag-global-data-type
 				- global-spec
 			elif value build-target = name.to
@@ -192,13 +192,12 @@ do check-ctx, common-types, funs-map
 	check-mutability-compatible sum-type.decl, member-type, diag-range
 
 	do for sig in method-decls
-	types return-and-param-types =
+	types return-and-param-types = make-return-and-param-types
 		- instantiate-type sig.return-type, sum-type.type-args
-		- with out in build
-			out ~= member-type
-			for x in sig.params
-				out ~= instantiate-type x.type, sum-type.type-args
-	called = check-method-impl type-container, sig.name, types, diag-range
+		- member-type
+		-- for x in sig.params
+			instantiate-type x.type, sum-type.type-args
+	called = get-method-impl type-container, diag-range, (get-name-and-arity sig.name, sig.params.size + 1), types
 	if called and called.decl.visibility < min sum-type.decl.visibility, member.visibility
 		add-diag diag-range, diag-method-impl-visibility member, sum-type, called
 	called
@@ -302,7 +301,7 @@ do check-ctx, common-types, funs-map
 			next-enum-value diag-range, last
 	if is-empty members.members
 		add-diag type.name-range.range, diag-empty-enum-or-union
-	members.storage, members.members, members.members-by-name
+	members.storage, members.members, members.members-by-key
 -next-enum-value nat(diag-range source-range, last-value nat?) check-ctx
 	if last-value
 		try
@@ -341,7 +340,7 @@ do check-ctx, common-types, funs-map
 -enum-or-flags-members record
 	storage nat-type
 	members enum-or-flags-member[]
-	members-by-name enum-or-flags-member by-name
+	members-by-key (symbol, enum-or-flags-member) by-key
 -check-enum-or-flags-members enum-or-flags-members
 	type type-decl
 	params destructure-ast[]?
@@ -369,10 +368,10 @@ do check-ctx
 				if value = cb-value[x.range, x.value]
 					out ~= x, type, value, ()
 
-	members-by-name enum-or-flags-member by-name = to-by-name members, of _, duplicate
+	members-by-key (symbol, enum-or-flags-member) by-key = to-by-key members, of _, duplicate
 		add-diag duplicate.name-range.range,
 			diag-duplicate-declaration member-kind, duplicate.name
-	members.enum-storage-type, members, members-by-name
+	members.enum-storage-type, members, members-by-key
 
 -cb-enum-value alias
 	nat? mut(range source-range, explicit literal-number?)

@@ -40,7 +40,6 @@ reference-kind enum
 	declare-local
 	get-local
 	set-local
-== bool(a reference-kind, b reference-kind)
 
 walk-program record(program program)
 for-loop void(a walk-program, f void mut(where uri, source reference-ast, kind reference-kind, x doc-comment-reference))
@@ -188,36 +187,59 @@ walk-doc-comment void(a doc-comment, f cb-thing)
 		f[ast, kind, type.decl]
 		walk-type-args ast, type.type-args, kind, f
 -walk-type-args void(ast type-ast, type-args type-args, kind reference-kind, f cb-thing) common-types
-	match ast
+	for type-arg, type-arg-ast in type-args-and-asts type-args, ast
+		walk-type type-arg-ast, type-arg, kind, f
+-walk-type-args-may-unpack-tuple void(ast type-ast, type-args type-args, kind reference-kind, f cb-thing) common-types
+	for type-arg, type-arg-ast in type-args-and-asts-may-unpack-tuple type-args, ast
+		walk-type type-arg-ast, type-arg, kind, f
+
+type-args-and-asts record(type-args type-args, ast type-ast)
+some bool(a type-args-and-asts, f bool mut(x type, ast type-ast))
+	match ast = a.ast
 	as bogus-type-ast
 		()
 	as fun-type-ast
-		return-type, param-type = only2! type-args
-		walk-type ast.return-type, return-type, kind, f
-		walk-destructure-type ast.param, param-type, kind, f
+		return-type, param-type = only2! a.type-args
+		f[return-type, ast.return-type] or some (destructure-types-and-asts param-type, ast.param), f
 	as map-type-ast
-		do if key, value = only2 type-args
-		walk-type ast.key, key, kind, f
-		walk-type ast.value, value, kind, f
+		key, value = only2! a.type-args
+		f[value, ast.value] or f[key, ast.key]
 	as name-and-range
 		# For a type alias, 'typeArgs' may be non-empty as it comes from the alias' target type.
 		# But ignore them in any case.
 		()
 	as suffix-name-type-ast
-		walk-type-args-may-unpack-tuple ast.left, type-args, kind, f
+		some (type-args-and-asts-may-unpack-tuple a.type-args, ast.left), f
 	as suffix-special-type-ast
-		walk-type-args-may-unpack-tuple ast.left, type-args, kind, f
+		some (type-args-and-asts-may-unpack-tuple a.type-args, ast.left), f
 	as tuple-type-ast
-		for member, arg in zip ast.members, type-args.slow-to-array
-			walk-type member, arg, kind, f
--walk-type-args-may-unpack-tuple void(ast type-ast, type-args type-args, kind reference-kind, f cb-thing) common-types
-	do if type-arg-asts type-ast[] =
-		if type-args.size == 1
-			ast,
-		else
-			ast.tuple-type-ast.?members
-	for member, arg in zip type-arg-asts, type-args.slow-to-array
-		walk-type member, arg, kind, f
+		some (zip a.type-args, ast.members), f
+
+-destructure-types-and-asts record(type type, ast destructure-ast)
+-some bool(a destructure-types-and-asts, f bool mut(x type, ast type-ast))
+	match ast = a.ast
+	as name-and-range
+		()
+	as single-destructure-ast
+		(t = ast.type) and f[a.type, t]
+	as ignore-destructure-ast
+		(t = ast.type) and f[a.type, t]
+	as void-destructure-ast
+		()
+	as array
+		do unless is-bogus a.type
+		some (zip a.type.type-inst!.type-args, ast), of type-arg, param
+			some (destructure-types-and-asts type-arg, param), f
+
+type-args-and-asts-may-unpack-tuple record(type-args type-args, type-arg-ast type-ast)
+some bool(a type-args-and-asts-may-unpack-tuple, f bool mut(x type, ast type-ast))
+	match a.type-args.size
+	as 0
+		false
+	as 1
+		f[a.type-args.only!, a.type-arg-ast]
+	else
+		some (zip a.type-args, a.type-arg-ast.tuple-type-ast!.members), f
 
 -walk-simple-destructure void(ast name-and-range?, destructure simple-destructure, f cb-thing)
 	if ast
@@ -274,25 +296,29 @@ do common-types
 
 -walk-fun void(a fun-decl, f cb-thing) common-types
 	ast = a.source
-	do if ast.fun-decl-ast
-	walk-doc-comment a.doc-comment, f
-	walk-type ast.return-type, a.return-type, a.visibility.explicit-kind-for-visibility, f
-	include-locals = if as-expr a.body
-		include-locals
-	else
-		ignore-locals
-	walk-params ast.params, a.params, a.visibility.explicit-kind-for-visibility, include-locals, f
-	walk-spec-uses ast.modifiers, a.specs, a.visibility, f
-	match body = a.body
-	as auto-fun
+	body = a.body
+	if fun-decl-ast ast
+		walk-doc-comment a.doc-comment, f
+		walk-type ast.return-type, a.return-type, a.visibility.explicit-kind-for-visibility, f
+		include-locals = if as-expr body
+			include-locals
+		else
+			ignore-locals
+		walk-params ast.params, a.params, a.visibility.explicit-kind-for-visibility, include-locals, f
+		walk-spec-uses ast.modifiers, a.specs, a.visibility, f
+		match body
+		as builtin-fun
+			()
+		as expr
+			walk-expr body, f
+		as expr-with-allocated-locals
+			walk-expr body.expr, f
+		else
+			throw unreachable
+	elif auto-fun body
 		for c in body.members
-			handle-call c, a.source.fun-decl-ast!.name, (), auto, f
-	as expr
-		walk-expr body, f
-	as expr-with-allocated-locals
-		walk-expr body.expr, f
-	else
-		()
+			name = a.source.type-decl!.source.type-decl-ast!.name
+			handle-call c, name, (), auto, f
 
 -walk-test void(a test_, f cb-thing) common-types
 	walk-doc-comment a.doc-comment, f
@@ -310,11 +336,11 @@ do common-types
 		as bogus-wrong-type-expr
 			()
 		as call-expr
-			handle-call e.called, e.ast, e.ast.call-ast.?type-arg, explicit-private, f
+			handle-call e.called, e.ast, e.ast.call-ast-prefix-with-type-arg.?type-arg, explicit-private, f
 		as call-named-new-expr
 			handle-call e.called, e.ast, (), explicit-private, f
 		as call-option-expr
-			handle-call e.called, e.ast.to, e.ast.type-arg, explicit-private, f
+			handle-call e.called, e.ast.to, (), explicit-private, f
 		as finally-expr
 			()
 		as force-expr

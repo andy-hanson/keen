@@ -3,8 +3,7 @@ import
 	../../model/model
 	../../model/source-range
 	../../model/uri
-	../../util/by-name
-	../../util/enum-map
+	../../util/by-key
 	../../util/util
 	../lang
 	./check-ctx
@@ -81,14 +80,6 @@ do check-ctx, types-and-specs-map
 	unless res or no-diag
 		add-diag range, diag-name-not-found spec-or-type, name
 	res
-
-| Figures out whether the imported type was imported through an internal or public import.
-| WARN: This is a bit slow, should not be used often.
-imported-type-access-visibility export-visibility(decl type-decl) check-ctx
-	forbid decl.module-uri == cur-uri
-	first! the::check-context.module-imports-and-re-exports, of import_
-		if import_.module.public-and-internal-exports.types-and-specs[decl.name] == decl
-			import_.import-visibility
 
 make-tuple-type type(args type-args, cb-diag-range source-range data()) check-ctx, common-types
 	match args
@@ -212,25 +203,9 @@ do check-ctx, types-get
 		bogus-type
 	ast.kind.lambda[return-type, param-type]
 
-get-spec-from-common-module spec-decl?
-	diag-range source-range
-	name symbol
-	expected-module common-module
-do check-ctx, types-and-specs-map
-	if spec_ = try-find-spec (diag-range.start, name)
-		if spec_.module-uri == common-uris[expected-module]
-			spec_
-		else
-			add-diag diag-range, diag-auto-fun-spec-from-wrong-module
-			()
-
--try-find-spec spec-decl?(name name-and-range) check-ctx, types-and-specs-map
-	if res = spec-or-type-from-name name.name, name.range, false
-		if res.spec-decl
-			res
-		else
-			add-diag name.range, diag-type-used-as-spec name.name
-			()
+must-get-type-from-std type-decl(name symbol) check-context
+	forbid the::check-context.cur-module-is-no-std
+	the::check-context.imports-and-re-exports[0].types-and-specs[name]!.type-decl!
 
 type-from-destructure type?(ast destructure-ast, type-params-scope type-params) check-ctx, types-get
 	match ast
@@ -249,7 +224,6 @@ type-from-destructure type?(ast destructure-ast, type-params-scope type-params) 
 		make-tuple-type type-args, {ast[0].start, ast[end - 1].end}
 
 destructure-kind enum(local, param)
-== bool(a destructure-kind, b destructure-kind)
 check-destructure destructure
 	type-container type-container
 	# 'typeContainer' may be uninitialized, so pass 'typeParamsScope' separately
