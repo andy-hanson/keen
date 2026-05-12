@@ -18,13 +18,8 @@ import
 +starts-with bool(a string-iterator, start string)
 	try-take a.copy, start
 
-| Opaque grammar type parsing a {t} value.
-| Use the functions in this module to build a grammar.
-# TODO: this should probably be an interface, not a record with a lambda in it
-+grammar[t] record mut
-	func t mut(iter string-iterator)
--fn[t] t(a t grammar, iter string-iterator)
-	a.func[iter]
++grammar[t] interface
+	parse t(iter string-iterator)
 
 | Match a string against a grammar.
 | The whole string must match the grammar.
@@ -35,7 +30,7 @@ import
 +parse[t] t(a t grammar, text string-view)
 	iter string-iterator = begin text
 	try
-		res = fn a, iter
+		res = parse a, iter
 		assert is-at-end iter else parse-error text.to, iter.index, "string continues past end of parse"
 		res
 	catch e as inner-parse-error
@@ -61,14 +56,14 @@ import
 	"Expected {a.expected}"
 
 | This is like {grammar} but produces no result.
-+grammar-skip record(inner void grammar) mut
++grammar-skip record(inner void grammar)
 
 | Grammar matching empty strings
 +new grammar-skip()
 	exact ""
 
 | Use to discard the result of any {grammar}.
-+skip[t] grammar-skip(a t grammar)
++skip[t] grammar-skip(a t grammar) t data
 	- transform a, {}
 
 +and-return[t] t grammar(a grammar-skip, value t) t data
@@ -81,7 +76,7 @@ import
 	text-not-containing-any (ending,)
 
 +text-not-containing-any string grammar(possible-endings string[])
-	func: of iter
+	parse: of iter
 		res string = with out in build
 			do until
 			if some possible-endings, {starts-with iter, it}
@@ -98,7 +93,7 @@ import
 
 | Grammar for a single character matching the predicate.
 -char-matching-predicate char8 grammar(description string, predicate bool data(x char8))
-	func: of iter
+	parse: of iter
 		res = peek iter
 		assert res and predicate[res] else inner-parse-error description
 		_ = take-next iter
@@ -106,26 +101,26 @@ import
 
 | Expects to parse {a} followed by {b}.
 | By default this does not allow spaces in between. For that, use `a ~~ spaces ~~ b`.
-+ ~~[t, u] (t, u) grammar(a t grammar, b u grammar)
-	func: of iter
-		- fn a, iter
-		- fn b, iter
-+ ~~[t] t grammar(a t grammar, b grammar-skip)
-	func: of iter
-		res = fn a, iter
-		fn b.inner, iter
++ ~~[t, u] (t, u) grammar(a t grammar, b u grammar) t data, u data
+	parse: of iter
+		- parse a, iter
+		- parse b, iter
++ ~~[t] t grammar(a t grammar, b grammar-skip) t data
+	parse: of iter
+		res = parse a, iter
+		parse b.inner, iter
 		res
-+ ~~[t] t grammar(a grammar-skip, b t grammar)
-	func: of iter
-		fn a.inner, iter
-		fn b, iter
++ ~~[t] t grammar(a grammar-skip, b t grammar) t data
+	parse: of iter
+		parse a.inner, iter
+		parse b, iter
 + ~~ grammar-skip(a grammar-skip, b grammar-skip)
 	- a.inner ~~ b
 | Skips an exact string, then parses {b}.
-+ ~~[t] t grammar(a string, b t grammar)
++ ~~[t] t grammar(a string, b t grammar) t data
 	a.exact ~~ b
 | Parses {a}, then skips an exact string.
-+ ~~[t] t grammar(a t grammar, b string)
++ ~~[t] t grammar(a t grammar, b string) t data
 	a ~~ b.exact
 + ~~ grammar-skip(a string, b grammar-skip)
 	a.exact ~~ b
@@ -133,26 +128,26 @@ import
 	a ~~ b.exact
 
 | Tries to parse with {a}, and if that fails, tries to parse with {b} instead.
-+ /[t] t grammar(a t grammar, b t grammar)
-	func: of iter
++ /[t] t grammar(a t grammar, b t grammar) t data
+	parse: of iter
 		restore = iter.index
 		try
-			fn a, iter
+			parse a, iter
 		catch as inner-parse-error
 			iter.index := restore
-			fn b, iter
+			parse b, iter
 
 | Uses a function to transform the result if parsing is successful.
-+transform[output, input] output grammar(a input grammar, f output data(x input))
-	func: of iter
-		f[fn a, iter]
++transform[output, input] output grammar(a input grammar, f output data(x input)) output data, input data
+	parse: of iter
+		f[parse a, iter]
 
 | Allows parsing to fail, returning an empty option if it does.
-+optional[t] t? grammar(a t grammar)
-	func: of iter
++optional[t] t? grammar(a t grammar) t data
+	parse: of iter
 		restore = iter.index
 		try
-			fn a, iter
+			parse a, iter
 		catch as inner-parse-error
 			iter.index := restore
 			()
@@ -161,14 +156,14 @@ import
 	skip optional inner exact a
 
 | Parses the same grammar as many times as possible (including 0 times).
-+many[t] t[] grammar(a t grammar)
-	func: of iter
++many[t] t[] grammar(a t grammar) t data
+	parse: of iter
 		do with out in build
 		restore mut = iter.index
 		try
 			while true
 				restore := iter.index
-				out ~= fn a, iter
+				out ~= parse a, iter
 		catch as inner-parse-error
 			iter.index := restore
 
@@ -177,7 +172,7 @@ import
 	- transform inner, {}
 
 | Parses {a} at least once, then as many times as possible.
-+one-or-more[t] t[] grammar(a t grammar)
++one-or-more[t] t[] grammar(a t grammar) t data
 	transform a ~~ a.many, of first, rest
 		first ~ rest
 
@@ -190,15 +185,15 @@ import
 | This does not allow a trailing separator;
 | it is a parse error to have a separator not followed by another {a}.
 | This does allow to parse nothing, returning an empty array.
-+separated-by[t] t[] grammar(a t grammar, separator string)
++separated-by[t] t[] grammar(a t grammar, separator string) t data
 	separated-by a, separator.exact
-+separated-by[t] t[] grammar(a t grammar, separator grammar-skip)
-	func: of iter
++separated-by[t] t[] grammar(a t grammar, separator grammar-skip) t data
+	parse: of iter
 		do if first = try-parse a, iter
 		do with out in build
 		out ~= first
 		while try-parse separator, iter
-			out ~= fn a, iter
+			out ~= parse a, iter
 
 -try-parse bool(a grammar-skip, iter string-iterator)
 	!!(try-parse a.inner, iter)
@@ -206,23 +201,14 @@ import
 -try-parse[t] t?(a t grammar, iter string-iterator)
 	restore = index iter
 	try
-		fn a, iter
+		parse a, iter
 	catch as inner-parse-error
 		iter.index := restore
 		()
 
-| Use this to allow recursive grammars.
-+lazy record
-+with-block[t] t grammar(_ lazy, f t grammar data())
-	grammar mut t grammar? = ()
-	func: of iter
-		unless grammar
-			grammar := f[]
-		fn grammar!, iter
-
 | Matches {a} exactly.
 +exact grammar-skip(a string)
-	inner: func: of iter
+	inner: parse: of iter
 		assert try-take iter, a else inner-parse-error "expected '{a}'"
 
 | Equivalent to `{a}.{exact} {transform} \{{value}\}`
@@ -230,7 +216,7 @@ import
 	transform a.exact.inner, {value}
 
 +whitespace grammar-skip()
-	inner: func: it.skip-whitespace
+	inner: parse: it.skip-whitespace
 +skip-whitespace void(a string-iterator)
 	while x = a.peek and is-space x
 		_ = take-next a
@@ -249,7 +235,7 @@ import
 
 | A double-quoted string as in JSON, including escape sequences.
 +quoted-string string grammar()
-	func: it.take-quoted-string
+	parse: it.take-quoted-string
 ~take-quoted-string string(iter string-iterator)
 	assert try-take iter, "\"" else inner-parse-error "quoted string"
 	take-quoted-string-after-quote iter
@@ -303,7 +289,7 @@ import
 | Parses a natural number in decimal format.
 | This allows leading 0s which have no effect.
 +nat nat64 grammar()
-	func: it.take-nat
+	parse: it.take-nat
 
 | Parses a signed integer in decimal format.
 | This allows e.g. "1", "+23", "-45".
@@ -364,7 +350,7 @@ import
 | Parse a decimal number.
 | This allows e.g. "+1.23".
 +float float64 grammar()
-	func: it.take-float
+	parse: it.take-float
 ~take-float float64(iter string-iterator)
 	start = copy iter
 	_ = try-take iter, "-" or try-take iter, "+"
@@ -407,7 +393,7 @@ import
 	a == " " or a == "\t" or a == "\r"
 
 +json json grammar()
-	func: of iter
+	parse: of iter
 		res = parse-json iter
 		skip-whitespace iter
 		res
@@ -470,7 +456,7 @@ import
 		take-float iter 'to
 
 +kid json grammar()
-	func: it.parse-kid
+	parse: it.parse-kid
 
 ~kid-parse-error record(pos nat32, expected string)
 ~parse-kid-result union(json, kid-parse-error)
