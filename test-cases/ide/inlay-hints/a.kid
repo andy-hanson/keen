@@ -27,6 +27,11 @@
 	kind: "Type"
 	paddingLeft: true
 -
+	position: line: 11, character: 41
+	label: "::bool"
+	kind: "Type"
+	paddingLeft: false
+-
 	position: line: 11, character: 43
 	label: "nat64"
 	kind: "Type"
