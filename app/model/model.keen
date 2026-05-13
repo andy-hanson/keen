@@ -1388,6 +1388,7 @@ builtin-unary enum
 	bitwise-not
 	float32-from-bits
 	float64-from-bits
+	not
 	uninitialized-buffer
 	reinterpret-cast
 	to-float32-from-float64
@@ -1675,7 +1676,7 @@ doc-comment-ast doc-comment-ast(a fun-decl)
 doc-comment doc-comment(a fun-decl)
 	a.doc-comment-ast, a.doc-comment-references
 is-template bool(a fun-decl)
-	a.n-type-params != 0 or !is-empty a.specs.instantiated-sigs
+	a.n-type-params != 0 or not is-empty a.specs.instantiated-sigs
 arity nat(a fun-decl)
 	a.params.size
 only-inst fun-inst(a fun-decl)
@@ -2056,7 +2057,7 @@ filter-by-names funs-map(a funs-map, names symbol set)
 	by-name: choose-keys a.by-name, names
 	by-name-and-arity: filter-keys a.by-name-and-arity, names[it.name]
 any-for-name bool(a funs-map, name symbol)
-	!is-empty a.by-name[name]
+	not is-empty a.by-name[name]
 all-with-name fun-decl array-view(a funs-map, name symbol) = a.by-name[name]
 all-with-name-and-arity record(map funs-map, key name-and-arity)
 some bool(a all-with-name-and-arity, f bool mut(x fun-decl))
@@ -2294,11 +2295,11 @@ find-alias-in-module-scope type-alias?(module keen-module, name symbol)
 	module = a.module
 	imports-and-re-exports = module.imports-and-re-exports
 	ast = module.ast
-	ast-total = ast.imports.count-non-file-imports + ast.re-exports.count-non-file-imports + (!ast.no-std_).to
+	ast-total = ast.imports.count-non-file-imports + ast.re-exports.count-non-file-imports + ast.no-std_.not.to
 	do if ast-total == imports-and-re-exports.size
 	import-asts = ast.imports.?paths else ()
-	do unless !ast.no-std_ and f[standard-import, (), imports-and-re-exports[0]]
-	i mut nat = !ast.no-std_ 'to
+	do unless not ast.no-std_ and f[standard-import, (), imports-and-re-exports[0]]
+	i mut nat = to not ast.no-std_
 	res-imports = some import-asts, of import-ast
 		do unless import-ast.kind.import-file-ast
 		res = f[import_, import-ast, imports-and-re-exports[i]]
@@ -2332,7 +2333,7 @@ find-alias-in-module-scope type-alias?(module keen-module, name symbol)
 		imported.public-exports.types-and-specs[name]
 -count-non-file-imports nat(a imports-or-exports-ast?)
 	do if a
-	count a.paths, !it.kind.import-file-ast
+	count a.paths, it.kind.import-file-ast.not
 
 any-decl union
 	fun-decl
@@ -2877,7 +2878,7 @@ diagnostics program-with-opt-main-diagnostics(a program-with-main)
 diagnostics program-with-opt-main-diagnostics(a program-with-opt-main)
 	a,
 is-empty bool(a program-with-opt-main-diagnostics)
-	!some a, {true}
+	not some a, {true}
 some bool(a program-with-opt-main-diagnostics, f bool mut(x uri-and-diagnostic))
 	some a.program.main-fun-diagnostics, f or some a.program.program.diagnostics, f
 
@@ -2885,7 +2886,7 @@ program-diagnostics record(program program)
 diagnostics program-diagnostics(a program)
 	a,
 is-empty bool(a program-diagnostics)
-	!some a, {true}
+	not some a, {true}
 some bool(a program-diagnostics, f bool mut(x uri-and-diagnostic))
 	some a.program.additional-diagnostics, f or
 	some-diagnostic-in-configs a.program, f or
@@ -3296,15 +3297,17 @@ local-refinement record(local local, refined-type type)
 some bool(a condition-knowledge, f bool mut(x condition-knowledge-item))
 	match expr = a.expr
 	as call-expr
-		do if a.expr-value
-		if x = as-call-sum-type-case-get-on-local expr
+		if a.expr-value and x = as-call-sum-type-case-get-on-local expr
 			f[x]
-		elif x = ?builtin-fun-is-target as-builtin-fun expr.called
-			f[x.target]
+		elif b = as-builtin-fun expr.called
+			if b == not
+				some (condition-knowledge expr.args.only!, not a.expr-value), f
+			elif a.expr-value and builtin-fun-is-target b
+				f[b.target]
 	as local-get-expr
 		do if a.expr-value
 		local = expr.local
-		if !is-mutable local and inner = unwrap-option local.type
+		if not is-mutable local and inner = unwrap-option local.type
 			f[local, inner]
 	as logical-expr
 		do if a.expr-value
@@ -3312,7 +3315,7 @@ some bool(a condition-knowledge, f bool mut(x condition-knowledge-item))
 			some (condition-knowledge expr.left, true), f or
 			some (condition-knowledge expr.right, true), f
 	as not-expr
-		some (condition-knowledge expr.arg, !a.expr-value), f
+		some (condition-knowledge expr.arg, not a.expr-value), f
 	as trusted-expr
 		some (condition-knowledge expr.inner, a.expr-value), f
 	as unpack-option
@@ -3575,14 +3578,10 @@ list-expr-source union(if-ast, interpolated-ast, list-ast, literal-string-ast)
 	range source-range()
 to call-expr-source(a list-expr-source)
 	match a
-	as if-ast
-		a
-	as interpolated-ast
-		a
-	as list-ast
-		a
-	as literal-string-ast
-		a
+	as if-ast then a
+	as interpolated-ast then a
+	as list-ast then a
+	as literal-string-ast then a
 range source-range(a list-expr) = a.ast.range
 to json(a list-expr)
 	range: a.range.to
