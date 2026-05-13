@@ -638,10 +638,7 @@ do lower-and-expr-ctx
 			- temp, option-with-prev
 			-- locals-for-option expr.destructure, get-temp
 	else
-		cond = if is-option expr.type
-			gen-option-is-non-empty lower-expr expr
-		else
-			lower-expr bool, expr
+		cond = lower-expr bool, expr
 		if prev
 			condition: gen-and range, prev.condition, cond
 			locals: prev.locals
@@ -1117,24 +1114,24 @@ lower-expr low-expr(outer-type low-type, a expr) lower-and-expr-ctx
 		gen-option-is-non-empty inner
 
 -may-widen-type low-expr(expected-type low-type, actual low-expr) lower-ctx
-	try-widen expected-type, actual else
+	try-widen expected-type, actual, true else
 		the show-ctx = show-ctx
 		where = line-and-column-getters[actual.range]
 		log-error "At: {where}, expected type: {show-low-type expected-type}, actual: {show-low-type actual.type}"
 		throw unreachable
 
 # Implicitly convert the actual expression to the expected type.
--try-widen low-expr?(expected low-type, actual low-expr) lower-ctx
+-try-widen low-expr?(expected low-type, actual low-expr, allow-option-to-bool bool) lower-ctx
 	if actual.type == expected
 		actual
 	elif expected-unwrapped = as-option expected
-		if res = try-widen expected-unwrapped, actual
+		if res = try-widen expected-unwrapped, actual, false
 			gen-option expected, actual.range, res
 		elif actual-unwrapped = as-option actual.type
 			# 'actual' generates an option.
 			temp low-local = member::low-generated-local-kind, actual-unwrapped
 			range = actual.range
-			if widen-temp = try-widen expected-unwrapped, local-get-low-expr range, temp
+			if widen-temp = try-widen expected-unwrapped, (local-get-low-expr range, temp), false
 				gen-if-option range, actual,
 					then_: temp, gen-option expected, range, widen-temp
 					else_: gen-empty-option expected, range
@@ -1144,7 +1141,7 @@ lower-expr low-expr(outer-type low-type, a expr) lower-and-expr-ctx
 		else
 			map the::lower-context.sum-types[expected]!.cases, it.case-type
 		res = first members.with-index, of member-index, member
-			if res = try-widen member, actual
+			if res = try-widen member, actual, false
 				create-union-low-expr expected, actual.range, member-index, res
 		res or
 			# We don't track all java class members of java interfaces, so just cast them
@@ -1164,6 +1161,8 @@ lower-expr low-expr(outer-type low-type, a expr) lower-and-expr-ctx
 				else
 					assert expected-builtin.kind == float64 and actual-builtin.kind == float32
 					builtin-unary-low-expr expected, actual.range, to-float64-from-float32, actual
+		elif allow-option-to-bool and is-bool expected and as-option actual.type
+			gen-option-is-non-empty actual
 -is-array-view bool(a low-type) lower-ctx
 	source = a.source
 	source.low-type-source-inst and source.decl == array-view
