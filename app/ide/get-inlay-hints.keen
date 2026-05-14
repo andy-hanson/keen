@@ -1,4 +1,5 @@
 import
+	../frontend/check/detect-unused-private
 	../frontend/lang
 	../frontend/show-model
 	../frontend/walk-model
@@ -7,6 +8,7 @@ import
 	../model/model
 	../model/source-range
 	../model/uri
+	../util/by-key
 	../util/exit-code
 
 get-inlay-hints inlay-hint-result
@@ -57,58 +59,26 @@ do show-ctx
 # For this, just track the location of the first thing
 -inlay-hints-for-imports void(out inlay-hint builder, program program, module keen-module)
 	the common-types = program.common-types
-	# Maps a module URI to a map from imported names to the first import location
-	imports uri-and-range mut[symbol] mut[uri] = ()
-	for _, kind, what in walk-module module
-		do unless kind == comment
-		do if uri = what.uri
-		do if name = what.name
-		do unless uri == module.uri
-		x = ensure imports, uri
-		loc = what.name-range
-		if existing = x[name]
-			if loc < existing
-				x[name] := loc
-		else
-			x[name] := loc
+	used = gather-used module
 	for ast, imported in walk-explicit-imports module
 		match ast.kind
 		as import-whole-module-ast
 			do if keen-module imported
+			importeds (symbol, uri-and-range)[] = with out2 in build
+				exports = exports-with-visibility imported, import-min-visibility ast
+				for x in exports.types-and-specs
+					if used[x]
+						out2 ~= x.name, x.name-range
+				for x in exports.funs
+					if used[x]
+						out2 ~= x.name, x.name-range
 			out ~~= from-option inlay-hint-for-import program.line-and-character-getters, module.uri, ast,
-				sort (imports[imported.uri] else ()).to, it.a
+				# There may be multiple functions with the same name; go with an arbitrary one
+				sort-unique importeds, it.a
 		as array
 			()
 		as import-file-ast
 			throw unreachable
--name-range uri-and-range(a doc-comment-reference)
-	match a
-	as doc-comment-reference-bogus
-		throw unreachable
-	as doc-comment-reference-context
-		a.type.decl.name-range
-	as called-spec-sig
-		a.name-range
-	as enum-or-flags-member
-		a.name-range
-	as fun-decl
-		a.name-range
-	as local
-		throw unreachable
-	as record-field
-		a.name-range
-	as signature
-		a.name-range
-	as spec-decl
-		a.name-range
-	as type-alias
-		a.name-range
-	as type-decl
-		a.name-range
-	as type-param-index
-		throw unreachable
-	as var-decl
-		a.name-range
 
 -add-inlay-hints-for-ref void(out inlay-hint builder, lcg line-and-character-getter, decl any-decl, uses uri set)
 	do unless is-empty uses
