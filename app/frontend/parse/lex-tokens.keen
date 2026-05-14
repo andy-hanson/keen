@@ -1,6 +1,5 @@
 import
 	keen/bits
-	keen/string/unicode
 	keen/unsafe
 	../../../lib/parse
 	../../../lib/private/parse-util
@@ -485,51 +484,57 @@ region strings
 		take-non-indented-string-part state, iter, start, kind
 
 -take-indented-quote-part void(state lexer-state, iter string-iterator)
-	out char8 mut[] = ()
 	range-start = iter.pos
-	do until
-	start = iter.pos
-	match iter.peek8
-	as "\{"
-		_ = take-next iter
-		push-inside-quotes state, indented
-		emit state, quote-block-then-interpolated, range-start, start, out.move-to
-		true
-	as "\}"
-		out ~= take-next iter
-		state.diagnostics ~= (start, start + 1), parse-diag-closing-brace-needs-escape
-		false
-	as "\\"
-		_ = take-next iter
-		take-string-escape out, start, iter, state.diagnostics
-		false
-	as "\n"
-		count-newlines mut nat = 0
-		new-indent mut nat32 = 0
-		while try-take-char8 iter, "\n"
-			count-newlines +:= 1
-			new-indent := take-indent-amount-after-newline iter, state.indent-kind, of pos
-				state.diagnostics ~= (pos, iter.pos), parse-diag-indent-wrong state.indent-kind
-		prev-indent = state.cur-indent
-		if new-indent < prev-indent
-			emit state, quote-block-no-interpolated, range-start, start, out.move-to
-			emit-dedents state, start, iter, prev-indent - new-indent - 1
-			state.cur-indent := new-indent
+	interpolate mut bool = false
+	dedents mut nat32 = 0
+	text string = with out in build
+		do until
+		start = iter.pos
+		match iter.peek8
+		as "\{"
+			_ = take-next iter
+			push-inside-quotes state, indented
+			interpolate := true
+			true
+		as "\}"
+			out ~= take-next iter
+			state.diagnostics ~= (start, start + 1), parse-diag-closing-brace-needs-escape
+			false
+		as "\\"
+			_ = take-next iter
+			take-string-escape out, start, iter, state.diagnostics
+			false
+		as "\n"
+			count-newlines mut nat = 0
+			new-indent mut nat32 = 0
+			while try-take-char8 iter, "\n"
+				count-newlines +:= 1
+				new-indent := take-indent-amount-after-newline iter, state.indent-kind, of pos
+					state.diagnostics ~= (pos, iter.pos), parse-diag-indent-wrong state.indent-kind
+			prev-indent = state.cur-indent
+			if new-indent < prev-indent
+				dedents := prev-indent - new-indent - 1
+				state.cur-indent := new-indent
+				true
+			else
+				for _ in 0 .. count-newlines
+					out ~= "\n"
+				for _ in 0::nat32 .. new-indent - prev-indent
+					out ~~= chars state.indent-kind
+				false
+		as "\0"
+			dedents := state.cur-indent - 1
+			state.cur-indent := 0
 			true
 		else
-			for _ in 0 .. count-newlines
-				out ~= "\n"
-			for _ in 0::nat32 .. new-indent - prev-indent
-				out ~~= chars state.indent-kind
+			out ~= take-next iter
 			false
-	as "\0"
-		emit state, quote-block-no-interpolated, range-start, start, out.move-to
-		emit-dedents state, start, iter, state.cur-indent - 1
-		state.cur-indent := 0
-		true
-	else
-		out ~= take-next iter
-		false
+
+	end-pos = if is-at-end iter then iter.pos else iter.pos - 1
+	token = if interpolate then quote-block-then-interpolated else quote-block-no-interpolated
+	emit state, token, range-start, end-pos, text
+	unless interpolate
+		emit-dedents state, end-pos, iter, dedents
 
 -chars char8[](a indent-kind)
 	match a
@@ -547,128 +552,84 @@ region strings
 	quote-kind quote-kind
 do
 	forbid quote-kind == indented
-	out char8 mut[] = ()
-	interpolate bool = until
-		start-of-char = iter.pos
-		match iter.peek8
-		as "\""
-			_ = take-next iter
-			match quote-kind
-			as bar
-				out ~= "\""
-				()
-			as double
-				false
-			as indented
-				throw unreachable
-		as "\{"
-			_ = take-next iter
-			true
-		as "\}"
-			out ~= take-next iter
-			state.diagnostics ~= (start-of-char, start-of-char + 1), parse-diag-closing-brace-needs-escape
-			()
-		as "\\"
-			_ = take-next iter
-			take-string-escape out, start-of-char, iter, state.diagnostics
-			()
-		as "\n"
-			match quote-kind
-			as bar
-				iter2 = copy iter
-				while is-whitespace iter2.peek8
-					_ = take-next iter2
-				if iter2.peek8 == "|"
-					_ = take-next iter2
-					_ = try-take-char8 iter2, " "
-					iter.pos := iter2.pos
-					out ~= "\n"
+	interpolate mut bool = false
+	end mut pos = 0
+	text string = with out in build
+		interpolate := until
+			start-of-char = iter.pos
+			end := start-of-char
+			match iter.peek8
+			as "\""
+				_ = take-next iter
+				match quote-kind
+				as bar
+					out ~= "\""
 					()
-				else
+				as double
+					end := iter.pos # The range includes the quote mark
 					false
-			as double
-				state.diagnostics ~= (start-of-char, iter.pos), quote-double::parse-diag-expected
-				false
-			as indented
-				throw unreachable
-		as "\0"
-			match quote-kind
-			as bar
+				as indented
+					throw unreachable
+			as "\{"
+				_ = take-next iter
+				true
+			as "\}"
+				out ~= take-next iter
+				state.diagnostics ~= (start-of-char, start-of-char + 1), parse-diag-closing-brace-needs-escape
 				()
-			as double
-				state.diagnostics ~= (start-of-char, iter.pos), quote-double::parse-diag-expected
-			as indented
-				throw unreachable
-			false
-		else
-			out ~= take-next iter
-			()
+			as "\\"
+				_ = take-next iter
+				take-string-escape out, start-of-char, iter, state.diagnostics
+				()
+			as "\n"
+				match quote-kind
+				as bar
+					iter2 = copy iter
+					while is-whitespace iter2.peek8
+						_ = take-next iter2
+					if iter2.peek8 == "|"
+						_ = take-next iter2
+						_ = try-take-char8 iter2, " "
+						iter.pos := iter2.pos
+						out ~= "\n"
+						()
+					else
+						false
+				as double
+					state.diagnostics ~= (start-of-char, iter.pos), quote-double::parse-diag-expected
+					false
+				as indented
+					throw unreachable
+			as "\0"
+				match quote-kind
+				as bar
+					()
+				as double
+					state.diagnostics ~= (start-of-char, iter.pos), quote-double::parse-diag-expected
+				as indented
+					throw unreachable
+				false
+			else
+				out ~= take-next iter
+				()
 	if interpolate
 		push-inside-quotes state, quote-kind
-		emit state, quote-kind.then-interpolated, start, iter.pos - 1, out.move-to
+		emit state, quote-kind.then-interpolated, start, end, text
 	else
-		emit state, quote-kind.no-interpolated, start, iter.pos, out.move-to
+		emit state, quote-kind.no-interpolated, start, end, text
 
--take-string-escape void(out char8 mut[], start pos, iter string-iterator, diagnostics parse-diagnostic mut[])
-	match take-char8-or-nul iter
-	as "\\"
-		out ~= "\\"
-	as "\{"
-		out ~= "\{"
-	as "\}"
-		out ~= "\}"
-	as "0"
-		out ~= "\0"
-	as "\""
-		out ~= "\""
-	as "n"
-		out ~= "\n"
-	as "r"
-		out ~= "\r"
-	as "t"
-		out ~= "\t"
-	as "u"
-		take-unicode-escape out, start, iter, diagnostics, 2
-	as "U"
-		take-unicode-escape out, start, iter, diagnostics, 4
-	as "x"
-		take-unicode-escape out, start, iter, diagnostics, 1
-	else
-		string-escape-error out, start, iter, diagnostics
-
--take-unicode-escape void
-	out char8 mut[]
-	start pos
-	iter string-iterator
-	diagnostics parse-diagnostic mut[]
-	n-bytes nat
-do
-	try
-		full-char mut nat32 = 0
-		for _ in 0::nat .. n-bytes
-			assert x = take-char-escape iter else invalid-unicode-character 0
-			full-char := (full-char << 8) | x.to
-		out ~~= full-char.to::char32.to::string.to
-	catch as invalid-unicode-character
+-take-string-escape void(out char8 builder, start pos, iter string-iterator, diagnostics parse-diagnostic mut[])
+	unless take-string-escape out, iter
 		string-escape-error out, start, iter, diagnostics
 
 -string-escape-error void
-	out char8 mut[]
+	out char8 builder
 	start pos
 	iter string-iterator
 	diagnostics parse-diagnostic mut[]
 do
-	diagnostics ~= (start, iter.pos), parse-diag-invalid-string-escape string-from iter, start
+	diagnostics ~= (start, iter.pos), parse-diag-invalid-string-escape
 	out ~~= "�"::char8[]
-
--take-char-escape nat8?(a string-iterator)
-	if digit0 = try-take-hex-digit a and digit1 = try-take-hex-digit a
-		(digit0 << 4) | digit1
-
--try-take-hex-digit nat8?(a string-iterator)
-	if x = decode-hex-digit a.peek8
-		_ = take-next a
-		x
 
 region whitespace (including comments)
 
