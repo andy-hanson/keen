@@ -37,7 +37,7 @@ do check-ctx, common-types
 	add-funs-for-sum-type-cases out, type, inst
 
 	if has-standard-auto-funs type
-		emit = of kind fancy-auto-fun-kind, return-type type, parameters destructure[]
+		emit = of kind auto-fun-with-members-kind, return-type type, parameters destructure[]
 			do unless auto-fun-overrides[type, kind.to]
 			fun = fun-for-type type, return-type, parameters, auto-fun kind.to, ()
 			out ~= fun
@@ -47,17 +47,20 @@ do check-ctx, common-types
 		emit[compare, comparison, two-of-it]
 		emit[hash, void, make-params (inst, hash-state)]
 		unless cur-module-is-no-std
-			emit[to-json, must-get-json, make-params (inst,)]
+			json = must-get-json
+			emit[from-json, inst, make-params (json,)]
+			emit[to-json, json, make-params (inst,)]
 
 auto-funs alias
-	(fancy-auto-fun-kind, fun-decl mut[type-decl]) enum-map
+	(auto-fun-with-members-kind, fun-decl mut[type-decl]) enum-map
 auto-funs-for-kind alias
 	fun-decl mut[type-decl]
-fancy-auto-fun-kind enum(compare, equals, hash, to-json)
-to auto-fun-kind(a fancy-auto-fun-kind)
+auto-fun-with-members-kind enum(compare, equals, from-json, hash, to-json)
+to auto-fun-kind(a auto-fun-with-members-kind)
 	match a
 	as compare then compare
 	as equals then equals
+	as from-json then from-json
 	as hash then hash
 	as to-json then to-json
 
@@ -69,7 +72,10 @@ fill-auto-fun-bodies void(auto-funs auto-funs) check-ctx, common-types, funs-map
 		unless is-empty map
 			fill-auto-fun-bodies-for-kind kind, map
 
--fill-auto-fun-bodies-for-kind void(kind fancy-auto-fun-kind, map auto-funs-for-kind) check-ctx, common-types, funs-map
+-fill-auto-fun-bodies-for-kind void
+	kind auto-fun-with-members-kind
+	map auto-funs-for-kind
+do check-ctx, common-types, funs-map
 	spec_ = spec-and-extra-type-arg kind
 
 	# The key is a referenced type.
@@ -106,12 +112,12 @@ fill-auto-fun-bodies void(auto-funs auto-funs) check-ctx, common-types, funs-map
 			# They will also generate invalid insts, but that's fine,
 			# because we don't actually use the result of try-find-auto-fun-implementation here.
 			if has-type-param
-				_ = push-unique needed-specs, spec_[member]
+				_ = push-unique needed-specs, spec-inst-for-member
 				bogus-impl fun, spec-inst-for-member # Won't be used
 			elif called = try-find-auto-fun-implementation fun, spec-inst-for-member
 				called
 			else
-				if push-unique needed-specs, spec_[member]
+				if push-unique needed-specs, spec-inst-for-member
 					initial-specs-to-propagate ~= type
 				bogus-impl fun, spec-inst-for-member # Won't be used
 		if is-empty needed-specs
@@ -196,22 +202,29 @@ do check-ctx, common-types, funs-map
 	called-bogus fun, make-return-and-param-types sig.return-type, sig.params, it.type
 
 -with-members auto-fun(body fun-body, members called[])
-	auto-fun body.auto-fun!.kind, members
+	cur = body.auto-fun!
+	assert is-empty cur.members
+	auto-fun cur.kind, members
 
--auto-fun-spec record(spec_ spec-decl, extra-type-arg type?)
--spec-and-extra-type-arg auto-fun-spec(a fancy-auto-fun-kind) check-ctx, common-types
+-placement enum(before, after)
+-auto-fun-spec record(spec_ spec-decl, extra-type-arg type?, extra-type-arg-placement placement)
+-spec-and-extra-type-arg auto-fun-spec(a auto-fun-with-members-kind) check-ctx, common-types
 	match a
-	as equals
-		equal-spec, ()
 	as compare
-		compare-spec, ()
+		compare-spec, (), before
+	as equals
+		equal-spec, (), before
+	as from-json
+		to-spec, must-get-json, after
 	as hash
-		hash-spec, ()
+		hash-spec, (), before
 	as to-json
-		to-spec, must-get-json
+		to-spec, must-get-json, before
 -subscript spec-inst(a auto-fun-spec, type type) instantiate-ctx
 	instantiate-spec a.spec_, if t = a.extra-type-arg
-		to-type-array (t, type)
+		match a.extra-type-arg-placement
+		as before then to-type-array (t, type)
+		as after then to-type-array (type, t)
 	else
 		as-type-args type
 
@@ -277,6 +290,8 @@ as-auto-fun-override auto-fun-override?(fun fun-decl) common-types, common-uris
 		do if param = ?type-inst ?type only fun.params
 		if is-json return
 			param.decl, to-json
+		elif is-json param and type-inst return
+			return.decl, from-json
 		elif inner = unwrap-option return
 			do if type-inst inner
 			enum_ = inner.decl

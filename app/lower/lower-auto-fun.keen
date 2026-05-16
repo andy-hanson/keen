@@ -40,6 +40,17 @@ lower-auto-fun low-expr(fun low-fun, a auto-fun) lower-ctx, quick-fill-in-low-fu
 			lower-equal-record range, params.only2!, x.fields, a.members
 		as low-union
 			lower-equal-union range, return-type, params.only2!, x.members, a.members
+	as from-json
+		param = only! params
+		match body = enum-flags-record-or-union return-type
+		as enum_
+			enum-from-json return-type, range, body, param
+		as flags_
+			flags-from-json return-type, range, body, param
+		as low-record
+			record-from-json return-type, range, body, param, a.members
+		as low-union
+			union-from-json return-type, range, param, a.members
 	as hash
 		match x = enum-flags-record-or-union params[0].type
 		as enum_
@@ -64,7 +75,7 @@ lower-auto-fun low-expr(fun low-fun, a auto-fun) lower-ctx, quick-fill-in-low-fu
 	as to-nat-from-enum-or-flags
 		arg = param0[]
 		storage = enum-or-flags-storage arg.type
-		gen-widen-nat return-type.must-be-nat-type, gen-cast storage.to, range, param0[]
+		gen-convert-nat return-type.must-be-nat-type, gen-cast storage.to, range, param0[]
 	as to-json
 		param = only! params
 		match body = enum-flags-record-or-union param.type
@@ -195,6 +206,99 @@ do lower-ctx, quick-fill-in-low-fun-body
 			if-low-expr range, test_, empty-array-view,
 				gen-constant-array-view array-view-type, range, array-type, (f[member],)
 
+-enum-from-json low-expr(enum_ low-type, range uri-and-range, body enum_, param low-local) lower-ctx
+	###
+	to e(a json)
+		match to-symbol-or-empty a
+		as x then x
+		as y then y
+		else then throw deserialize-error "e", a
+	###
+	get-param = local-get-low-expr range, param
+	:: match-string-like-low-expr
+	range: range
+	matched: call-low-expr range, to-symbol-or-empty-from-json-function, (get-param,)
+	equals: equal-symbol-function
+	cases: for member in body.members
+		value: constant-symbol member.name
+		then_: constant-low-expr enum_, range, member.value.to
+	else_: gen-throw-deserialize-error enum_, range, get-param
+
+-flags-from-json low-expr(flags_ low-type, range uri-and-range, body flags_, param low-local) lower-ctx
+	###
+	to f(a json)
+		to-flags-from-json a, "f", ("x", "y"), (1, 2)
+	###
+	flags-from-nat flags_, range, call-low-expr range, to-flags-from-json-function,
+		- local-get-low-expr range, param
+		- gen-string-literal range, flags_.simple-name.to
+		- gen-constant-array all-constants, to-flags-from-json-function.params[2].type, range,
+			map body.members, it.name.constant-symbol
+		- gen-constant-array all-constants, to-flags-from-json-function.params[3].type, range,
+			map body.members, it.value.to
+
+-flags-from-nat low-expr(flags_ low-type, range uri-and-range, nat low-expr) low-common-types
+	gen-cast flags_, range, gen-convert-nat flags_.flags-storage,  nat
+
+-record-from-json low-expr
+	record_ low-type
+	range uri-and-range
+	body low-record
+	param low-local
+	field-from-json called[]
+do lower-and-expr-ctx, quick-fill-in-low-fun-body
+	###
+	to r(a json)
+		foo: a["foo"].to
+		bar: a["bar"].to
+	###
+	get-param = local-get-low-expr range, param
+	create-record-low-expr record_, range, for field, called in zip body.fields, field-from-json
+		lower-and-call called, range,
+			- call-low-expr range, json-subscript-function,
+				- get-param
+				- gen-symbol-literal range, field.name
+
+-union-from-json low-expr
+	union_ low-type
+	range uri-and-range
+	param low-local
+	case-from-json called[]
+do lower-and-expr-ctx, quick-fill-in-low-fun-body
+	###
+	to u(a json)
+		k, v = only-key-and-value a
+		match k
+		as foo then to::foo v
+		as bar then to::bar v
+		else then throw deserialize-error "u", a
+	###
+	get-param = local-get-low-expr range, param
+	only-key-and-value low-local = temp::low-generated-local-kind, return-type only-key-and-value-from-json-function
+	get-kv = local-get-low-expr range, only-key-and-value
+	:: let-low-expr
+	range: range
+	local: only-key-and-value
+	value: call-low-expr range, only-key-and-value-from-json-function, (get-param,)
+	then_:
+		:: match-string-like-low-expr
+		range: range
+		matched: record-field-get-low-expr range, get-kv, 0
+		equals: equal-symbol-function
+		cases: for case-index, from-json in with-index case-from-json
+			case_ = lower-and-call from-json, range,
+				- record-field-get-low-expr range, get-kv, 1
+			value: constant-symbol case_.type.simple-name
+			then_: create-union-low-expr union_, range, case-index, case_
+		else_: gen-throw-deserialize-error union_, range, get-param
+
+-gen-throw-deserialize-error low-expr(type low-type, range uri-and-range, actual low-expr) lower-ctx
+	throw-low-expr type, range,
+		create-union-low-expr exception, range, (sum-type-case-index exception, deserialize-error-type),
+			create-record-low-expr deserialize-error-type, range,
+				- gen-string-literal range, type.simple-name.to
+				- actual
+
 -enum-to-constant low-expr
 	type low-type
 	range uri-and-range
@@ -207,7 +311,7 @@ do low-common-types
 	# if a in all then (a.cast,) else ()
 	flags-type = as-option! option-type
 	storage = flags-storage flags-type
-	param-get = gen-widen-nat storage, local-get-low-expr range, param
+	param-get = gen-convert-nat storage, local-get-low-expr range, param
 	all = get-all-flags-expr range, flags-type
 	a-in-all = gen-flags-subscript range, storage, all, param-get
 	cast = gen-cast flags-type, range, param-get
@@ -215,7 +319,7 @@ do low-common-types
 		then_: gen-option option-type, range, cast
 		else_: gen-empty-option option-type, range
 
--gen-widen-nat low-expr(type nat-type, arg low-expr) lower-ctx
+-gen-convert-nat low-expr(type nat-type, arg low-expr) low-common-types
 	out-type low-type = type.to
 	if out-type == arg.type
 		arg
@@ -223,13 +327,14 @@ do low-common-types
 		builtin-unary-low-expr out-type, arg.range, wrap-convert-integral, arg
 
 -lower-symbol-to-opt-enum-or-flags low-expr(range uri-and-range, option-type low-type, param low-local) lower-ctx
-	enum-type = as-option! option-type
-	param-get = local-get-low-expr range, param
-	cases low-match-string-like-case[] = for member in must-be-enum-or-flags enum-type
-		- constant-symbol member.name
-		- gen-constant-some option-type, range, member.value.to
-	else_ = gen-empty-option option-type, range
-	match-string-like-low-expr range, param-get, symbol.equal-string-like-function, cases, else_
+	:: match-string-like-low-expr
+	range: range
+	matched: local-get-low-expr range, param
+	equals: equal-symbol-function
+	cases: for member in must-be-enum-or-flags as-option! option-type
+		value: constant-symbol member.name
+		then_: gen-constant-some option-type, range, member.value.to
+	else_: gen-empty-option option-type, range
 
 -lower-nat-to-opt-enum low-expr
 	range uri-and-range
@@ -240,7 +345,7 @@ do lower-ctx
 	enum-type = as-option! option-type
 	storage = enum-storage enum-type
 	members = must-be-enum-or-flags enum-type
-	param-get = gen-widen-nat storage, local-get-low-expr range, param
+	param-get = gen-convert-nat storage, local-get-low-expr range, param
 	:: match-scalar-low-expr
 	range: range
 	matched: param-get

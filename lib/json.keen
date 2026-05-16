@@ -1,5 +1,6 @@
 no-std
 import
+	./bits
 	./bool
 	./compare
 	./col/array
@@ -32,9 +33,11 @@ import
 +interpolate json(parts string[])
 	parts.interpolate::string.to
 
-+deserialize-error record(value json) exception case
++deserialize-error record(expected string, value json) exception case
 +show string(a deserialize-error)
-	"The json value cannot be interpreted as this type. Actual: {a.value}"
+	"Expected to deserialize the json value as {a.expected}. Actual: {a.value}"
++to json(a deserialize-error) = expected: a.expected.to, value: a.value
++to deserialize-error(a json) = expected: a["expected"].to, value: a["value"].to
 
 +json-simplified union(null, bool, float64, string, json[], json[symbol])
 +simplify json-simplified(a json)
@@ -64,8 +67,25 @@ import
 +hash void(a json, state hash-state)
 	trusted hash a.simplify, state
 
-+to string(a json)
-	a.inner.string else throw deserialize-error a
+~to-symbol-or-empty symbol(a json)
+	a.inner.string.?to else ""
+~only-key-and-value (symbol, json)(a json)
+	a.inner.map.?only else ("", null)
+~to-flags-from-json nat(a json, expected string, member-names symbol[], member-values nat[])
+	match inner = a.inner
+	as null
+		()
+	as array
+		res mut nat = 0
+		for x in inner
+			res |:= to-flags-from-string x, expected, member-names, member-values
+		res
+	else
+		to-flags-from-string a, expected, member-names, member-values
+-to-flags-from-string nat(a json, expected string, member-names symbol[], member-values nat[])
+	s = a.inner
+	assert string s and index = index-of member-names, s.to else deserialize-error expected, a
+	member-values[index]
 
 +null record
 +to json(a null) = a,
@@ -97,14 +117,23 @@ import
 	a
 +to json(_ void)
 	null
++to void(a json)
+	assert a.inner.null else deserialize-error "void", a
 +to json(a bool)
 	inner: a
 +to json(a char8)
 	a.to::string.to
++to char8(a json)
+	?only string a.inner else throw deserialize-error "char8", a
 +to json(a char32)
 	a.to::string.to
++to char32(a json)
+	res char32? = if x = a.inner.string then only to::char32[] x
+	res else throw deserialize-error "char32", a
 +to json(a string)
 	inner: a
++to string(a json)
+	string a.inner else throw deserialize-error "string", a
 +to json(a nat8)
 	a::nat64.to
 +to nat8(a json)
@@ -144,7 +173,11 @@ import
 +to json(a float64)
 	inner: a
 +to float64(a json)
-	a.inner.float64!
+	match x = a.inner
+	as nat64 then x.to
+	as int64 then x.to
+	as float64 then x
+	else then throw deserialize-error "float", a
 +to json(a symbol)
 	a.to::string.to
 +to symbol(a json)
@@ -152,8 +185,18 @@ import
 
 +to[t] json(a t[]) (json, t) to
 	- map::json[] a, it.to
++to[t] t[](a json) (t, json) to
+	match x = a.inner
+	as null
+		()
+	as array
+		map x, it.to
+	else
+		throw deserialize-error "array", a
 +to[t] json(a t array-view) (json, t) to
 	- map::json[] a, it.to
++to[t] t array-view(a json) (t, json) to
+	to::t[] a
 +to[t] json(a t buffer) (json, t) to
 	- map::json[] a, it.to
 +to[t] json(a t buffer-view) (json, t) to
@@ -162,6 +205,8 @@ import
 	- map::json[] a, it.to
 +to[t] json(a t set) (json, t) to, t key
 	- map::json[] a, it.to
++to[t] t set(a json) (t, json) to, t key
+	a.to::t[].to
 +to[k, v] json(a v[k]) k key, (json, k) to, (json, v) to
 	parts (json, json)[] = for key, value in a
 		key.to, value.to
@@ -171,28 +216,52 @@ import
 			for k, v in parts then k.inner.string!.to, v.to
 	else
 		parts.to
-+to[v] v[symbol](a json) (v, json) to
++to[k, v] v[k](a json) k key, (k, json) to, (v, json) to
 	match x = a.inner
 	as null
 		()
+	as array
+		for value in x
+			to::(k, v) value
 	as map
-		map-values x, it.to
+		for k, v in x
+			k.to::json.to::k, v.to::v
 	else
-		throw deserialize-error a
+		throw deserialize-error "map", a
 +to[t] json(a t?) (json, t) to
 	if a
 		a.to
 	else
 		null
++to[t] t?(a json) (t, json) to
+	unless a == null
+		to::t a
 +to[t, u] json(a (t, u)) (json, t) to, (json, u) to
 	a.a.to, a.b.to
++to[t, u] (t, u)(a json) (t, json) to, (u, json) to
+	assert t, u = ?only2 array a.inner else deserialize-error "tuple2", a
+	t.to, u.to
 +to[t, u, v] json(a (t, u, v)) (json, t) to, (json, u) to, (json, v) to
 	a.a.to, a.b.to, a.c.to
++to[t, u, v] (t, u, v)(a json) (t, json) to, (u, json) to, (v, json) to
+	assert t, u, v = ?only3 array a.inner else deserialize-error "tuple3", a
+	t.to, u.to, v.to
 +to json(a comparison)
 	match a
 	as less then "less"
 	as equal then "equal"
 	as greater then "greater"
++to comparison(a json)
+	match to-symbol-or-empty a
+	as less then less
+	as equal then equal
+	as greater then greater
+	else then throw deserialize-error "comparison", a
++to[t] json(a t range) (json, t) to
+	low: a.low.to
+	high: a.high.to
++to[t] t range(a json) (t, json) to, t equal, t compare
+	a["low"].to .. a["high"].to
 
 | If {a} is an `object` containing the key {key}, returns the associated value.
 | Returns `null` if any of these is true:
@@ -212,21 +281,8 @@ import
 | `a bool-or-null` is like `a bool`, but treats {null} as {false}.
 +to bool(a json)
 	a.inner.bool else
-		assert a == null else deserialize-error a
+		assert a == null else deserialize-error "bool", a
 		false
-
-+to[t] t?(a json) (t, json) to
-	unless a == null
-		to::t a
-
-+to[t] t[](a json) (t, json) to
-	match x = a.inner
-	as null
-		()
-	as array
-		map x, it.to
-	else
-		throw deserialize-error a
 
 | By default, json is shown using Kid syntax.
 +show string(a json)
