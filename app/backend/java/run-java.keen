@@ -1,0 +1,70 @@
+import
+	KeenClassLoader.class
+	java/io/ByteArrayOutputStream
+	java/io/PrintStream
+	java/lang/Class
+	java/lang/ClassLoader
+	java/lang/String
+	java/lang/StackTraceElement
+	java/lang/Throwable
+	java/lang/reflect/InvocationTargetException
+	java/lang/reflect/Method
+	java/lang/System
+	java/nio/charset/StandardCharsets
+	keen/java
+	keen/unsafe
+	../../util/exit-code
+	../../util/java-bytecode-types
+
+run-java void(classes java-compiled-class[], main-args string[]) global, unsafe, java
+	if error = run-java-common classes, main-args
+		omit-runtime-stack-trace error
+		throw reinterpret-cast error
+
+| Catches errors and redirects output to a returned string.
+run-java-and-catch (string, exit-code)(classes java-compiled-class[], main-args string[]) global, unsafe, java
+	originalOut = out
+	originalErr = err
+	output ByteArrayOutputStream = ()
+	newOut PrintStream = output, true, UTF_8
+	setOut newOut
+	setErr newOut
+	exit exit-code = if err = run-java-common classes, main-args
+		printStackTrace err
+		error
+	else
+		ok
+	setOut originalOut
+	setErr originalErr
+	output.toString.to, exit
+
+-run-java-common Throwable?(classes java-compiled-class[], main-args string[]) global, unsafe, java
+	loader KeenClassLoader = getSystemClassLoader,
+	for file in classes
+		bytes int8 buffer = file.bytes.safe-reinterpret-cast.cast-mutable
+		if x = try-remove-end file.path, ".class"
+			addClassBytecode loader, x.to, bytes
+		else
+			addResource loader, file.path.to, bytes
+
+	Main = loadClass loader, "keenrun_Main"
+	main = getMethod Main, "main",
+		- arrayType forName "java.lang.String"
+	args String buffer = map main-args, it.to
+	# First argument is ignored, so pass an arbitrary object
+	try
+		_ = invoke main, Main.reinterpret-cast,
+			- reinterpret-cast args
+		()
+	catch e as InvocationTargetException
+		getCause e
+
+-to String(a string-view) java
+	a.to::string.to
+
+-omit-runtime-stack-trace void(a Throwable) global, unsafe, java
+	original StackTraceElement[] = a.getStackTrace.to
+	if i = find-index original, it.is-run-java
+		setStackTrace a, original[0 .. i - 2].to
+-is-run-java bool(a StackTraceElement) global, unsafe, java
+	a.getMethodName.to::string == "run__45java__45common"

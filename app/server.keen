@@ -2,8 +2,9 @@ import
 	keen/col/mut-queue
 	../bin/imports/date.txt as build-date string
 	../bin/imports/commit-hash.txt as commit-hash string
-	./backend/js/source-map
+	./backend/java/run-java
 	./backend/java/translate-to-java
+	./backend/js/source-map
 	./backend/js/translate-to-js
 	./cli/command
 	./lower/lower
@@ -39,7 +40,7 @@ handle-one-lsp-message exit-code?
 	message-in lsp-in-message
 	read-file-locally read-file-result-params mut(uri uri)
 	output void mut(x lsp-out-message)
-do
+do global
 	start = perf-now
 	finally end-handle-one-lsp-message start
 	buffered-messages lsp-in-message mut-queue = ()
@@ -58,7 +59,7 @@ do
 	elif is-empty buffered-messages
 		()::exit-code?
 
-handle-lsp-message lsp-out-action(server server, message lsp-in-message)
+handle-lsp-message lsp-out-action(server server, message lsp-in-message) global
 	match message
 	as lsp-in-notification
 		handle-lsp-notification server, message
@@ -67,7 +68,7 @@ handle-lsp-message lsp-out-action(server server, message lsp-in-message)
 	as lsp-in-response
 		()
 
--handle-lsp-notification lsp-out-action(server server, a lsp-in-notification)
+-handle-lsp-notification lsp-out-action(server server, a lsp-in-notification) global
 	match a
 	as cancel-request-params
 		# Ignore because according to documentation,
@@ -100,7 +101,7 @@ handle-lsp-message lsp-out-action(server server, message lsp-in-message)
 		# TODO: implement this
 		()
 
--handle-file-changed lsp-out-action(server server)
+-handle-file-changed lsp-out-action(server server) global
 	match files-state server
 	as has-unknown
 		(server.flush-all-unknown-uris.unknown-uris,), ()
@@ -120,7 +121,7 @@ handle-lsp-message lsp-out-action(server server, message lsp-in-message)
 		notify-diagnostics messages, server, program
 		messages.move-to, exit-code
 
--handle-lsp-request lsp-out-action(server server, request lsp-in-request)
+-handle-lsp-request lsp-out-action(server server, request lsp-in-request) global
 	res lsp-out-result? = match params = request.params
 	as build-js-script-params
 		()
@@ -202,7 +203,7 @@ folding-ranges folding-range-result(server server, uri uri)
 -message-for-response lsp-out-message(request lsp-in-request, result lsp-out-result)
 	lsp-out-response request.id, result
 
--respond-with-program lsp-out-action(server server, request lsp-in-request)
+-respond-with-program lsp-out-action(server server, request lsp-in-request) global
 	if server.files-state == all-loaded
 		handle-lsp-request-with-program server, (get-program server, ()), request
 	else
@@ -213,7 +214,7 @@ folding-ranges folding-range-result(server server, uri uri)
 	server server
 	program program
 	request lsp-in-request
-do
+do global
 	the show-ctx = get-show-ctx server, true
 	program-with-main = of main main-kind, target build-target
 		program-with-main-from-program server.frontend, program, main, (target,)
@@ -271,7 +272,7 @@ do
 	program program
 	request lsp-in-request
 	params execute-command-params
-do
+do global
 	match params
 	as run-test
 		main-kind = main-kind-tests false, (params.where.uri,), params.where.line
@@ -284,17 +285,24 @@ do
 		(message0, message1), ()
 
 run-from-lsp exit-code
-	_ server
+	server server
 	program program-with-main
 	_ uri[]? # diagnostics-only-for-uris
 	write-cb void mut(write write)
-do
-	do unless has-fatal-diagnostics program else
+do global
+	if has-fatal-diagnostics program
 		write-cb[err, "Can't run due to compile errors"]
 		error
-	# TODO: load it in and run as a Java program. We should probably sandbox it too!
-	()
-	throw todo
+	elif java
+		output, exit-code = trusted run-java-and-catch (build-to-java server, program, "keenrun_"), ()
+		write-cb[out, output]
+		exit-code
+	else
+		write-cb[err, "Only a Java build of Keen supports running programs"]
+		error
+
+build-and-run-java void(server server, program program-with-main, main-args string[]) global, unsafe, java
+	run-java (build-to-java server, program, "keenrun_"), main-args
 
 server record mut
 	settings server-settings
