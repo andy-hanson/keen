@@ -1,7 +1,7 @@
 "5:29":
 	signatures:
 		-
-			label: "replace-all string(a string, find string, replace-with string) (from keen/string/util.keen line 27)"
+			label: "replace-all string(a string, find string, replace-with string) (from keen/string/util.keen line 28)"
 			documentation: "Replaces every instance of the substring \{find} with \{replace-with}."
 			parameters:
 				- label: 19, 27
