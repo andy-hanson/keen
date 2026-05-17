@@ -190,3 +190,8 @@
 			range:
 				start: line: 0, character: 0
 				end: line: 0, character: 3
+-
+	range:
+		start: line: 6, character: 1
+		end: line: 6, character: 2
+	hover: "Expression has a problem and will throw an error.\nExpression type is: 'nat'"

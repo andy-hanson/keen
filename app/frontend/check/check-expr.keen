@@ -110,7 +110,7 @@ do
 	as list-ast
 		check-list ast, expected
 	as literal-number
-		check-literal-number ast.range, expected
+		check-literal-number ast, expected
 	as literal-string-ast
 		check-literal-string ast, expected
 	as logical-ast
@@ -139,7 +139,7 @@ do
 		check expected, bool, check-unpack-option ast
 	as underscore-ast
 		add-diag ast.range, diag-underscore
-		bogus expected, ast.range
+		bogus expected, ast
 	as while-or-until-body-ast
 		check-while-or-until-body ast, expected
 	as while-or-until-ast
@@ -171,7 +171,7 @@ do
 		first-branch = check-expr-with-context (known-value condition, not is-negated), ast.first-branch!, expected
 		type = expected.inferred
 		second-branch expr = if is-bogus type
-			bogus-expr (ast.second-branch.?range else empty-new-range), type
+			bogus-expr (ast.second-branch.?range else empty-new-range), type, from-other-bogus
 		elif ast.second-branch
 			check-expr-with-context (known-value condition, is-negated), ast.second-branch!, expected
 		else
@@ -181,7 +181,7 @@ do
 		second-branch = check-expr-with-context (known-value condition, is-negated), ast.second-branch!, expected
 		type = expected.inferred
 		first-branch expr = if is-bogus type
-			bogus-expr empty-new-range, type
+			bogus-expr empty-new-range, type, from-other-bogus
 		else
 			check-empty-new ast, empty-new-range, expected
 		first-branch, type, second-branch
@@ -218,7 +218,7 @@ do
 		range = ast.option.range
 		unless is-bogus type
 			add-diag range, diag-unpack-option-must-be-option type-with-container type
-		bogus-expr range, option[type]
+		bogus-expr range, option[type], from-other-bogus
 
 -check-force expr(ast force-ast, expected expected) check-expr-ctx
 	is-option mut bool = true
@@ -232,7 +232,7 @@ do
 	if get-the ast.range, type
 		check expected, type, the-expr ast, type
 	else
-		bogus expected, ast.range
+		bogus expected, ast
 
 -check-throw expr(ast throw-ast, expected expected) check-expr-ctx
 	if type = try-get-inexact-non-inferring-type expected
@@ -240,7 +240,7 @@ do
 		throw-expr ast, thrown, type
 	else
 		add-diag ast.range, throw_::diag-needs-expected-type
-		bogus expected, ast.range
+		bogus expected, ast
 
 -check-trusted trusted-expr(ast trusted-ast, expected expected, allow-unused bool) check-expr-ctx
 	ast, with in trusted-scope ast, allow-unused
@@ -267,7 +267,7 @@ do
 do check-expr-ctx
 	cant-assign = of
 		add-diag left.range, diag-assignment-not-allowed
-		bogus expected, source.range
+		bogus expected, left
 	match left
 	as name-and-range
 		check-assign-identifier left, keyword-range, left.name, expected, cb-right
@@ -304,7 +304,7 @@ do check-expr-ctx
 		check-interpolated-inner ast, ast.range, ast.template, ast.interpolated, expected, type
 	else
 		add-diag ast.range, interpolated::diag-needs-expected-type
-		bogus expected, ast.range
+		bogus expected, ast
 
 -check-interpolated-inner expr
 	source list-expr-source
@@ -315,7 +315,7 @@ do check-expr-ctx
 	type type
 do check-expr-ctx
 	do if called = find-function-for-interpolate-or-list-new range, interpolate-1, type else
-		bogus expected, range
+		bogus expected, source.to::expr-ast
 	arg-expected = expect as-array! only! called.param-types
 	list-expr source, called, for* arg-index in 0 .. template.size + interpolated-exprs.size
 		if is-even arg-index
@@ -387,12 +387,13 @@ do check-expr-ctx
 			check expected, void, local-set-expr source, local, cb-right[local.type.expect]
 		else
 			add-diag source.range, local.diag-local-not-mutable
-			bogus expected, source.range
+			bogus expected, source
 	else
 		check-call-special-cb1 source, keyword-range, (get-name-and-arity "set-{left}", 1), expected, cb-right
 
--check-literal-number expr(range source-range, expected expected) check-expr-ctx
-	do if number-type = choose-number-type range, expected, range.get-text else bogus expected, range
+-check-literal-number expr(ast literal-number, expected expected) check-expr-ctx
+	range = range ast
+	do if number-type = choose-number-type range, expected, range.get-text else bogus expected, ast
 	match number-type
 	as integral-type
 		literal-scalar-expr range, number-type, check-literal-integral-value number-type, range
@@ -403,12 +404,12 @@ do check-expr-ctx
 -check-literal-string expr(ast literal-string-ast, expected expected) check-expr-ctx
 	if type, kind = choose-string-type ast.range, expected
 		if kind
-			check-literal-string-inner ast.range, ast.value, kind, expected
+			check-literal-string-inner ast, ast.range, ast.value, kind, expected
 		else
 			check-interpolated-inner ast, ast.range, (ast.to,), (), expected, type
 	else
 		add-diag ast.range, interpolated::diag-needs-expected-type
-		bogus expected, ast.range
+		bogus expected, ast
 -to interpolated-template-part(a literal-string-ast)
 	a.range, a.value
 
@@ -416,12 +417,13 @@ do check-expr-ctx
 | it is only allowed to be a literal string type, not another 'interpolate' call.
 -check-literal-string-only-string expr(ast interpolated-template-part, expected expected) check-expr-ctx
 	if _, kind = choose-string-type ast.range, expected and kind
-		check-literal-string-inner ast.range, ast.value, kind, expected
+		check-literal-string-inner ast, ast.range, ast.value, kind, expected
 	else
 		add-diag ast.range, diag-literal-not-expected get-expected-for-diag expected
-		bogus expected, ast.range
+		bogus expected, ast.range, ast
 
 -check-literal-string-inner expr
+	ast bogus-expr-kind
 	range source-range
 	value string
 	kind char-or-string-type
@@ -440,7 +442,7 @@ do check-expr-ctx
 		if kind != js-any or check-is-js range
 			literal-string-like-expr range, kind, value
 		else
-			bogus expected, range
+			bogus expected, range, ast
 
 -check-is-js bool(range source-range) check-expr-ctx
 	res = has-build-target specs, js
@@ -521,7 +523,7 @@ do check-expr-ctx
 		check-lambda inner, expected, ast.keyword-range
 	else
 		add-diag ast.keyword-range, diag-shared-arg-is-not-lambda
-		bogus expected, ast.range
+		bogus expected, ast
 
 -is-mutable-local bool(a closure-element)
 	a.local and a.is-mutable
@@ -558,7 +560,7 @@ do
 	check-lambda source, expected, ()
 -check-lambda expr(ast lambda-source, expected expected, explicit-shared source-range?) check-expr-ctx
 	do if el = get-expected-lambda ast, expected else
-		bogus expected, ast.diag-range
+		bogus expected, ast.to::expr-ast
 	return-type = el.return-type
 	lambda-decl = el.lambda-decl
 	param-type = el.instantiated-param-type
@@ -644,7 +646,7 @@ do check-expr-ctx
 		else
 			unless t = expected.try-get-inexact-non-inferring-type and is-void t
 				add-diag diag-range, kind
-				bogus expected, diag-range
+				bogus expected, diag-range, missing-expr
 
 -check-list expr(ast list-ast, expected expected) check-expr-ctx
 	if args expr-ast[] = map-every ast.parts, it.expr-ast
@@ -652,9 +654,9 @@ do check-expr-ctx
 	else
 		do if result-type = try-get-inexact-non-inferring-type expected else
 			add-diag ast.range, list::diag-needs-expected-type
-			bogus expected, ast.range
+			bogus expected, ast.range, from-other-bogus
 		do if called = find-function-for-interpolate-or-list-new ast.range, list-new-1, result-type else
-			bogus expected, ast.range
+			bogus expected, ast.range, from-other-bogus
 		arg-elem-type = as-array! only! called.param-types
 		list-expr ast, called, for part in ast.parts
 			match part
@@ -820,7 +822,7 @@ do check-expr-ctx
 			if name
 				add-diag case-ast.name-range, diag-match-case-name-not-in-enum name, matched-enum
 
-	do unless has-case-diag else bogus expected, ast.range
+	do unless has-case-diag else bogus expected, ast
 
 	else_ expr? = if is-empty remaining
 		if x = ast.else_
@@ -1067,7 +1069,7 @@ do check-expr-ctx
 		check-expr else_.expr, expected
 	else
 		add-diag ast.keyword-range, cb-diag[]
-		bogus expected, ast.range
+		bogus expected, ast.range, missing-expr
 
 -check-empty-new expr
 	parent call-expr-source
@@ -1128,6 +1130,6 @@ do check-expr-ctx
 
 -check-typed expr(ast typed-ast, expected expected) check-expr-ctx
 	type = type-from-ast ast.type
-	do unless is-bogus type else bogus expected, ast.range
+	do unless is-bogus type else bogus expected, ast
 	expr = check-or-empty-new ast, ast.keyword-range, ast.expr, type.expect
 	check expected, type, typed-expr ast, expr, type

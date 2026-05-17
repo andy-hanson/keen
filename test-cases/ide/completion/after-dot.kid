@@ -20,19 +20,3 @@
 			label: "n"
 			detail: "n nat64(a r) (from test:/completion/after-dot.keen line 4)"
 			documentation: ""
-		-
-			detail: "== bool(a r, b r) (from test:/completion/after-dot.keen line 4)"
-			documentation: ""
-			label: "=="
-		-
-			detail: "<=> comparison(a r, b r) (from test:/completion/after-dot.keen line 4)"
-			documentation: ""
-			label: "<=>"
-		-
-			detail: "hash void(a r, b hash-state) (from test:/completion/after-dot.keen line 4)"
-			documentation: ""
-			label: "hash"
-		-
-			detail: "to json(a r) (from test:/completion/after-dot.keen line 4)"
-			documentation: ""
-			label: "to"

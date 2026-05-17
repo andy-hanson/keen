@@ -2294,11 +2294,9 @@ find-alias-in-module-scope type-alias?(module keen-module, name symbol)
 		first module.walk-all-imports, of _, import-ast, imported
 			?type-alias get-imported-spec-or-type import-ast, imported, name
 
--import-or-export enum(standard-import, import_, export_)
-| Does not walk re-exports
--walk-all-imports record(module keen-module)
-| The first will have no ast if it is the standard import
--some bool(a walk-all-imports, f bool mut(kind import-or-export, ast import-or-export-ast?, imported module))
+import-or-export-kind enum(standard-import, import_, export_)
+walk-all-imports record(module keen-module)
+some bool(a walk-all-imports, f bool mut(kind import-or-export-kind, ast import-or-export-ast?, imported module))
 	module = a.module
 	imports-and-re-exports = module.imports-and-re-exports
 	ast = module.ast
@@ -2321,13 +2319,22 @@ find-alias-in-module-scope type-alias?(module keen-module, name symbol)
 	unless res-exports
 		i is imports-and-re-exports.size
 	res-exports
--get-imported-spec-or-type spec-or-type?(ast import-or-export-ast?, imported module, name symbol)
+each-imported-fun void(ast import-or-export-ast?, imported module, f void mut(x fun-decl))
 	if ast
-		all exports = match ast.path
-		as path
-			imported.public-exports
-		as rel-path
-			imported.public-and-internal-exports
+		base = exports-for-import ast, imported
+		match kind = ast.kind
+		as import-whole-module-ast
+			each base.funs, f
+		as array
+			for name in kind
+				each (all-with-name base.funs, name.name), f
+		as import-file-ast
+			throw unreachable
+	else
+		each imported.public-exports.funs, f
+get-imported-spec-or-type spec-or-type?(ast import-or-export-ast?, imported module, name symbol)
+	if ast
+		all = exports-for-import ast, imported
 		match kind = ast.kind
 		as import-whole-module-ast
 			all.types-and-specs[name]
@@ -2338,6 +2345,11 @@ find-alias-in-module-scope type-alias?(module keen-module, name symbol)
 			throw unreachable
 	else
 		imported.public-exports.types-and-specs[name]
+| WARN: This does not filter by an explicit list of imported names
+-exports-for-import exports(ast import-or-export-ast, imported module)
+	match ast.path
+	as path then imported.public-exports
+	as rel-path then imported.public-and-internal-exports
 -count-non-file-imports nat(a imports-or-exports-ast?)
 	do if a
 	count a.paths, it.kind.import-file-ast.not
@@ -3337,7 +3349,19 @@ do common-types
 -assert-or-forbid-option-message string(is-forbid bool)
 	if is-forbid then "Forbidden option is non-empty: " else "Asserted option is empty: "
 
-bogus-expr record(range source-range, type type)
+bogus-expr record(range source-range, type type, kind bogus-expr-kind)
+bogus-expr-kind union
+	missing-expr
+	expr-ast
+	interpolated-template-part
+	from-other-bogus
+	temporary
+| This {bogus-expr} represents something that should have been present (like a function body or 'else' branch).
+missing-expr record
+| This expression is bogus because a previous expression was bogus, so there is no expected type.
+from-other-bogus record
+| The bogus-expr is temporary and will be overwritten
+temporary record
 
 | Wraps an expression that has an invalid type.
 bogus-wrong-type-expr record(inner expr, type type)
@@ -3446,6 +3470,11 @@ call-option-source union(call-ast-dot-question, call-ast-prefix-question, call-q
 	to json()
 	range source-range()
 	question-pos pos()
+to expr-ast(a call-option-source)
+	match a
+	as call-ast-dot-question then a
+	as call-ast-prefix-question then a
+	as call-question-subscript-ast then a
 to call-expr-source(a call-option-source)
 	match a
 	as call-ast-dot-question then a
@@ -3475,6 +3504,11 @@ second-branch expr(a if-expr)
 
 lambda-source union(for-or-with-ast, it-scope-ast, lambda-ast)
 	range source-range()
+to expr-ast(a lambda-source)
+	match a
+	as for-or-with-ast then a
+	as it-scope-ast then a
+	as lambda-ast then a
 param destructure-ast?(a lambda-source)
 	match a
 	as for-or-with-ast
@@ -3555,6 +3589,12 @@ list-expr record
 list-expr-source union(if-ast, interpolated-ast, list-ast, literal-string-ast)
 	range source-range()
 to call-expr-source(a list-expr-source)
+	match a
+	as if-ast then a
+	as interpolated-ast then a
+	as list-ast then a
+	as literal-string-ast then a
+to expr-ast(a list-expr-source)
 	match a
 	as if-ast then a
 	as interpolated-ast then a

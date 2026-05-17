@@ -1,0 +1,90 @@
+import
+	../frontend/check/inferring-type
+	../frontend/show-model
+	../model/ast
+	../model/lsp
+	../model/model
+	../model/source-range
+	./get-position
+	./position
+
+get-completions completion-list?(program program, params completion-params) show-ctx
+	do if position = get-position program, params.params, after
+	the common-types = program.common-types
+	match x = position.kind
+	as expression-position
+		items = completion-at-expression-position position.module, x
+		unless is-empty items then items,
+	else
+		()
+
+-completion-at-expression-position completion-item[](module keen-module, a expression-position) show-type-ctx
+	match x = kind a
+	as bogus-call-expr
+		match ast = x.ast
+		as name-and-range
+			funs-containing-text module, a.container, ast.name.to::string
+		else
+			()
+	as local-ref
+		completion-after-type module, a.container, x.local.type
+	else
+		()
+
+-funs-containing-text completion-item[](module keen-module, container expr-container, text string) show-type-ctx
+	seen symbol mut-set = ()
+	with out in build
+		each-fun-in-expr-scope module, container, of fun
+			if contains-seq fun.name.to::string, text
+				if try-add seen, fun.name
+					out ~= completion-for-called-decl container.to, fun
+
+-completion-after-type completion-item[]
+	module keen-module
+	container expr-container
+	lhs-type type
+do show-type-ctx
+	with out in build
+		each-fun-in-expr-scope module, container, of fun
+			do unless is-common-name fun.name
+			do if t = first-param-type fun
+			# Functions that accept 't?' will show up for basically anything, so don't include
+			do unless ?type-param-index unwrap-option t
+			# Don't include a function that accepts any type, since this results in too many functions matching
+			do if type-inst t and is-type-match-possible-for-completions (t, type-container-for fun), lhs-type
+			out ~= completion-for-called-decl container.to, fun
+
+| Don't include completions for very common function names.
+-is-common-name bool(name symbol)
+	match name
+	as "==" then true
+	as "<=>" then true
+	as "hash" then true
+	as "to" then true
+	else then false
+
+-type-container-for type-container(a called-decl)
+	match a
+	as fun-decl then a
+	as called-spec-sig then a.containing-spec
+
+-completion-for-called-decl completion-item(type-container type-container, a called-decl) show-type-ctx
+	the file-content-getters = file-content-getters
+	label: a.name.to
+	detail: show-called-decl unquoted, type-container, a
+	documentation: doc-comment-string a.module-uri, a.doc-comment
+
+-first-param-type type?(a called-decl)
+	param-types = match a
+	as fun-decl
+		a.param-types
+	as called-spec-sig
+		a.param-types
+	unless is-empty param-types
+		param-types[0]
+
+-each-fun-in-expr-scope void(module keen-module, container expr-container, f void mut(x called-decl)) common-types
+	each container.specs.instantiated-sigs, f[it]
+	each module.funs, f[it]
+	for _, ast, imported in walk-all-imports module
+		each-imported-fun ast, imported, f[it]
