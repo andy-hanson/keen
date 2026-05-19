@@ -6,9 +6,8 @@ import
 	./col/array
 	./col/buffer
 	./col/collection
-	./col/map
 	./col/mut-array
-	./col/set
+	./col/sort
 	./col/util
 	./exception
 	./hash
@@ -24,11 +23,34 @@ import
 
 | JSON data.
 | The representation is deliberately opaque to allow precise representation of numbers.
-| Generally you should use 'to::t' to read a JSON value as the type you expect it to be.
+| Generally you should use `to::t` to read a {json} value as the type you expect it to be.
 | If you really need to match on a json value, use {simplify}.
 +json record
 	-inner json-inner
--json-inner union(null, bool, nat64, int64, float64, string, json[], json[symbol])
+-json-inner union(null, bool, nat64, int64, float64, string, json[], json-object)
+
+| You'll rarely need to use this directly since {json} can be constructed directly using {named-new}
++json-object record -new
+	keys symbol[]
+	values json[]
++is-empty bool(a json-object)
+	is-empty a.keys
++size nat(a json-object)
+	size zip a.keys, a.values
++some bool(a json-object, f bool mut(key symbol, value json))
+	some (zip a.keys, a.values), f
++list-new json-object(pairs (symbol, json)[])
+	new-json-object (map pairs, it.a), (map pairs, it.b)
+-new-json-object json-object(keys symbol[], values json[])
+	sorted-keys, sorted-values = sort-by-first keys, values
+	sorted-keys, sorted-values
+
++subscript json?(a json-object, key symbol)
+	if index = index-of a.keys, key
+		a.values[index]
+
++to json(a json-object)
+	inner: a
 
 +to-json[t] spec (json, t) to
 +from-json[t] spec (t, json) to
@@ -42,7 +64,7 @@ import
 +to json(a deserialize-error) = expected: a.expected.to, value: a.value
 +to deserialize-error(a json) = expected: a["expected"].to, value: a["value"].to
 
-+json-simplified union(null, bool, float64, string, json[], json[symbol])
++json-simplified union(null, bool, float64, string, json[], json-object)
 +simplify json-simplified(a json)
 	match x = a.inner
 	as null
@@ -59,7 +81,7 @@ import
 		x
 	as array
 		x
-	as map
+	as json-object
 		x
 
 + == bool(a json, b json)
@@ -73,7 +95,10 @@ import
 ~to-symbol-or-empty symbol(a json)
 	a.inner.string.?to else ""
 ~only-key-and-value (symbol, json)(a json)
-	a.inner.map.?only else ("", null)
+	if o = json-object a.inner and key = only o.keys
+		key, only! o.values
+	else
+		"", null
 ~to-flags-from-json nat(a json, expected string, member-names symbol[], member-values nat[])
 	match inner = a.inner
 	as null
@@ -102,9 +127,7 @@ import
 		- args
 +named-new json(keys symbol[], values json[])
 	assert keys.size == values.size
-	map json[symbol] = for i in 0::nat .. keys.size
-		keys[i], values[i]
-	map.to
+	inner: new-json-object keys, values
 
 +null json()
 	inner: ()::null
@@ -115,7 +138,7 @@ import
 +empty-array json()
 	()::json[].to
 +empty-object json()
-	()::json[symbol].to
+	inner: json-object (), ()
 +to json(a json)
 	a
 +to json(_ void)
@@ -206,31 +229,6 @@ import
 	- map::json[] a, it.to
 +to[t] json(a t mut[]) t to-json
 	- map::json[] a, it.to
-+to[t] json(a t set) t to-json, t key
-	- map::json[] a, it.to
-+to[t] t set(a json) t from-json, t key
-	a.to::t[].to
-+to[k, v] json(a v[k]) k key, k to-json, v to-json
-	parts (json, json)[] = for key, value in a
-		key.to, value.to
-	if every parts, it.a.inner.string
-		inner:
-			:: json[symbol]
-			for k, v in parts then k.inner.string!.to, v.to
-	else
-		parts.to
-+to[k, v] v[k](a json) k key, k from-json, v from-json
-	match x = a.inner
-	as null
-		()
-	as array
-		for value in x
-			to::(k, v) value
-	as map
-		for k, v in x
-			k.to::json.to::k, v.to::v
-	else
-		throw deserialize-error "map", a
 +to[t] json(a t?) t to-json
 	if a
 		a.to
@@ -315,11 +313,11 @@ do t0 from-json, t1 from-json, t2 from-json, t3 from-json, t4 from-json, t5 from
 | Most code does not care about this distinction.
 | If you do, you can test `if {a}.{simplify} {map}` or `if {a} {has-key} {key}`.
 +subscript json(a json, key symbol)
-	a.inner.map?[key] else null
+	a.inner.json-object?[key] else null
 
 | {true} if {a} is an object and {key} is one of its keys.
 +has-key bool(a json, key symbol)
-	(x = a.inner.map) and x[key]
+	a.inner.json-object?[key]
 
 | `a bool-or-null` is like `a bool`, but treats {null} as {false}.
 +to bool(a json)
@@ -348,8 +346,8 @@ do t0 from-json, t1 from-json, t2 from-json, t3 from-json, t4 from-json, t5 from
 		quoted x
 	as array
 		"[{join ",", map x, it.to-json}]"
-	as map
-		parts = join ",", for k, v in x
+	as json-object
+		parts = join ",", for k, v in zip x.keys, x.values
 			"{quoted k.to}:{to-json v}"
 		"\{{parts}\}"
 
@@ -374,10 +372,17 @@ do t0 from-json, t1 from-json, t2 from-json, t3 from-json, t4 from-json, t5 from
 			out ~= x
 	out ~= "\""
 
++omit-null-values json(a json)
+	match x = a.inner
+	as json-object
+		to::json filter::json-object x, it.b.inner.null.not
+	else
+		a
+
 +omit-empty-values json(a json)
 	match x = a.inner
-	as map
-		filter::json[symbol] x, it.b.is-empty-value.not 'to
+	as json-object
+		to::json filter::json-object x, it.b.is-empty-value.not
 	else
 		a
 
@@ -386,12 +391,11 @@ do t0 from-json, t1 from-json, t2 from-json, t3 from-json, t4 from-json, t5 from
 	match x = a.inner
 	as array
 		map x, it.deep-omit-empty-values
-	as map
-		res json[symbol] = with out in build
+	as json-object
+		to with::json-object out in build
 			for k, v in x
 				unless is-empty-value v
 					out ~= k, deep-omit-empty-values v
-		res.to
 	else
 		a
 -is-empty-value bool(a json)
@@ -400,7 +404,7 @@ do t0 from-json, t1 from-json, t2 from-json, t3 from-json, t4 from-json, t5 from
 		true
 	as array
 		is-empty x
-	as map
+	as json-object
 		is-empty x
 	else
 		false
@@ -436,7 +440,7 @@ do t0 from-json, t1 from-json, t2 from-json, t3 from-json, t4 from-json, t5 from
 			single "empty-array", false
 		else
 			to-kid-array-or-object (), x, max-columns
-	as map
+	as json-object
 		if is-empty x
 			single "empty-object", false
 		else
