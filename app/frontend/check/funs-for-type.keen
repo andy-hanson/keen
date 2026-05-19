@@ -1,13 +1,11 @@
 import
 	../../model/ast
 	../../model/model
-	../../model/uri
 	../../util/enum-map
 	./check-call/check-call-specs
 	./check-ctx
 	./instantiate
 	./get-common-funs
-	./type-from-ast
 
 funs-out alias
 	fun-decl builder
@@ -47,7 +45,6 @@ do check-ctx, common-types
 		emit[compare, comparison, two-of-it]
 		emit[hash, void, make-params (inst, hash-state)]
 		unless cur-module-is-no-std
-			json = must-get-json
 			emit[from-json, inst, make-params (json,)]
 			emit[to-json, json, make-params (inst,)]
 
@@ -64,9 +61,6 @@ to auto-fun-kind(a auto-fun-with-members-kind)
 	as hash then hash
 	as to-json then to-json
 
--must-get-json type-inst() check-ctx
-	only-inst type-decl! must-get-spec-or-type-from-std "json"
-
 fill-auto-fun-bodies void(auto-funs auto-funs) check-ctx, common-types, funs-map
 	for kind, map in auto-funs
 		unless is-empty map
@@ -76,7 +70,7 @@ fill-auto-fun-bodies void(auto-funs auto-funs) check-ctx, common-types, funs-map
 	kind auto-fun-with-members-kind
 	map auto-funs-for-kind
 do check-ctx, common-types, funs-map
-	spec_ = spec-and-extra-type-arg kind
+	spec_ = get-spec kind
 
 	# The key is a referenced type.
 	# The value is a tuple of the type that references it, and the type-inst it's referenced as.
@@ -206,18 +200,13 @@ do check-ctx, common-types, funs-map
 	assert is-empty cur.members
 	auto-fun cur.kind, members
 
--spec-and-extra-type-arg spec-decl(a auto-fun-with-members-kind) check-ctx, common-types
+-get-spec spec-decl(a auto-fun-with-members-kind) check-ctx, common-types
 	match a
-	as compare
-		compare-spec
-	as equals
-		equal-spec
-	as from-json
-		spec-decl! must-get-spec-or-type-from-std "from-json"
-	as hash
-		hash-spec
-	as to-json
-		spec-decl! must-get-spec-or-type-from-std "to-json"
+	as compare then compare-spec
+	as equals then equal-spec
+	as from-json then from-json-spec
+	as hash then hash-spec
+	as to-json then to-json-spec
 
 -has-standard-auto-funs bool(type type-decl)
 	match body = type.body
@@ -254,7 +243,7 @@ auto-fun-overrides alias
 auto-fun-override alias
 	(type-decl, auto-fun-kind)
 
-as-auto-fun-override auto-fun-override?(fun fun-decl) common-types, common-uris
+as-auto-fun-override auto-fun-override?(fun fun-decl) common-types
 	return = fun.return-type
 	match fun.name
 	as "=="
@@ -279,9 +268,9 @@ as-auto-fun-override auto-fun-override?(fun fun-decl) common-types, common-uris
 		enum_, members-of-enum-or-flags
 	as to
 		do if param = ?type-inst ?type only fun.params
-		if is-json return
+		if return == json
 			param.decl, to-json
-		elif is-json param and type-inst return
+		elif param == json and type-inst return
 			return.decl, from-json
 		elif inner = unwrap-option return
 			do if type-inst inner
@@ -289,30 +278,22 @@ as-auto-fun-override auto-fun-override?(fun fun-decl) common-types, common-uris
 			do if is-enum-or-flags enum_
 			if is-nat64 param
 				enum_, to-enum-or-flags-option-from-nat
-			elif is-symbol param
+			elif param == symbol
 				enum_, to-enum-or-flags-option-from-symbol
 		elif as-nat-type return
 			enum_ = param.decl
 			do if is-enum-or-flags enum_
 			enum_, to-nat-from-enum-or-flags
-		elif is-symbol return
+		elif return == symbol
 			enum_ = param.decl
 			do if is-enum enum_
 			enum_, to-symbol-from-enum
-		elif is-symbol-array return
+		elif return == symbol-array
 			flags_  = param.decl
 			do if is-flags flags_
 			flags_, to-symbol-array-from-flags
 	else
 		()
-
--is-json bool(a type) common-uris
-	a.type-inst and a.decl.module-uri == (the::common-uris)[json] and a.decl.name == "json"
-
--is-symbol bool(a type) common-types
-	a == symbol
--is-symbol-array bool(a type) common-types
-	(elem = as-array a) and is-symbol elem
 
 -is-enum bool(a type-decl)
 	a.body.enum_
@@ -493,7 +474,6 @@ do check-ctx, common-types
 	sum-type sum-type
 	auto-fun-overrides auto-fun-overrides
 do check-ctx, common-types
-	the common-uris = common-uris
 	if can-convert-back type and not is-empty sum-type.listed-members
 		for x in sum-type.listed-members
 			add-funs-for-sum-type-case out, type, inst, x.case-type

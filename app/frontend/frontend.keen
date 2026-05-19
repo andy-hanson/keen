@@ -90,6 +90,7 @@ new frontend(keen-lib uri)
 		workable-keen: ()
 	res.common-files := for _, uri in common-uris
 		ensure-keen-file res, uri
+	_ = ensure-java-class-file res, "java/lang/String".as-path, all
 	res
 
 |  This is initially empty and the fields fill in from top to bottom in various steps.
@@ -190,9 +191,6 @@ make-program program(a frontend, fully-loaded-dirs uri set)
 	line-and-column-getters: a.line-and-column-getters
 	common-funs: common-funs
 	common-types: a.common-types
-	uncommon-types:
-		java-String: only-inst a.java-class-files[assume-path "java/lang/String"]!.type!
-		json: common-funs.json-named-new.return-type.type-inst!
 
 get-kid-file line-and-character-getter(a frontend, uri uri)
 	if is-config uri
@@ -256,10 +254,7 @@ set-file void(a frontend, uri uri, result read-file-result)
 		as array-view
 			parsed = parse-java-class result
 			file.parsed := parsed
-			if file.type
-				file.path.to::symbol is "java/lang/String" # We handle this specially so that common-types can use it
-			else
-				file.type := initial-type-decl-for-java-class parsed
+			file.type := initial-type-decl-for-java-class parsed
 			ensure-java-class-references a, file
 			for x in file.referenced-by-java
 				add-to-workable-if-so a, x, a.java-class-files[x]!
@@ -421,8 +416,9 @@ set-file void(a frontend, uri uri, result read-file-result)
 
 	the instantiate-ctx = a.instantiate-ctx
 	bootstrap = a.common-files[bootstrap]
-	if remove a.workable-keen, bootstrap.uri
-		module, common-types = check-bootstrap a.keen-lib, a.common-uris,
+	if a.workable-keen[bootstrap.uri] and java-String = ?only-inst ?type a.java-class-files[as-path "java/lang/String"]
+		assert remove a.workable-keen, bootstrap.uri
+		module, common-types = check-bootstrap a.keen-lib, a.common-uris, java-String,
 			bootstrap.uri, bootstrap.config!, bootstrap.get-ast
 		a.common-types-option := common-types
 		bootstrap.module := module
@@ -589,7 +585,6 @@ set-file void(a frontend, uri uri, result read-file-result)
 	match file.work-needed
 	as referencable
 		# Type is created as soon as file content is ready, not in a separate work step
-		assert file.type
 		false
 	as supertypes
 		not file.has-filled-in-supertypes
