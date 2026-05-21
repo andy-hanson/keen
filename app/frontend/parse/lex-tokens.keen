@@ -58,14 +58,14 @@ lex-tokens tokens(source string-view, diagnostics parse-diagnostic mut[])
 		as "\n"
 			emit-newline state, iter, start
 		as "~"
-			if peek-space-after-binary-operator iter or iter.peek8 == "~"
-				emit-operator state, start, iter, if try-take-char8 iter, "~" then "~~" else "~"
+			if peek-space-after-binary-operator iter or iter.peek == "~"
+				emit-operator state, start, iter, if try-take iter, "~" then "~~" else "~"
 			else
 				emit-operator-prefix state, start, iter, "~"
 		as "@"
 			emit state, at, start, iter.pos
 		as "!"
-			if try-take-char8 iter, "="
+			if try-take iter, "="
 				emit-operator state, start, iter, "!="
 			else
 				emit state, bang, start, iter.pos
@@ -76,7 +76,7 @@ lex-tokens tokens(source string-view, diagnostics parse-diagnostic mut[])
 		as "&"
 			emit-operator state, start, iter, "&"
 		as "*"
-			emit-operator state, start, iter, if try-take-char8 iter, "*" then "**" else "*"
+			emit-operator state, start, iter, if try-take iter, "*" then "**" else "*"
 		as "("
 			emit state, paren-left, start, iter.pos
 		as ")"
@@ -92,36 +92,36 @@ lex-tokens tokens(source string-view, diagnostics parse-diagnostic mut[])
 			if q = pop-inside-quotes state
 				take-string-part state, iter, iter.pos, q
 		as "-"
-			if is-digit iter.peek8
+			if peek-digit iter
 				take-number-after-sign state, start, iter
-			elif try-take-char8 iter, "-"
+			elif try-take iter, "-"
 				emit state, list-dash-dash, start, iter.pos
 			elif peek-space-after-binary-operator iter
-				if prev-is-newline state and iter.peek8 != "="
+				if prev-is-newline state and iter.peek != "="
 					emit state, list-dash, start, iter.pos
 				else
 					emit-operator state, start, iter, "-"
 			else
 				emit-operator-prefix state, start, iter, "-"
 		as "="
-			if try-take-char8 iter, "="
+			if try-take iter, "="
 				emit-operator state, start, iter, "=="
 			else
 				emit state, equal, start, iter.pos
 		as "+"
-			if is-digit iter.peek8
+			if peek-digit iter
 				take-number-after-sign state, start, iter
 			else
 				emit-operator state, start, iter, "+"
 		as "|"
-			if prev-is-newline state and is-whitespace iter.peek8
+			if prev-is-newline state and peek-whitespace iter
 				take-string-part state, iter, start, bar
 			else
 				emit-operator state, start, iter, "|"
 		as ":"
-			if try-take-char8 iter, "="
+			if try-take iter, "="
 				emit state, colon-equal, start, iter.pos
-			elif try-take-char8 iter, ":"
+			elif try-take iter, ":"
 				emit state, colon2, start, iter.pos
 			else
 				emit state, colon, start, iter.pos
@@ -135,21 +135,21 @@ lex-tokens tokens(source string-view, diagnostics parse-diagnostic mut[])
 		as ","
 			emit state, comma, start, iter.pos
 		as "<"
-			emit-operator state, start, iter, if try-take-char8 iter, "="
-				if try-take-char8 iter, ">" then "<=>" else "<="
-			elif try-take-char8 iter, "<"
+			emit-operator state, start, iter, if try-take iter, "="
+				if try-take iter, ">" then "<=>" else "<="
+			elif try-take iter, "<"
 				"<<"
 			else
 				"<"
 		as ">"
-			emit-operator state, start, iter, if try-take-char8 iter, "="
+			emit-operator state, start, iter, if try-take iter, "="
 				">="
-			elif try-take-char8 iter, ">"
+			elif try-take iter, ">"
 				">>"
 			else
 				">"
 		as "."
-			if try-take-char8 iter, "."
+			if try-take iter, "."
 				emit-operator state, start, iter, ".."
 			else
 				emit state, dot, start, iter.pos
@@ -158,7 +158,7 @@ lex-tokens tokens(source string-view, diagnostics parse-diagnostic mut[])
 		as "/"
 			emit-operator state, start, iter, "/"
 		as "?"
-			if try-take-char8 iter, "["
+			if try-take iter, "["
 				emit state, question-bracket, start, iter.pos
 			elif name = try-take-keen-identifier iter
 				emit state, name-after-question, start, iter.pos, name
@@ -181,9 +181,12 @@ lex-tokens tokens(source string-view, diagnostics parse-diagnostic mut[])
 	emit-newline state, iter, iter.pos
 	finish state
 
+-peek-whitespace bool(a string-iterator)
+	(x = peek a) and is-whitespace x
+
 -peek-space-after-binary-operator bool(iter string-iterator)
 	# Ensure that `x -= 1` or `x -:= 1` parses '-' as an operator
-	is-whitespace iter.peek8 or iter.peek8 == "=" or iter.peek8 == ":"
+	(x = peek iter) and (is-whitespace x or x == "=" or x == ":")
 
 -number void(state lexer-state, iter string-iterator)
 	iter.pos -:= 1
@@ -260,7 +263,7 @@ lex-tokens tokens(source string-view, diagnostics parse-diagnostic mut[])
 				emit state, token, start, iter.pos, symbol
 			as quote-keyword
 				before-newline = iter.pos
-				if try-take-char8 iter, "\n"
+				if try-take iter, "\n"
 					end-all-quotes state, iter
 					delta = get-indent-delta-after-quote state, iter
 					if delta == 1
@@ -279,7 +282,7 @@ lex-tokens tokens(source string-view, diagnostics parse-diagnostic mut[])
 		char = must-take-one-unicode-char iter
 		state.diagnostics ~= (start, iter.pos), char.parse-diag-unexpected-character
 		# Skip to end of line to avoid excessive diagnostics
-		until iter.is-at-end or iter.peek8 == "\n"
+		until is-at-end iter or iter.peek == "\n"
 			_ = take-next iter
 
 -emit-newline void(state lexer-state, iter string-iterator, start pos)
@@ -315,18 +318,18 @@ lex-tokens tokens(source string-view, diagnostics parse-diagnostic mut[])
 	check-after-operator out, start, iter, value
 	emit-name-like-token out, iter, start, value, true
 -check-after-operator void(out lexer-state, start pos, iter string-iterator, value symbol)
-	if is-operator-char iter.peek8
+	if peek-operator-char iter
 		# Imports often have './' or '/.', so ignore it
-		unless value == ".." and iter.peek8 == "/" or value == "/" and iter.peek8 == "."
-			out.diagnostics ~= (start, iter.pos + 1), parse-diag-operator-needs-space value, iter.peek8.to
-	elif iter.peek8 == "=" and iter.peek8-next == "="
+		unless value == ".." and iter.peek == "/" or value == "/" and iter.peek == "."
+			out.diagnostics ~= (start, iter.pos + 1), parse-diag-operator-needs-space value, iter.peek!.to
+	elif iter.peek == "=" and iter.peek-next == "="
 		out.diagnostics ~= (start, iter.pos + 2), parse-diag-operator-needs-space value, "=="
 -emit-name-like-token void(out lexer-state, iter string-iterator, start pos, value symbol, is-operator bool)
 	v mut = value
 	regular-token = if is-operator then operator-binary else name
-	token = match peek8 iter
+	token = match peek iter else "\0"
 	as "="
-		if iter.peek8-next == "="
+		if iter.peek-next == "="
 			regular-token
 		else
 			_ = take-next iter
@@ -339,7 +342,7 @@ lex-tokens tokens(source string-view, diagnostics parse-diagnostic mut[])
 		else
 			regular-token
 	as ":"
-		if iter.peek8-next == "="
+		if iter.peek-next == "="
 			_ = take-next iter
 			_ = take-next iter
 			if is-operator then operator-colon-equals else name-colon-equals
@@ -349,8 +352,10 @@ lex-tokens tokens(source string-view, diagnostics parse-diagnostic mut[])
 		regular-token
 	emit out, token, start, iter.pos, v
 
+-peek-next char8?(a string-iterator) = peek-by a, 1
+
 -try-take-just-colon bool(a string-iterator)
-	if a.peek8 == ":" and a.peek8-next != ":" and a.peek8-next != "="
+	if a.peek == ":" and (peek-by a, 1) != ":" and (peek-by a, 1) != "="
 		_ = take-next a
 		true
 
@@ -490,7 +495,7 @@ region strings
 	text string = with out in build
 		do until
 		start = iter.pos
-		match iter.peek8
+		match peek iter else "\0"
 		as "\{"
 			_ = take-next iter
 			push-inside-quotes state, indented
@@ -507,7 +512,7 @@ region strings
 		as "\n"
 			count-newlines mut nat = 0
 			new-indent mut nat32 = 0
-			while try-take-char8 iter, "\n"
+			while try-take iter, "\n"
 				count-newlines +:= 1
 				new-indent := take-indent-amount-after-newline iter, state.indent-kind, of pos
 					state.diagnostics ~= (pos, iter.pos), parse-diag-indent-wrong state.indent-kind
@@ -558,7 +563,7 @@ do
 		interpolate := until
 			start-of-char = iter.pos
 			end := start-of-char
-			match iter.peek8
+			match peek iter else "\0"
 			as "\""
 				_ = take-next iter
 				match quote-kind
@@ -585,11 +590,11 @@ do
 				match quote-kind
 				as bar
 					iter2 = copy iter
-					while is-whitespace iter2.peek8
+					while peek-whitespace iter2
 						_ = take-next iter2
-					if iter2.peek8 == "|"
+					if iter2.peek == "|"
 						_ = take-next iter2
-						_ = try-take-char8 iter2, " "
+						_ = try-take iter2, " "
 						iter.pos := iter2.pos
 						out ~= "\n"
 						()
@@ -640,15 +645,15 @@ cb-comment alias
 skip-spaces-and-comments void(iter string-iterator, cb-comment cb-comment, diagnostics parse-diagnostic mut[])
 	do until
 	start = iter.pos
-	if is-whitespace-non-newline iter.peek8
+	if x = peek iter and is-whitespace-non-newline x
 		_ = take-next iter
 		false
-	elif iter.peek8 == "#"
+	elif iter.peek == "#"
 		if try-take-triple-hash-then-newline iter
 			skip-rest-of-block-comment iter, diagnostics
 			cb-comment[start]
 		else
-			while try-take-char8 iter, " "
+			while try-take iter, " "
 				()
 			skip-until-newline iter
 			cb-comment[start]
@@ -670,7 +675,7 @@ skip-spaces-and-comments void(iter string-iterator, cb-comment cb-comment, diagn
 	repeat-until-indent-delta state, iter, of
 		iter.pos, until
 			amount = take-indent-amount-after-newline state, iter
-			unless try-take-char8 iter, "\n"
+			unless try-take iter, "\n"
 				amount
 
 -take-indent-amount-after-newline nat32(state lexer-state, iter string-iterator)
@@ -720,14 +725,14 @@ do
 	do until
 	cb-start-of-line[]
 	before = iter.pos
-	if try-take-char8 iter, "\n"
+	if try-take iter, "\n"
 		false
 	elif try-take-triple-hash-then-newline iter
 		skip-rest-of-block-comment iter, diagnostics
 		cb-comment[before]
 		false
-	elif try-take-char8 iter, "#"
-		while try-take-char8 iter, " "
+	elif try-take iter, "#"
+		while try-take iter, " "
 			()
 		skip-until-newline iter
 		cb-comment[before]
@@ -737,21 +742,21 @@ do
 
 -skip-rest-of-line-and-newline void(iter string-iterator)
 	skip-until-newline iter
-	_ = try-take-char8 iter, "\n"
+	_ = try-take iter, "\n"
 
 -try-take-triple-hash-then-newline bool(iter string-iterator)
 	iter2 = copy iter
 	if try-take iter2, "###"
-		while try-take-char8 iter2, " "
+		while try-take iter2, " "
 			()
-		if try-take-char8 iter2, "\n" or iter2.is-at-end
+		if try-take iter2, "\n" or iter2.is-at-end
 			iter.pos := iter2.pos
 			true
 
 | Returns the end of the comment text ({iter} will be advanced further, past the '###')
 -skip-rest-of-block-comment void(iter string-iterator, diagnostics parse-diagnostic mut[])
 	do until
-	while try-take-char8 iter, "\t" or try-take-char8 iter, " "
+	while try-take iter, "\t" or try-take iter, " "
 		()
 	if try-take-triple-hash-then-newline iter
 		true
@@ -762,6 +767,8 @@ do
 		skip-rest-of-line-and-newline iter
 		false
 
+-peek-operator-char bool(a string-iterator)
+	(x = peek a) and is-operator-char x
 -is-operator-char bool(a char8)
 	match a
 	as "." then true

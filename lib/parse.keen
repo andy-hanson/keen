@@ -7,13 +7,6 @@ import
 	./private/parse-util
 	./string/unicode
 
--peek-after char8(a string-iterator)
-	try
-		copy = a.copy
-		_ = take-next copy
-		take-next copy
-	catch as iterator-out-of-bounds
-		"\0"
 +try-take bool(a string-iterator, start string)
 	try-take-all a, start.to::char8[]
 +starts-with bool(a string-iterator, start string)
@@ -255,7 +248,7 @@ import
 		false
 
 ~take-string-escape bool(out char8 builder, iter string-iterator)
-	match take-char8-or-nul iter
+	match try-take-next iter else "\0"
 	as "\\"
 		out ~= "\\"
 		true
@@ -383,18 +376,20 @@ import
 	while peek-digit iter
 		_ = take-next iter
 		skip-underscore-if-before-digit iter
-	if iter.peek == "." and is-digit peek-after iter
+	if iter.peek == "." and peek-digit-next iter
 		_ = take-next iter
 		while peek-digit iter
 			_ = take-next iter
 			skip-underscore-if-before-digit iter
 	parse-float slice start, iter
 
--peek-digit bool(a string-iterator)
+~peek-digit bool(a string-iterator)
 	(x = peek a) and is-digit x
+-peek-digit-next bool(a string-iterator)
+	(x = peek-by a, 1) and is-digit x
 
 -skip-underscore-if-before-digit void(a string-iterator)
-	if a.peek == "_" and is-digit peek-after a
+	if a.peek == "_" and peek-digit-next a
 		_ = a.take-next
 
 ~parse-float float64(a string-view)
@@ -476,7 +471,7 @@ import
 	key.to, value
 
 ~try-take-number json?(iter string-iterator)
-	if is-digit iter.peek8 or iter.peek8 == "-" and is-digit iter.peek8-next
+	if peek-digit iter or iter.peek == "-" and peek-digit-next iter
 		# TODO: could take an int or nat
 		take-float iter 'to
 
@@ -515,7 +510,7 @@ import
 	else
 		match first = parse-kid-simple iter
 		as json
-			- if try-take-char8 iter, ","
+			- if try-take iter, ","
 				parse-kid-single-line-list-after-value-and-comma iter, first
 			else
 				first
@@ -528,7 +523,7 @@ import
 
 -parse-kid-inner-including-list (json, int32?)(iter string-iterator, ctx ctx, indent int32)
 	res, new-indent = parse-kid-inner iter, ctx, indent
-	- if not new-indent and try-take-char8 iter, ","
+	- if not new-indent and try-take iter, ","
 		parse-kid-single-line-list-after-value-and-comma iter, res
 	else
 		res
@@ -537,7 +532,7 @@ import
 | This does not take commas for lists. Caller is responsible.
 -parse-kid-inner (json, int32?)(iter string-iterator, ctx ctx, indent int32)
 	skip-spaces iter
-	if try-take-char8 iter, "\n"
+	if try-take iter, "\n"
 		new-indent = take-next-indent-after-newline iter, ctx
 		assert new-indent == indent + 1 else inner-parse-error "Kid value"
 		parse-kid-line iter, ctx, new-indent 'to
@@ -551,7 +546,7 @@ import
 
 -parse-kid-single-line-list-after-value-and-comma json(iter string-iterator, first json)
 	skip-spaces iter
-	if peek-end-of-line iter or iter.peek8 == ")"
+	if peek-end-of-line iter or iter.peek == ")"
 		- first
 	else
 		parse-kid-single-line-list-after-value-comma-value iter, first, parse-kid-simple-no-colon iter
@@ -559,7 +554,7 @@ import
 	do with out in build
 	out ~= first
 	out ~= second
-	while try-take-char8 iter, ","
+	while try-take iter, ","
 		skip-spaces iter
 		out ~= parse-kid-simple-no-colon iter
 
@@ -583,7 +578,7 @@ import
 
 -starts-with-then-whitespace bool(a string-iterator, start string)
 	copy = copy a
-	try-take-all copy, start.to::char8[] and is-whitespace copy.peek8
+	try-take-all copy, start.to::char8[] and x = peek copy and is-whitespace x
 
 -parse-kid-single-line-object (json, int32)(iter string-iterator, ctx ctx, first-name symbol, indent int32)
 	first-value, first-indent = parse-kid-inner iter, ctx, indent
@@ -617,7 +612,7 @@ do
 	cur-name mut = first-name
 	cur-value mut = first-value
 	res json[symbol] = with out in build
-		while not new-indent and try-take-char8 iter, ","
+		while not new-indent and try-take iter, ","
 			skip-spaces iter
 			match x = parse-kid-simple iter
 			as json
@@ -633,7 +628,7 @@ do
 	- new-indent else take-next-indent iter, ctx, indent
 
 -parse-kid-simple-no-colon json(iter string-iterator)
-	if try-take-char8 iter, "("
+	if try-take iter, "("
 		after-paren iter
 	elif name = try-take-keen-identifier iter
 		kid-value-from-name name
@@ -645,26 +640,26 @@ do
 		throw inner-parse-error "Kid value"
 
 -after-paren json(iter string-iterator)
-	if try-take-char8 iter, ")"
+	if try-take iter, ")"
 		null
 	else
 		value, dedent = parse-kid-inner-including-list iter, (indent-kind: tabs), 0
-		assert not dedent and try-take-char8 iter, ")" else
+		assert not dedent and try-take iter, ")" else
 			inner-parse-error "Closing parenthesis"
 		value
 
 # 'json' for a simple value; 'symbol' for a name followed by a colon
 -kid-simple union(json, symbol)
 -parse-kid-simple kid-simple(iter string-iterator)
-	if try-take-char8 iter, "("
+	if try-take iter, "("
 		after-paren iter
 	elif name = try-take-keen-identifier iter
-		if try-take-char8 iter, ":"
+		if try-take iter, ":"
 			name
 		else
 			kid-value-from-name name
 	elif x = try-take-quoted-string iter
-		if try-take-char8 iter, ":"
+		if try-take iter, ":"
 			x.to::symbol
 		else
 			x.to::json
@@ -689,22 +684,22 @@ do
 		throw inner-parse-error "Kid value"
 
 -peek-end-of-line bool(a string-iterator)
-	is-at-end a or a.peek8 == "\n"
+	is-at-end a or a.peek == "\n"
 
 -take-name-colon-or-string-colon symbol(iter string-iterator)
 	assert res = (try-take-keen-identifier iter or ?to try-take-quoted-string iter) else
 		inner-parse-error "Identifier or string, then ':'"
-	assert try-take-char8 iter, ":" else inner-parse-error "Colon after identifier"
+	assert try-take iter, ":" else inner-parse-error "Colon after identifier"
 	res
 
 -skip-all-whitespace void(iter string-iterator)
-	while is-whitespace iter.peek8
+	while x = peek iter and is-whitespace x
 		_ = take-next iter
 -skip-spaces void(iter string-iterator)
-	while is-whitespace-non-newline iter.peek8
+	while x = peek iter and is-whitespace-non-newline x
 		_ = take-next iter
 ~try-take-quoted-string string?(iter string-iterator)
-	if try-take-char8 iter, "\""
+	if try-take iter, "\""
 		take-quoted-string-after-quote iter
 
 -try-take-next-indent int32?(iter string-iterator, ctx ctx, cur-indent int32)
@@ -712,7 +707,7 @@ do
 		take-next-indent iter, ctx, cur-indent
 -take-next-indent int32(iter string-iterator, ctx ctx, cur-indent int32)
 	skip-spaces iter
-	assert try-take-char8 iter, "\n" or is-at-end iter else inner-parse-error "Newline"
+	assert try-take iter, "\n" or is-at-end iter else inner-parse-error "Newline"
 	res = take-next-indent-after-newline iter, ctx
 	assert res <= cur-indent else inner-parse-error "Cannot indent here"
 	res
@@ -722,7 +717,7 @@ do
 		throw inner-parse-error "Indent by {ctx.indent-kind}"
 	if is-at-end iter
 		eof-indent
-	elif try-take-char8 iter, "\n"
+	elif try-take iter, "\n"
 		()
 	else
 		new-indent::nat64.to::int64.to

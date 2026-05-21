@@ -4,7 +4,6 @@ import
 	keen/bits
 	keen/bool
 	keen/col/array
-	keen/col/collection
 	keen/compare
 	keen/hash
 	keen/misc
@@ -16,38 +15,12 @@ import
 	../hash: global-hash-seed
 	../symbol: to-symbol-with-hash
 
-| WARN: This peeks the next byte, which could be an invalid char8.
-| Uses "\0" to indicate the end.
-+peek8 char8(a string-iterator)
-	try
-		take-next a.copy
-	catch as iterator-out-of-bounds
-		"\0"
-
 pos nat32(a string-iterator)
 	a.index.to
 set-pos void(a string-iterator, pos nat32)
 	a.index := pos
 
-peek8-next char8(a string-iterator)
-	try
-		copy = copy a
-		_ = take-next copy
-		take-next copy
-	catch as iterator-out-of-bounds
-		"\0"
-
-take-char8-or-nul char8(a string-iterator)
-	try
-		take-next a
-	catch as iterator-out-of-bounds
-		"\0"
-try-take-char8 bool(a string-iterator, x char8)
-	if a.peek8 == x
-		_ = take-next a
-		true
-
-slice-from string-view(a string-iterator, start-pos nat32)
+-slice-from string-view(a string-iterator, start-pos nat32)
 	start = copy a
 	start.pos := start-pos
 	start 'slice a
@@ -81,28 +54,28 @@ try-take-keen-identifier symbol?(iter string-iterator)
 			()
 		trusted iter 'slice-from start 'to-symbol-with-hash state.finish
 -try-take-initial-identifier-char bool(iter string-iterator, state hash-state)
-	if is-initial-single-byte-identifier-char iter.peek8
+	if x = peek iter and is-initial-single-byte-identifier-char x
 		hash iter.take-next, state
 		true
 	else
 		try-take-unicode-identifier-char iter, state
 -try-take-one-identifier-char bool(iter string-iterator, state hash-state)
-	if is-single-byte-identifier-char iter.peek8
+	if x = peek iter and is-single-byte-identifier-char x
 		hash iter.take-next, state
 		true
 	else
 		try-take-unicode-identifier-char iter, state
 
 -try-take-unicode-identifier-char bool(iter string-iterator, state hash-state)
-	if is-utf8-initial-or-continue-code iter.peek8
-		before = iter.pos
-		x = must-take-one-unicode-char iter
-		if is-allowed-unicode-identifier-char x
-			iter 'slice-from before 'hash state
-			true
-		else
-			iter.pos := before
-			false
+	do if p = peek iter and is-utf8-initial-or-continue-code p
+	before = iter.pos
+	x = must-take-one-unicode-char iter
+	if is-allowed-unicode-identifier-char x
+		iter 'slice-from before 'hash state
+		true
+	else
+		iter.pos := before
+		false
 
 | True even for keywords
 is-keen-identifier bool(a string)
@@ -311,26 +284,22 @@ detect-indent-kind indent-kind(a string-iterator)
 	iter = copy a
 	do until
 	begin = iter.pos
-	match iter.peek8
+	match peek iter else "\0"
 	as "\0"
 		tabs
 	as "\t"
 		tabs
 	as " "
-		while try-take-char8 iter, " "
+		while try-take iter, " "
 			()
-		n = iter.pos - begin
-		if n == 2
-			spaces-2
-		else
-			spaces-4
+		if iter.pos - begin == 2 then spaces-2 else spaces-4
 	else
 		skip-until-newline iter
-		_ = try-take-char8 iter, "\n"
+		_ = try-take iter, "\n"
 		()
 
 skip-until-newline void(a string-iterator)
-	while not is-at-end a and a.peek8 != "\n"
+	while not is-at-end a and a.peek != "\n"
 		_ = take-next a
 
 take-indent-amount-after-newline nat32
@@ -355,12 +324,17 @@ do
 	res
 -take-indent-chars nat32(iter string-iterator, right-indent char8, wrong-indent char8, add-diag void mut(pos nat32))
 	start = iter.pos
-	while try-take-char8 iter, right-indent
+	while try-take iter, right-indent
 		()
 	res = iter.pos - start
 	mid = iter.pos
-	if try-take-char8 iter, wrong-indent
-		while try-take-char8 iter, wrong-indent
+	if try-take iter, wrong-indent
+		while try-take iter, wrong-indent
 			()
 		add-diag[mid]
 	res
+
+-try-take bool(a string-iterator, value char8)
+	if a.peek == value
+		_ = take-next a
+		true
