@@ -197,7 +197,7 @@ parse-params-parenthesized destructure-ast[]() parser
 		tuple-type-ast start.range, args
 
 -parse-type-suffixes type-ast(left type-ast) parser
-	if suffix = parse-type-suffix-non-name {left}
+	if suffix = parse-type-suffix-non-name left
 		parse-type-suffixes suffix
 	elif name = try-take-name-and-range
 		parse-type-suffixes suffix-name-type-ast left, name
@@ -208,7 +208,7 @@ parse-params-parenthesized destructure-ast[]() parser
 	keyword-pos = next-start
 	if keyword = try-take-modifier-keyword-non-spec
 		modifier-keyword-ast left, keyword-pos, keyword
-	elif suffix = parse-type-suffix-non-name {left}
+	elif suffix = parse-type-suffix-non-name left
 		parse-modifier-suffixes suffix
 	elif name = try-take-name-and-range-allow-name-like-keywords
 		parse-modifier-suffixes-after-name left, name
@@ -219,87 +219,79 @@ parse-params-parenthesized destructure-ast[]() parser
 		spec-use-ast left, (next-start, "")
 
 -parse-modifier-suffixes-after-name modifier-ast(left type-ast, name name-and-range) parser
-	name-is-type type-ast data() = {suffix-name-type-ast left, name}
+	name-is-type = suffix-name-type-ast left, name
 	keyword-pos = next-start
 	if keyword = try-take-modifier-keyword-non-spec
-		modifier-keyword-ast name-is-type[], keyword-pos, keyword
+		modifier-keyword-ast name-is-type, keyword-pos, keyword
 	elif suffix = parse-type-suffix-non-name name-is-type
 		parse-modifier-suffixes suffix
 	elif name2 = try-take-name-and-range
-		parse-modifier-suffixes-after-name name-is-type[], name2
+		parse-modifier-suffixes-after-name name-is-type, name2
 	else
 		spec-use-ast left, name
 
 -parse-type-suffixes-non-name type-ast(left type-ast) parser
-	if suffix = parse-type-suffix-non-name {left}
+	if suffix = parse-type-suffix-non-name left
 		parse-type-suffixes-non-name suffix
 	else
 		left
 
--parse-type-suffix-non-name type-ast?(cb-left type-ast data()) parser # TODO: does cb-left sitll need to be a cb???
+-parse-type-suffix-non-name type-ast?(left type-ast) parser
 	suffix-pos = next-start
-	suffix2 = of kind suffix-special-type-ast-kind, left type-ast
-		suffix-special-type-ast left, suffix-pos, kind
-	suffix1 = of kind suffix-special-type-ast-kind
-		suffix2[kind, cb-left[]]
-	map-like2 = of kind mutability, left type-ast
-		key = parse-type
-		_ = take-or-add-diag-expected-token bracket-right, closing-bracket
-		map-type-ast kind, left, key
-	map-like1 = of kind mutability
-		map-like2[kind, cb-left[]]
+	array-or-map = of::type-ast array-kind suffix-special-type-ast-kind, map-kind mutability
+		if try-take-token bracket-right
+			suffix-special-type-ast left, suffix-pos, array-kind
+		else
+			map-like left, map-kind
 
 	match peek
 	as question
 		advance
-		suffix1[option]
+		suffix-special-type-ast left, suffix-pos, option
 	as bracket-left
 		advance
-		if try-take-token  bracket-right
-			suffix1[array]
-		else
-			map-like1[data_]
+		array-or-map[array, data_]
 	as question-bracket
 		advance
-		left = suffix1[option]
+		left-option = suffix-special-type-ast left, suffix-pos, option
 		if try-take-token bracket-right
-			suffix-special-type-ast left, suffix-pos + 1, array
+			suffix-special-type-ast left-option, suffix-pos + 1, array
 		else
-			map-like2[data_, left]
+			map-like left-option, data_
 	as mut_
-		try-parse-fun-type suffix-pos, mut_, cb-left or
+		try-parse-fun-type suffix-pos, mut_, left or
 			mut-pos = next-start
 			advance
 			if try-take-token bracket-left
-				if try-take-token bracket-right
-					suffix1[mut-array]
-				else
-					map-like1[mut_]
+				array-or-map[mut-array, mut_]
 			else
 				add-diag mut-pos.range, parse-diag-type-trailing-mut
 				()
 	as data_
-		try-parse-fun-type suffix-pos, data_, cb-left
+		try-parse-fun-type suffix-pos, data_, left
 	as shared_
-		if fun = try-parse-fun-type suffix-pos, shared_, cb-left
+		if fun = try-parse-fun-type suffix-pos, shared_, left
 			fun
 		elif peek2 bracket-left
 			advance
 			advance
-			if try-take-token bracket-right
-				suffix1[shared-array]
-			else
-				map-like1[shared_]
+			array-or-map[shared-array, shared_]
 	else
 		()
+-map-like type-ast(left type-ast, kind mutability) parser
+	key = parse-type
+	if take-or-add-diag-expected-token bracket-right, closing-bracket
+		map-type-ast kind, left, key
+	else
+		left
 
--try-parse-fun-type fun-type-ast?(keyword-pos pos, kind mutability, return-type type-ast data()) parser
+-try-parse-fun-type fun-type-ast?(keyword-pos pos, kind mutability, return-type type-ast) parser
 	do if peek2 paren-left
 	advance
 	before-params = next-start
 	params-array = parse-params-parenthesized
 	params destructure-ast = destructure-from-parts before-params, params-array
-	return-type[], keyword-pos, kind, params
+	return-type, keyword-pos, kind, params
 
 -destructure-from-parts destructure-ast(start pos, parts destructure-ast[]) parser
 	match parts.size
