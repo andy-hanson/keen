@@ -3,7 +3,7 @@
 	label:
 		- value: "Used by "
 		-
-			value: "a.keen"
+			value: "a"
 			location:
 				uri: "test:/inlay-hints/a.keen"
 				range:
