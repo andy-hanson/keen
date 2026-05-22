@@ -15,7 +15,7 @@ import
 	./misc
 	./number
 	./option
-	./private/bootstrap: inner, new-json-object-from-sorted, keys, values
+	./private/bootstrap: new-json-object-from-sorted, keys, values
 	./private/parse-util
 	./range
 	./string
@@ -39,8 +39,17 @@ export
 +subscript json?(a json-object, key symbol)
 	a.values?[binary-search-exact a.keys, key]
 
-+to json(a json-object)
-	json a
++ == bool(a json-object, b json-object)
+	trusted a.keys == b.keys and a.values == b.values
++ <=> comparison(a json-object, b json-object)
+	trusted match res = a.keys <=> b.keys
+	as equal then a.values <=> b.values
+	else then res
++hash void(a json-object, state hash-state)
+	do trusted
+	hash a.keys, state
+	hash a.values, state
++to json(a json-object) = a
 
 +interpolate json(parts string[])
 	parts.interpolate::string.to
@@ -51,154 +60,107 @@ export
 +to json(a deserialize-error) = expected: a.expected.to, value: a.value
 +to deserialize-error(a json) = expected: a["expected"].to, value: a["value"].to
 
-+json-simplified union(null, bool, float64, string, json[], json-object)
-+simplify json-simplified(a json)
-	match x = a.inner
-	as null
-		null
-	as bool
-		x
-	as nat
-		x.to::float64
-	as int
-		x.to::float64
-	as float
-		x
-	as string
-		x
-	as array
-		x
-	as json-object
-		x
++ == bool(_ null, _ null) = trusted true
++ <=> comparison(_ null, _ null) = trusted equal
++hash void(_ null, _ hash-state) = trusted ()
++to json(a null) = a
 
-+ == bool(a json, b json)
-	# TODO: We should actually just use the auto fun. But make sure '1' parses as a nat consistently!
-	trusted a.simplify == b.simplify
-+ <=> comparison(a json, b json)
-	trusted a.simplify <=> b.simplify
-+hash void(a json, state hash-state)
-	trusted hash a.simplify, state
++ == bool(a json, b json) = trusted a.as-copy == b.as-copy
++ <=> comparison(a json, b json) = trusted a.as-copy <=> b.as-copy
++hash void(a json, state hash-state) = trusted hash a.as-copy, state
+# Hack to get auto funs generated here (instead of in bootstrap where they would have a bunch of specs)
+-json-copy union(null, bool, nat64, int64, float64, string, json[], json-object)
+-as-copy json-copy(a json)
+	match a
+	as null then a
+	as bool then a
+	as nat then a
+	as int then a
+	as float then a
+	as string then a
+	as array then a
+	as json-object then a
 
 ~to-symbol-or-empty symbol(a json)
-	a.inner.string.?to else ""
+	a.string.?to else ""
 ~only-key-and-value (symbol, json)(a json)
-	if o = json-object a.inner and key = only o.keys
-		key, only! o.values
+	if json-object a and key = only a.keys
+		key, only! a.values
 	else
 		"", null
 ~to-flags-from-json nat(a json, expected string, member-names symbol[], member-values nat[])
-	match inner = a.inner
+	match a
 	as null
 		()
 	as array
 		res mut nat = 0
-		for x in inner
+		for x in a
 			res |:= to-flags-from-string x, expected, member-names, member-values
 		res
 	else
 		to-flags-from-string a, expected, member-names, member-values
 -to-flags-from-string nat(a json, expected string, member-names symbol[], member-values nat[])
-	s = a.inner
-	assert string s and index = index-of member-names, s.to else deserialize-error expected, a
+	assert string a and index = index-of member-names, a.to else deserialize-error expected, a
 	member-values[index]
 
-+to json(a null) = a,
-
 | If no arguments are passed this is {null}. Otherwise it is a JSON array.
-| For an empty JSON array, use `()::json[] to`
+| For an empty array, use {empty-array} or `()::json[]`
 +list-new json(args json[])
 	if is-empty args
 		null
 	else
-		- args
+		args
 +named-new json(keys symbol[], values json[])
 	assert keys.size == values.size
-	json new-json-object keys, values
+	new-json-object keys, values
 
-+null json()
-	json null
-+false json()
-	json false::bool
-+true json()
-	json true::bool
-+empty-array json()
-	()::json[].to
-+empty-object json()
-	json json-object (), ()
-+to json(a json)
-	a
-+to json(_ void)
-	null
++empty-array json[]() = ()
++empty-object json-object() = ()
++to json(a json) = a
++to json(_ void) = null
 +to void(a json)
-	assert a.inner.null else deserialize-error "void", a
-+to json(a bool)
-	json a
-+to json(a char8)
-	a.to::string.to
-+to char8(a json)
-	?only string a.inner else throw deserialize-error "char8", a
-+to json(a char32)
-	a.to::string.to
+	assert null a else deserialize-error "void", a
++to json(a bool) = a
++to json(a char8) = a.to::string.to
++to char8(a json) = ?only string a else throw deserialize-error "char8", a
++to json(a char32) = a.to::string.to
 +to char32(a json)
-	res char32? = if x = a.inner.string then only to::char32[] x
+	res char32? = if string a then only to::char32[] a
 	res else throw deserialize-error "char32", a
-+to json(a string)
-	json a
-+to string(a json)
-	string a.inner else throw deserialize-error "string", a
-+to json(a nat8)
-	a::nat64.to
-+to nat8(a json)
-	a.to::nat64.to
-+to json(a nat16)
-	a::nat64.to
-+to nat16(a json)
-	a.to::nat64.to
-+to json(a nat32)
-	a::nat64.to
-+to nat32(a json)
-	a.to::nat64.to
-+to json(a nat64)
-	json a
-+to nat64(a json)
-	a.to::float64.to
-+to json(a int8)
-	a::int64.to
-+to int8(a json)
-	a.to::int64.to
-+to json(a int16)
-	a::int64.to
-+to int16(a json)
-	a.to::int64.to
-+to json(a int32)
-	a::int64.to
-+to int32(a json)
-	a.to::int64.to
-+to json(a int64)
-	json a
-+to int64(a json)
-	a.to::float64.to
-+to json(a float32)
-	a.to::float64.to
-+to float32(a json)
-	a.to::float64.to
-+to json(a float64)
-	json a
++to json(a string) = a
++to string(a json) = string a else throw deserialize-error "string", a
++to json(a nat8) = a
++to nat8(a json) = a.to::nat64.to
++to json(a nat16) = a
++to nat16(a json) = a.to::nat64.to
++to json(a nat32) = a
++to nat32(a json) = a.to::nat64.to
++to json(a nat64) = a
++to nat64(a json) = a.to::float64.to
++to json(a int8) = a
++to int8(a json) = a.to::int64.to
++to json(a int16) = a
++to int16(a json) = a.to::int64.to
++to json(a int32) = a
++to int32(a json) = a.to::int64.to
++to json(a int64) = a
++to int64(a json) = a.to::float64.to
++to json(a float32) = a
++to float32(a json) = a.to::float64.to
++to json(a float64) = a
 +to float64(a json)
-	match x = a.inner
-	as nat64 then x.to
-	as int64 then x.to
-	as float64 then x
+	match a
+	as nat64 then a.to
+	as int64 then a.to
+	as float64 then a
 	else then throw deserialize-error "float", a
-+to json(a symbol)
-	a.to::string.to
-+to symbol(a json)
-	a.to::string.to
++to json(a symbol) = a.to::string
++to symbol(a json) = a.to::string.to
 
 +to[t] json(a t[]) t to-json
-	- map::json[] a, it.to
+	map::json[] a, it.to
 +to[t] t[](a json) t from-json
-	match x = a.inner
+	match x = a
 	as null
 		()
 	as array
@@ -206,15 +168,15 @@ export
 	else
 		throw deserialize-error "array", a
 +to[t] json(a t array-view) t to-json
-	- map::json[] a, it.to
+	map::json[] a, it.to
 +to[t] t array-view(a json) t from-json
 	to::t[] a
 +to[t] json(a t buffer) t to-json
-	- map::json[] a, it.to
+	map::json[] a, it.to
 +to[t] json(a t buffer-view) t to-json
-	- map::json[] a, it.to
+	map::json[] a, it.to
 +to[t] json(a t mut[]) t to-json
-	- map::json[] a, it.to
+	map::json[] a, it.to
 +to[t] json(a t?) t to-json
 	if a
 		a.to
@@ -226,24 +188,24 @@ export
 +to[t0, t1] json(a (t0, t1)) t0 to-json, t1 to-json
 	a.a.to, a.b.to
 +to[t0, t1] (t0, t1)(a json) t0 from-json, t1 from-json
-	assert x0, x1 = ?only2 array a.inner else deserialize-error "tuple2", a
+	assert x0, x1 = ?only2 array a else deserialize-error "tuple2", a
 	x0.to, x1.to
 +to[t0, t1, t2] json(a (t0, t1, t2)) t0 to-json, t1 to-json, t2 to-json
 	a.a.to, a.b.to, a.c.to
 +to[t0, t1, t2] (t0, t1, t2)(a json) t0 from-json, t1 from-json, t2 from-json
-	assert x0, x1, x2 = ?only3 array a.inner else deserialize-error "tuple3", a
+	assert x0, x1, x2 = ?only3 array a else deserialize-error "tuple3", a
 	x0.to, x1.to, x2.to
 +to[t0, t1, t2, t3] json(a (t0, t1, t2, t3)) t0 to-json, t1 to-json, t2 to-json, t3 to-json
 	a.a.to, a.b.to, a.c.to, a.d.to
 +to[t0, t1, t2, t3] (t0, t1, t2, t3)(a json) t0 from-json, t1 from-json, t2 from-json, t3 from-json
-	assert x0, x1, x2, x3 = ?only4 array a.inner else deserialize-error "tuple4", a
+	assert x0, x1, x2, x3 = ?only4 array a else deserialize-error "tuple4", a
 	x0.to, x1.to, x2.to, x3.to
 +to[t0, t1, t2, t3, t4] json(a (t0, t1, t2, t3, t4)) t0 to-json, t1 to-json, t2 to-json, t3 to-json, t4 to-json
 	a.a.to, a.b.to, a.c.to, a.d.to, a.e.to
 +to[t0, t1, t2, t3, t4] (t0, t1, t2, t3, t4)
 	a json
 do t0 from-json, t1 from-json, t2 from-json, t3 from-json, t4 from-json
-	assert x0, x1, x2, x3, x4 = ?only5 array a.inner else deserialize-error "tuple5", a
+	assert x0, x1, x2, x3, x4 = ?only5 array a else deserialize-error "tuple5", a
 	x0.to, x1.to, x2.to, x3.to, x4.to
 +to[t0, t1, t2, t3, t4, t5] json
 	a (t0, t1, t2, t3, t4, t5)
@@ -252,7 +214,7 @@ do t0 to-json, t1 to-json, t2 to-json, t3 to-json, t4 to-json, t5 to-json
 +to[t0, t1, t2, t3, t4, t5] (t0, t1, t2, t3, t4, t5)
 	a json
 do t0 from-json, t1 from-json, t2 from-json, t3 from-json, t4 from-json, t5 from-json
-	assert x0, x1, x2, x3, x4, x5 = ?only6 array a.inner else deserialize-error "tuple6", a
+	assert x0, x1, x2, x3, x4, x5 = ?only6 array a else deserialize-error "tuple6", a
 	x0.to, x1.to, x2.to, x3.to, x4.to, x5.to
 +to[t0, t1, t2, t3, t4, t5, t6] json
 	a (t0, t1, t2, t3, t4, t5, t6)
@@ -261,7 +223,7 @@ do t0 to-json, t1 to-json, t2 to-json, t3 to-json, t4 to-json, t5 to-json, t6 to
 +to[t0, t1, t2, t3, t4, t5, t6] (t0, t1, t2, t3, t4, t5, t6)
 	a json
 do t0 from-json, t1 from-json, t2 from-json, t3 from-json, t4 from-json, t5 from-json, t6 from-json
-	assert x0, x1, x2, x3, x4, x5, x6 = ?only7 array a.inner else deserialize-error "tuple7", a
+	assert x0, x1, x2, x3, x4, x5, x6 = ?only7 array a else deserialize-error "tuple7", a
 	x0.to, x1.to, x2.to, x3.to, x4.to, x5.to, x6.to
 +to[t0, t1, t2, t3, t4, t5, t6, t7] json
 	a (t0, t1, t2, t3, t4, t5, t6, t7)
@@ -270,7 +232,7 @@ do t0 to-json, t1 to-json, t2 to-json, t3 to-json, t4 to-json, t5 to-json, t6 to
 +to[t0, t1, t2, t3, t4, t5, t6, t7] (t0, t1, t2, t3, t4, t5, t6, t7)
 	a json
 do t0 from-json, t1 from-json, t2 from-json, t3 from-json, t4 from-json, t5 from-json, t6 from-json, t7 from-json
-	assert x0, x1, x2, x3, x4, x5, x6, x7 = ?only8 array a.inner else deserialize-error "tuple8", a
+	assert x0, x1, x2, x3, x4, x5, x6, x7 = ?only8 array a else deserialize-error "tuple8", a
 	x0.to, x1.to, x2.to, x3.to, x4.to, x5.to, x6.to, x7.to
 
 +to json(a comparison)
@@ -297,17 +259,16 @@ do t0 from-json, t1 from-json, t2 from-json, t3 from-json, t4 from-json, t5 from
 | * {a} is an object with the key, and its value is {null}.
 |
 | Most code does not care about this distinction.
-| If you do, you can test `if {a}.{simplify} {map}` or `if {a} {has-key} {key}`.
+| If you do, you can test `if {json-object} {a}` or `if {has-key} {a}, {key}`.
 +subscript json(a json, key symbol)
-	a.inner.json-object?[key] else null
+	a.json-object?[key] else null
 
 | {true} if {a} is an object and {key} is one of its keys.
 +has-key bool(a json, key symbol)
-	a.inner.json-object?[key]
+	a.json-object?[key]
 
-| `a bool-or-null` is like `a bool`, but treats {null} as {false}.
 +to bool(a json)
-	a.inner.bool else
+	bool a else
 		assert a == null else deserialize-error "bool", a
 		false
 
@@ -317,7 +278,7 @@ do t0 from-json, t1 from-json, t2 from-json, t3 from-json, t4 from-json, t5 from
 
 | Converts a value to {json} and renders it as standard JSON.
 +to-json[t] string(a t) t to-json
-	match x = a.to.inner
+	match x = a.to::json
 	as null
 		"null"
 	as bool
@@ -359,39 +320,39 @@ do t0 from-json, t1 from-json, t2 from-json, t3 from-json, t4 from-json, t5 from
 	out ~= "\""
 
 +omit-null-values json(a json)
-	match x = a.inner
+	match a
 	as json-object
-		to::json filter::json-object x, it.b.inner.null.not
+		filter::json-object a, it.b.null.not
 	else
 		a
 
 +omit-empty-values json(a json)
-	match x = a.inner
+	match a
 	as json-object
-		to::json filter::json-object x, it.b.is-empty-value.not
+		filter::json-object a, it.b.is-empty-value.not
 	else
 		a
 
 | For every object in the json value, omit a key if the value is null, an empty array, or an empty object.
 +deep-omit-empty-values json(a json)
-	match x = a.inner
+	match a
 	as array
-		map x, it.deep-omit-empty-values
+		map a, it.deep-omit-empty-values
 	as json-object
 		to with::json-object out in build
-			for k, v in x
+			for k, v in a
 				unless is-empty-value v
 					out ~= k, deep-omit-empty-values v
 	else
 		a
 -is-empty-value bool(a json)
-	match x = a.inner
+	match a
 	as null
 		true
 	as array
-		is-empty x
+		is-empty a
 	as json-object
-		is-empty x
+		is-empty a
 	else
 		false
 
@@ -407,30 +368,30 @@ do t0 from-json, t1 from-json, t2 from-json, t3 from-json, t4 from-json, t5 from
 -single record(text string, needs-parens bool)
 -parenthesize string(a single)
 	if a.needs-parens then "({a.text})" else a.text
--to-kid-inner to-kid-result(value json, max-columns nat)
-	match x = value.inner
+-to-kid-inner to-kid-result(a json, max-columns nat)
+	match a
 	as null
 		single "()", false
 	as bool
-		single "{x}", false
+		single "{a}", false
 	as nat64
-		single "{x}", false
+		single "{a}", false
 	as int64
-		single "{x}", false
+		single "{a}", false
 	as float
-		single "{x}", false
+		single "{a}", false
 	as string
-		single x.quoted, false
+		single a.quoted, false
 	as array
-		if is-empty x
+		if is-empty a
 			single "empty-array", false
 		else
-			to-kid-array-or-object (), x, max-columns
+			to-kid-array-or-object (), a, max-columns
 	as json-object
-		if is-empty x
+		if is-empty a
 			single "empty-object", false
 		else
-			to-kid-array-or-object x.keys, x.values, max-columns
+			to-kid-array-or-object a.keys, a.values, max-columns
 -tab-size nat()
 	4
 -to-kid-array-or-object to-kid-result(keys symbol[]?, values json[], max-columns nat)
@@ -438,7 +399,7 @@ do t0 from-json, t1 from-json, t2 from-json, t3 from-json, t4 from-json, t5 from
 	if keys
 		assert keys.size == values.size
 	size mut = 0
-	multi-line mut bool = false
+	multi-line mut = false
 	parts to-kid-result[] = for index, x in with-index values
 		key-size = if keys then keys[index].quote-if-necessary.size + ": ".size
 		part = to-kid-inner x, safe-subtract max-columns, tab-size + key-size

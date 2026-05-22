@@ -1,5 +1,6 @@
 import
 	java/lang/Double
+	java/lang/String
 	./bits
 	./col/util: try-take-all
 	./java
@@ -205,7 +206,7 @@ import
 	inner: parse: of iter
 		assert try-take iter, a else inner-parse-error "expected '{a}'"
 
-| Equivalent to `{a}.{exact} {transform} \{{value}\}`
+| Equivalent to `{transform} {a}.{exact}, \{{value}\}`
 +exact[t] t grammar(a string, value t) t data
 	transform a.exact.inner, {value}
 
@@ -370,11 +371,16 @@ import
 | Parse a decimal number.
 | This allows e.g. "+1.23".
 +float float64 grammar()
-	parse: it.take-float
-~take-float float64(iter string-iterator)
+	parse: it.take-number.to
+-to float(a number)
+	match a
+	as nat then a.to
+	as int then a.to
+	as float then a
+~take-number number(iter string-iterator)
 	start = copy iter
-	_ = try-take iter, "-" or try-take iter, "+"
-	assert peek-digit iter else inner-parse-error "float"
+	is-signed = try-take iter, "-" or try-take iter, "+"
+	assert peek-digit iter else inner-parse-error "number"
 	while peek-digit iter
 		_ = take-next iter
 		skip-underscore-if-before-digit iter
@@ -383,7 +389,11 @@ import
 		while peek-digit iter
 			_ = take-next iter
 			skip-underscore-if-before-digit iter
-	parse-float slice start, iter
+		parse-float slice start, iter
+	elif is-signed
+		parse-int slice start, iter
+	else
+		parse-nat slice start, iter
 
 ~peek-digit bool(a string-iterator)
 	(x = peek a) and is-digit x
@@ -394,19 +404,22 @@ import
 	if a.peek == "_" and peek-digit-next a
 		_ = a.take-next
 
+| WARN: Does not validate {a}
 ~parse-float float64(a string-view)
 	trusted if java
-		fixed char8[] = if contains a, "_"
-			for* x in a
-				unless x == "_"
-					- x
-		else
-			a.to
-		parseDouble fixed.to::string.to
+		parseDouble fix-number-for-java a
 	elif js
 		call Number, a.to::string.to 'to
 	else
 		throw todo
+-fix-number-for-java String(a string-view) java
+	fixed char8[] = if contains a, "_"
+		for* x in a
+			unless x == "_"
+				- x
+	else
+		a.to
+	fixed.to::string.to
 
 +is-whitespace bool(a char8)
 	a == "\n" or is-whitespace-non-newline a
@@ -459,7 +472,7 @@ import
 		res.to
 	else
 		try
-			take-float a 'to
+			take-number a 'to
 		catch as inner-parse-error
 			throw inner-parse-error "JSON value"
 -take-key-value (symbol, json)(a string-iterator)
@@ -474,8 +487,7 @@ import
 
 ~try-take-number json?(iter string-iterator)
 	if peek-digit iter or iter.peek == "-" and peek-digit-next iter
-		# TODO: could take an int or nat
-		take-float iter 'to
+		to::json take-number iter
 
 +kid json grammar()
 	parse: it.parse-kid
@@ -553,7 +565,7 @@ import
 	else
 		parse-kid-single-line-list-after-value-comma-value iter, first, parse-kid-simple-no-colon iter
 -parse-kid-single-line-list-after-value-comma-value json(iter string-iterator, first json, second json)
-	do with out in build
+	do with::json[] out in build
 	out ~= first
 	out ~= second
 	while try-take iter, ","

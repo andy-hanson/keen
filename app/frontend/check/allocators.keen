@@ -43,6 +43,11 @@ with-type-context-for[t] t(n-type-params nat, f t mut(x type-context))
 
 | This optimizes for the common case of a non-generic, non-variadic candidate.
 candidate union(fun-inst, called-spec-sig, full-candidate) mut
+to json(a candidate)
+	match a
+	as fun-inst then a.to
+	as called-spec-sig then a.to
+	as full-candidate then a.to
 | Used for generic or variadic functions.
 | `inferring-type-args` will usually be non-empty,
 | but not for a variadic function or a function with specs but no type params.
@@ -50,6 +55,10 @@ full-candidate record mut, -new
 	called -mut called-decl
 	variadic-type type?
 	inferring-type-args type-context
+to json(a full-candidate)
+	called: a.called.to
+	variadic-type: a.variadic-type.to
+	inferring-type-args: a.inferring-type-args.to
 
 called called-decl(a candidate)
 	match a
@@ -162,6 +171,11 @@ assert-all-free[t] void(a t stack-array)
 	a.cur-array-start is 0
 	a.cur-array-end is 0
 
+clear[t] void(a t stack-array)
+	for i in a.cur-array-start .. a.cur-array-end
+		a.all-entries[i] := trusted gc-safe-value
+	a.cur-array-end := a.cur-array-start
+
 some[t] bool(a t stack-array, f bool mut(x t))
 	some a.cur-array-start .. a.cur-array-end, f[a.all-entries[it]]
 
@@ -209,42 +223,10 @@ pop-context[t] void(a t stack-array, restore nat)
 		else
 			remove-at-unordered a, i
 
-filter-tri-result enum(reject, allow, prefer)
-filter-unordered-tri[t] void(a t stack-array, f filter-tri-result mut(x t))
-	i mut = a.cur-array-start
-	do until
-	i == a.cur-array-end or
-	match f[a.all-entries[i]]
-	as prefer
-		remove-before a, i
-		filter-unordered-starting-from a, a.cur-array-start + 1, f[it] == prefer
-		true
-	as allow
-		i +:= 1
-		false
-	as reject
-		remove-at-unordered a, i
-		false
-
 | Filters out all elements not at the max priority
 filter-unordered-max-priority[t] void(a t stack-array, get-priority nat mut(x t))
 	do if a.size > 1
-	max-priority mut = 0
-	i mut = a.cur-array-start
-	# Invariant: elements a.cur-array-start .. i are at max priority
-	do until i == a.cur-array-end
-	priority = get-priority[a.all-entries[i]]
-	match priority <=> max-priority
-	as less
-		remove-at-unordered a, i
-	as equal
-		i +:= 1
-	as greater
-		max-priority := priority
-		a.all-entries[a.cur-array-start] := a.all-entries[i]
-		for j in a.cur-array-start + 1 .. i + 1
-			remove-at-unordered a, j
-		i := a.cur-array-start + 1
+	_ = filter-unordered-max-priority-common a, get-priority
 
 test
 	xs nat stack-array = trusted 5,
@@ -252,6 +234,37 @@ test
 		xs ~= x
 	filter-unordered-max-priority xs, it % 10
 	xs.to::nat[] is (12, 22)
+
+| Like {filter-unordered-max-priority}, but throws out entries with priority 0
+filter-unordered-max-priority-with-reject[t] void(a t stack-array, get-priority nat mut(x t))
+	if (filter-unordered-max-priority-common a, get-priority) == 0
+		clear a
+
+test
+	xs nat stack-array = trusted 5,
+	for x in (11, 12, 21, 22)::nat[]
+		xs ~= x
+	filter-unordered-max-priority-with-reject xs, it % 10
+	xs.to::nat[] is (12, 22)
+	filter-unordered-max-priority-with-reject xs, it % 2
+	xs.to::nat[] is ()
+
+-filter-unordered-max-priority-common[t] nat(a t stack-array, get-priority nat mut(x t))
+	max-priority mut = 0
+	i mut = a.cur-array-start
+	# Invariant: elements a.cur-array-start .. i are at max priority
+	until i == a.cur-array-end
+		priority = get-priority[a.all-entries[i]]
+		match priority <=> max-priority
+		as less
+			remove-at-unordered a, i
+		as equal
+			i +:= 1
+		as greater
+			max-priority := priority
+			remove-before a, i
+			i := a.cur-array-start + 1
+	max-priority
 
 | Note: This is used in a situation where there will be a diagnostic if {a} isn't down to a single entry after this.
 | So it's acceptable to do O(n^2) comparisons in the worst case (where partial-comparison always returns {equal},
