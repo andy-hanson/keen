@@ -48,7 +48,9 @@ for-loop void(a walk-program, f void mut(where uri, source reference-ast, kind r
 		for range, kind, thing in walk-module module
 			f[module.uri, range, kind, thing]
 
-walk-any-decl void(decl any-decl, f cb-thing) common-types
+walk-any-decl void(module keen-module, decl any-decl, f cb-thing) common-types
+	the keen-module = module
+	assert module.uri == decl.module-uri
 	match decl
 	as fun-decl
 		walk-fun decl, f
@@ -63,9 +65,12 @@ walk-any-decl void(decl any-decl, f cb-thing) common-types
 	as var-decl
 		walk-var-decl decl, f
 
+-walk-ctx spec common-types, keen-module
+
 walk-module record(module keen-module)
 for-loop void(a walk-module, f cb-thing) common-types
 	module = a.module
+	the keen-module = module
 	for x in module.aliases
 		walk-type-alias x, f
 	for x in module.types
@@ -80,7 +85,7 @@ for-loop void(a walk-module, f cb-thing) common-types
 		walk-test x, f
 	walk-doc-comment module.doc-comment, f
 
--walk-type-alias void(a type-alias, f cb-thing) common-types
+-walk-type-alias void(a type-alias, f cb-thing) walk-ctx
 	walk-doc-comment a.doc-comment, f
 	walk-type a.ast.target, a.target, a.visibility.explicit-kind-for-visibility, f
 
@@ -93,7 +98,7 @@ for-loop void(a walk-module, f cb-thing) common-types
 	as public
 		explicit-public
 
--walk-type-decl void(a type-decl, f cb-thing) common-types
+-walk-type-decl void(a type-decl, f cb-thing) walk-ctx
 	do if ast = a.source.type-decl-ast
 	walk-doc-comment a.doc-comment, f
 	walk-type-modifiers ast.modifiers, a, f
@@ -109,7 +114,7 @@ for-loop void(a walk-module, f cb-thing) common-types
 	as sum-type-ast
 		walk-sum-type body, a.body.sum-type!, a.visibility, f
 
--walk-type-modifiers void(modifiers modifier-ast[], type type-decl, f cb-thing) common-types
+-walk-type-modifiers void(modifiers modifier-ast[], type type-decl, f cb-thing) walk-ctx
 	case-modifiers modifier-ast[] = filter modifiers, {it.modifier-keyword-ast and it.keyword == case_}
 	for mod, x in zip-if-size-eq case-modifiers, type.sum-type-cases
 		type-ast = mod.modifier-keyword-ast!.type-arg!
@@ -118,7 +123,7 @@ for-loop void(a walk-module, f cb-thing) common-types
 				handle-call called, type-ast, (), sum-type-method-impl, f
 		walk-type type-ast, x.sum-type, type.visibility.explicit-kind-for-visibility, f
 
--walk-record void(ast record-ast, record_ record_, f cb-thing) common-types
+-walk-record void(ast record-ast, record_ record_, f cb-thing) walk-ctx
 	if params = ast.params
 		do if params.size == record_.fields.size
 		for field-ast, field in zip params, record_.fields
@@ -128,7 +133,7 @@ for-loop void(a walk-module, f cb-thing) common-types
 		for field-ast, field in zip ast.fields, record_.fields
 			?walk-type field-ast.type, field.type, field.visibility.explicit-kind-for-visibility, f
 
--walk-sum-type void(ast sum-type-ast, a sum-type, type-visibilty visibility, f cb-thing) common-types
+-walk-sum-type void(ast sum-type-ast, a sum-type, type-visibilty visibility, f cb-thing) walk-ctx
 	for type-ast, member in zip-if-size-eq ast.types, a.listed-members
 		walk-type type-ast, member.case-type, type-visibilty.explicit-kind-for-visibility, f
 		for called in member.method-impls
@@ -137,26 +142,32 @@ for-loop void(a walk-module, f cb-thing) common-types
 	for method in a.methods
 		walk-signature method, type-visibilty, f
 
--walk-var-decl void(a var-decl, f cb-thing) common-types
+-walk-var-decl void(a var-decl, f cb-thing) walk-ctx
 	walk-doc-comment a.doc-comment, f
 	walk-type a.ast.type, a.type, a.visibility.explicit-kind-for-visibility, f
 	walk-expr a.initializer.expr, f
 
--walk-spec void(a spec-decl, f cb-thing) common-types
+-walk-spec void(a spec-decl, f cb-thing) walk-ctx
 	walk-doc-comment a.doc-comment, f
 	walk-spec-uses a.ast.modifiers, a.body.parents, a.visibility, f
 	for sig in a.sigs
 		walk-signature sig, a.visibility, f
 
--walk-spec-uses void(modifiers modifier-ast[], specs specs, visibility visibility, f cb-thing) common-types
+-walk-spec-uses void(modifiers modifier-ast[], specs specs, visibility visibility, f cb-thing) walk-ctx
 	spec-uses modifier-ast[] = filter modifiers, it.spec-use-ast
 	for mod, parent in zip-if-size-eq spec-uses, specs.inner
-		kind = visibility.explicit-kind-for-visibility
+		kind = explicit-kind-for-visibility visibility
 		if arg = mod.spec-use-ast!.type-arg
 			walk-type-args-may-unpack-tuple arg, parent.type-args, kind, f
-		f[mod.spec-use-ast!.name, kind, parent.decl.to]
+		name = mod.spec-use-ast!.name
+		target doc-comment-reference = match parent
+		as spec-inst
+			parent.decl.to
+		as type-inst
+			type-or-alias name, parent
+		f[name, kind, target]
 
--walk-signature void(a signature, visibility visibility, f cb-thing) common-types
+-walk-signature void(a signature, visibility visibility, f cb-thing) walk-ctx
 	walk-doc-comment a.doc-comment, f
 	kind = explicit-kind-for-visibility visibility
 	ast = a.source.signature-ast!
@@ -169,7 +180,7 @@ for-loop void(a walk-module, f cb-thing) common-types
 	kind reference-kind
 	include-locals include-locals
 	f cb-thing
-do common-types
+do walk-ctx
 	for x, y in zip asts, params
 		walk-destructure x, y, kind, include-locals, f
 
@@ -177,21 +188,28 @@ walk-doc-comment void(a doc-comment, f cb-thing)
 	for name, ref in zip a.ast.references, a.references
 		f[name, comment, ref]
 
--walk-type void(ast type-ast, type type, kind reference-kind, f cb-thing) common-types
+-walk-type void(ast type-ast, type type, kind reference-kind, f cb-thing) walk-ctx
 	match type
 	as bogus-type
 		()
 	as type-param-index
 		f[ast, kind, type]
 	as type-inst
-		f[ast, kind, type.decl]
+		f[ast, kind, type-or-alias ast, type]
 		walk-type-args ast, type.type-args, kind, f
--walk-type-args void(ast type-ast, type-args type-args, kind reference-kind, f cb-thing) common-types
+-walk-type-args void(ast type-ast, type-args type-args, kind reference-kind, f cb-thing) walk-ctx
 	for type-arg, type-arg-ast in type-args-and-asts type-args, ast
 		walk-type type-arg-ast, type-arg, kind, f
--walk-type-args-may-unpack-tuple void(ast type-ast, type-args type-args, kind reference-kind, f cb-thing) common-types
+-walk-type-args-may-unpack-tuple void(ast type-ast, type-args type-args, kind reference-kind, f cb-thing) walk-ctx
 	for type-arg, type-arg-ast in type-args-and-asts-may-unpack-tuple type-args, ast
 		walk-type type-arg-ast, type-arg, kind, f
+
+-type-or-alias doc-comment-reference(ast type-ast, type type-inst) keen-module
+	if name-and-range ast and ast.name != type.decl.name
+		# The 'else' should only happen when there is a diagnostic
+		find-alias-in-module-scope the::keen-module, ast.name else type.decl
+	else
+		type.decl
 
 type-args-and-asts record(type-args type-args, ast type-ast)
 some bool(a type-args-and-asts, f bool mut(x type, ast type-ast))
@@ -256,7 +274,7 @@ some bool(a type-args-and-asts-may-unpack-tuple, f bool mut(x type, ast type-ast
 	kind reference-kind
 	include-locals include-locals
 	f cb-thing
-do common-types
+do walk-ctx
 	match ast
 	as name-and-range
 		match include-locals
@@ -279,7 +297,7 @@ do common-types
 		do unless is-bogus destructure.type
 		for part-ast, part in zip-if-size-eq ast, destructure.destructure-split!.parts
 			walk-destructure part-ast, part, kind, include-locals, f
--walk-destructure-type void(ast destructure-ast, type type, kind reference-kind, f cb-thing) common-types
+-walk-destructure-type void(ast destructure-ast, type type, kind reference-kind, f cb-thing) walk-ctx
 	match ast
 	as name-and-range
 		()
@@ -294,7 +312,7 @@ do common-types
 		for part-ast, part-type in zip ast, type.as-tuple!.slow-to-array
 			walk-destructure-type part-ast, part-type, kind, f
 
--walk-fun void(a fun-decl, f cb-thing) common-types
+-walk-fun void(a fun-decl, f cb-thing) walk-ctx
 	ast = a.source
 	body = a.body
 	if fun-decl-ast ast
@@ -320,11 +338,11 @@ do common-types
 			name = a.source.type-decl!.source.type-decl-ast!.name
 			handle-call c, name, (), auto, f
 
--walk-test void(a test_, f cb-thing) common-types
+-walk-test void(a test_, f cb-thing) walk-ctx
 	walk-doc-comment a.doc-comment, f
 	walk-expr a.body.expr, f
 
--walk-expr void(expr expr, f cb-thing) common-types
+-walk-expr void(expr expr, f cb-thing) walk-ctx
 	for e in all-exprs-in-tree expr
 		match e
 		as assert-or-forbid-expr
@@ -404,7 +422,7 @@ do common-types
 	as it-ast then a
 	as name-and-range then a
 
--handle-call void(called called, source reference-ast, type-arg type-ast?, kind reference-kind, f cb-thing) common-types
+-handle-call void(called called, source reference-ast, type-arg type-ast?, kind reference-kind, f cb-thing) walk-ctx
 	match called
 	as called-bogus
 		f[source, kind, called.decl.to]
