@@ -6,7 +6,6 @@ import
 	./allocators
 	./check-ctx
 	./expr-ctx
-	./instantiate
 
 | This is logically a *union* of its fields. At most one should be set, or none for inferring.
 | Since unions aren't mutable, we would have had to wrap it in a mut field of a record,
@@ -142,7 +141,8 @@ choose-number-type number-type?(range source-range, expected expected, text stri
 	as float32 then float32
 	as float64 then float64
 
--each-narrowed-type void(a type-and-context, f void mut(x type-inst)) common-types
+| Only used for checking literal expressions
+-each-narrowed-type void(a type-and-context, f void mut(x type-inst))
 	match type = a.type
 	as bogus-type
 		()
@@ -152,30 +152,34 @@ choose-number-type number-type?(range source-range, expected expected, text stri
 	as type-inst
 		match body = type.decl.body
 		as builtin-type
+			# Ignore bool -> option, this function is only used for numbers or strings
 			if body == option
 				each-narrowed-type (with-type a, type.unwrap-option!), f
 			else
+				# NOTE: No need to handle number widening here, since 'choose-number-type' handles that.
 				f[type]
 		as sum-type
 			if body.kind == union_
-				for m in body.listed-members
-					# TODO:PERF It would probably help to have all instantiated members precomputed
-					inst = instantiate-type-inst m.case-type, type.type-args
-					each-narrowed-type (with-type a, inst), f
-			else
-				# This is only used for the expected type for a literal,
-				# so don't worry about interface/variant since literals can't implement those
-				f[type]
+				each type.narrow-types!, f
+			# This is only used for the expected type for a literal,
+			# so don't worry about interface/variant since literals can't implement those
+		as java-class
+			# Won't worry about subtypes. This only matters for java/lang/String.
+			# This does prevent a string literal where a java/lang/Object is expected, but that's not a big deal.
+			f[type]
 		else
-			# NOTE: no need to handle 'builtin-widens' here, since 'choose-number-type' handles that.
-			# Also, 'each-narrowed-type' is only used for literals and lambdas,
-			# so no need to consider buffer from buffer-view (since there are no literal buffers).
-			f[if elem = as-array-view type then array[elem] else type]
--can-widen-to type-match-kind?(narrow type-inst, wide type-inst) common-types
+			# Only happens for array-view (or buffer-view)
+			narrow = type.narrow-types!
+			f[if is-empty narrow then type else only! narrow]
+-can-widen-to type-match-kind?(narrow type-inst, wide type-inst)
 	# 'narrow' can widen to 'wide' if 'wide' is 'narrow?', or 'wide' is a sum-type containing 'narrow', or transitive
 	match body = wide.decl.body
 	as builtin-type
-		if body == option
+		match body
+		as bool
+			if is-option narrow
+				convert-array-view-or-numeric
+		as option
 			match w = only! wide.type-args
 			as bogus-type
 				bogus-match
@@ -184,20 +188,15 @@ choose-number-type number-type?(range source-range, expected expected, text stri
 			as type-inst
 				min convert-to-option-or-union, is-or-can-widen-to narrow, w
 		else
-			narrow-body = narrow.decl.body
-			if narrow-body.builtin-type and builtin-widens narrow-body, body then convert-array-view-or-numeric
+			if contains wide.narrow-types!, narrow
+				convert-array-view-or-numeric
 	as sum-type
 		if body.kind == union_
-			min convert-to-option-or-union, first body.listed-members, of x
-				if is-bool x.case-type
-					# Don't recurse, because we don't want to implicitly convert option -> bool -> something else
-					if is-bool narrow then convert-to-option-or-union
-				else
-					# TODO:PERF It would probably help to have all instantiated members precomputed
-					narrow 'is-or-can-widen-to instantiate-type-inst x.case-type, wide.type-args
+			if contains wide.narrow-types!, narrow
+				convert-to-option-or-union
 		else
 			min convert-to-option-or-union, first narrow.decl.sum-type-cases, of x
-				# TODO:PERF It would probably help to have all instantiated members precomputed
+				# TODO:PERF It would probably help to have all instantiated wider types precomputed
 				st = instantiate-type-inst x.sum-type, narrow.type-args
 				# TODO:PERF could have a simpler recursion since we already know we're looking for a sum-type.
 				# Or could just cache all implemented interfaces
@@ -206,20 +205,21 @@ choose-number-type number-type?(range source-range, expected expected, text stri
 		narrow-body = narrow.decl.body
 		do if java-class narrow-body
 		do if super = narrow-body.super-class
+		# TODO:PERF It would probably help to have all instantiated wider types precomputed
 		instantiated-super = instantiate-type-inst super, narrow.type-args
 		min convert-to-option-or-union, is-or-can-widen-to instantiated-super, wide
 	else
-		if as-array-view wide and as-array narrow and narrow.type-args 'can-match wide.type-args
+		# Need to handle bogus types introduced by replace-uninferred-with-bogus
+		if some wide.narrow-types!, {match-exact-or-bogus narrow, it}
+			# This only happens for array-view (or buffer-view)
 			convert-array-view-or-numeric
-		elif as-buffer-view wide and as-buffer narrow and narrow.type-args 'can-match wide.type-args
-			convert-array-view-or-numeric
--is-or-can-widen-to type-match-kind?(narrow type-inst, wide type-inst) common-types
+-is-or-can-widen-to type-match-kind?(narrow type-inst, wide type-inst)
 	if narrow == wide
 		exact-match
 	else
 		narrow 'can-widen-to wide
--can-match bool(a type-args, b type-args)
-	zip-every-type-args a, b, of x, y
+-match-exact-or-bogus bool(a type-inst, b type-inst)
+	a.decl == b.decl and zip-every-type-args a.type-args, b.type-args, of x, y
 		x == y or is-bogus y
 
 -set void(a expected, type type)
@@ -333,10 +333,7 @@ do check-ctx, common-types
 try-get-inexact-non-inferring-type type?(expected expected)
 	?try-get-inexact-non-inferring-type only expected.choices
 
-match-expected-vs-return-type-no-diagnostic type-match-kind?
-	expected expected
-	candidate-return-type type-and-context
-do common-types
+match-expected-vs-return-type-no-diagnostic type-match-kind?(expected expected, candidate-return-type type-and-context)
 	if is-purely-inferring expected
 		exact-match
 	elif x = only expected.choices
@@ -389,10 +386,10 @@ get-expected-for-diag expected-for-diag(expected expected) check-expr-ctx
 
 | Call this when you are certain 'type' satisfies 'expected'.
 | (But it may still be necessary to update expected with a more precise type.)_
-must-check void(expected expected, actual type) common-types
+must-check void(expected expected, actual type)
 	assert try-set-no-diagnostic expected, actual
 | This may infer type parameters
--try-set-no-diagnostic bool(expected expected, actual type) common-types
+-try-set-no-diagnostic bool(expected expected, actual type)
 	if is-purely-inferring expected
 		set expected, actual
 		true
@@ -524,10 +521,10 @@ infer-type-args-bidirectional void(a type-and-context, b type-and-context)
 		for i in 0::nat .. a-type.type-args.size
 			infer-type-args-bidirectional (with-type a, a-type.type-args[i]), (with-type b, b-type.type-args[i])
 
-is-type-match-possible-for-completions bool(param-type type-with-container, actual-arg-type type) common-types
+is-type-match-possible-for-completions bool(param-type type-with-container, actual-arg-type type)
 	is-type-match-possible param-type.type-and-new-context, actual-arg-type.non-inferring, b-to-a
 
--is-type-match-possible bool(a type-and-context, b type-and-context, conv implicit-conversions) common-types
+-is-type-match-possible bool(a type-and-context, b type-and-context, conv implicit-conversions)
 	match-types a.copy, b, conv
 
 | True for a type param with no inference yet
@@ -536,10 +533,15 @@ is-type-match-possible-for-completions bool(param-type type-with-container, actu
 		x
 
 | Ranked from least to most exact
-type-match-kind enum(bogus-match, convert-to-option-or-union, convert-array-view-or-numeric, exact-match)
+type-match-kind enum
+	bogus-match
+	convert-to-option-or-union
+	| Also includes option -> bool
+	convert-array-view-or-numeric
+	exact-match
 | Returns true if 'a' and 'b' are possibly compatible.
 | 'a' may have its type args be inferred, 'b' may not. Unknown types in 'b' are always possibly compatible.
-match-types type-match-kind?(a type-and-context, b type-and-context, conv implicit-conversions) common-types
+match-types type-match-kind?(a type-and-context, b type-and-context, conv implicit-conversions)
 	if full-type-and-context a
 		if full-type-and-context b
 			match-types-both-inferring a, b, conv
@@ -554,7 +556,7 @@ match-types type-match-kind?(a type-and-context, b type-and-context, conv implic
 	a full-type-and-context
 	b full-type-and-context
 	conv implicit-conversions
-do common-types
+do
 	match tb = b.type
 	as bogus-type
 		bogus-match
@@ -607,7 +609,7 @@ do common-types
 	a inference
 	b full-type-and-context
 	conv implicit-conversions
-do common-types
+do
 	match tb = b.type
 	as bogus-type
 		bogus-match, a
@@ -642,7 +644,7 @@ do common-types
 			true
 	if ok then res
 
--match-types-no-b-context type-match-kind?(a full-type-and-context, b type, conv implicit-conversions) common-types
+-match-types-no-b-context type-match-kind?(a full-type-and-context, b type, conv implicit-conversions)
 	match ta = a.type
 	as bogus-type
 		()
@@ -679,7 +681,7 @@ do common-types
 	sb type-inst
 	conv implicit-conversions
 	match-inner type-match-kind? mut(x type, y type, conv implicit-conversions)
-do common-types
+do
 	if sa.decl == sb.decl
 		conv2 = if is-option sa.decl then conv else exact
 		zip-type-args-and-match sa.type-args, sb.type-args, of x, y
@@ -696,16 +698,19 @@ do common-types
 	sa type-inst
 	sb type-inst
 	match-after-unwrap type-match-kind? mut(x type, y type)
-do common-types
+do
 	match body = sb.decl.body
 	as builtin-type
-		if body == option
+		match body
+		as bool
+			if is-option sa then convert-array-view-or-numeric
+		as option
 			min convert-to-option-or-union, match-after-unwrap[sa, sb.unwrap-option!]
 		else
-			body-a = sa.decl.body
-			if body-a.builtin-type and builtin-widens body-a, body then convert-array-view-or-numeric
+			if contains sb.narrow-types!, sa then convert-array-view-or-numeric
 	as sum-type
 		if body.kind == union_
+			do if contains sb.decl.narrow-types!, sa.decl
 			min convert-to-option-or-union, first body.listed-members, of x
 				if is-bool x.case-type
 					# Don't recurse, because we don't want to implicitly convert option -> bool -> something else
@@ -715,14 +720,15 @@ do common-types
 					match-after-unwrap[sa, member]
 		else
 			()
+	as java-class
+		()
 	else
-		if x = as-array sa and y = as-array-view sb
-			min convert-array-view-or-numeric, match-after-unwrap[x, y]
-		elif x = as-buffer sa and y = as-buffer-view sb
-			min convert-array-view-or-numeric, match-after-unwrap[x, y]
+		if contains sb.decl.narrow-types!, sa.decl
+			# This only happens for array-view (or buffer-view)
+			min convert-array-view-or-numeric, match-after-unwrap[sa.type-args.only!, sb.type-args.only!]
 
 | Returns new inference value for 'a', or none if they can't match
--match-types-no-context (type-match-kind, inference)?(a inference, b type, conv implicit-conversions) common-types
+-match-types-no-context (type-match-kind, inference)?(a inference, b type, conv implicit-conversions)
 	match ta = a.type
 	as bogus-type
 		bogus-match, a

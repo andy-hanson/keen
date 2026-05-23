@@ -49,16 +49,10 @@ check-type-bodies void(types type-decl[], asts type-decl-ast[]) check-ctx, types
 	for type, ast in zip types, asts
 		type.specs := check-type-specs type, ast
 		type.sum-type-cases := check-sum-type-cases-initial type, ast
-		if union-contains-cycle 10, type
-			sum = sum-type! type.body
-			type.body := sum-type sum.kind, (), sum.methods
-			add-diag ast.name-range, diag-union-cycle
-
--union-contains-cycle bool(depth nat, type type-decl)
-	if depth == 0
-		true
-	elif members = as-union type.body
-		some members, {union-contains-cycle depth - 1, it.case-type.decl}
+		# 'fill-narrow-types-for-type-decl' fills in related types' narrow-types, so this may have already been done
+		unless type.narrow-types
+			fill-narrow-types-for-type-decl 10, type, of type-with-cycle
+				add-diag type-with-cycle.name-range.range, diag-union-cycle
 
 -check-sum-type sum-type
 	type type-decl
@@ -67,8 +61,9 @@ check-type-bodies void(types type-decl[], asts type-decl-ast[]) check-ctx, types
 do check-ctx, types-get
 	check-only-common-modifiers ast-body.kind.decl-kind-for-sum-type, ast.modifiers
 	listed-members = check-sum-type-listed-members-initial type, ast-body
-	sigs = check-signatures type, ast.type-params, ast-body.methods
-	ast-body.kind, listed-members, sigs
+	kind: ast-body.kind
+	listed-members: listed-members
+	methods: check-signatures type, ast.type-params, ast-body.methods
 
 check-signatures signature[]
 	container signature-container
@@ -89,13 +84,18 @@ do check-ctx, types-get
 		res sum-type-case-and-method-impls mut[] = ()
 		for type-ast in ast.types
 			type = type-from-ast type-ast, sum-type.type-param-asts, yes
-			if type.type-inst
+			match type
+			as bogus-type
+				()
+			as type-param-index
+				add-diag type-ast.range, type-parameter::diag-union-member-invalid
+			as type-inst
 				if some res, it.case-type.decl == type.decl
 					add-diag type-ast.range, diag-duplicate-declaration union-member, type.decl.name
+				elif is-option type
+					add-diag type-ast.range, option::diag-union-member-invalid
 				else
 					res ~= type, ()
-			elif not is-bogus type
-				add-diag type-ast.range, diag-union-member-type-parameter
 		res.move-to
 	else
 		unless ast.types.is-empty

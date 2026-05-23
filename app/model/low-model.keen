@@ -8,7 +8,8 @@ import
 	./uri
 
 low-type-body union
-	low-builtin-type
+	# This will never be {option} since that compiles to a {low-union} instead
+	builtin-type
 	low-enum
 	low-flags
 	low-java-class
@@ -17,10 +18,6 @@ low-type-body union
 	low-type-body-deferred
 do
 	to json()
-low-builtin-type record
-	| This will never be 'option' since those compile to unions
-	kind builtin-type
-	type-args low-type[]
 low-enum record(storage nat-type)
 low-flags record(storage nat-type)
 low-java-class record
@@ -44,26 +41,10 @@ members low-type[](a low-union)
 set-members void(a low-union, members low-type[])
 	a.late-members := members
 
-as-builtin-type low-builtin-type?(a low-type)
-	a.body.low-builtin-type
-is-void bool(a low-type)
-	a.body.low-builtin-type.?kind == void
+is-void bool(a low-type) = is-builtin a, void
 is-empty-type bool(a low-type)
-	match body = a.body
-	as low-builtin-type
-		body.kind == void
-	as low-enum
-		false
-	as low-flags
-		false
-	as low-java-class
-		false
-	as low-record
-		not prevent-constant body and every body.fields, it.type.is-empty-type
-	as low-union
-		false
-	as low-type-body-deferred
-		false
+	body = a.body
+	is-void a or low-record body and not prevent-constant body and every body.fields, it.type.is-empty-type
 is-enum-or-flags bool(a low-type)
 	a.is-enum or a.is-flags
 is-enum bool(a low-type)
@@ -97,6 +78,9 @@ low-type record force-data
 	id nat
 	source low-type-source
 	body mut low-type-body
+type-args low-type[](a low-type)
+	source = a.source
+	if low-type-source-inst source then source.type-args
 to json(a low-type)
 	"{a.simple-name} {a.id}"
 to-json-with-body json(a low-type)
@@ -122,7 +106,7 @@ hash void(a low-type, state hash-state)
 	hash a.id, state
 as-extern path?(a low-type)
 	match body = a.body
-	as low-builtin-type
+	as builtin-type
 		()
 	as low-enum
 		()
@@ -137,72 +121,45 @@ as-extern path?(a low-type)
 	as low-type-body-deferred
 		throw unreachable
 
-# Returns return and param types
+| Return and param types
 as-lambda-type (low-type, low-type)?(a low-type)
-	body = a.body
-	if body.low-builtin-type and as-lambda-type body.kind
-		only2! body.type-args
+	if ?as-lambda-type builtin-type a.body
+		only2! type-args a
 
-is-bool bool(a low-type)
-	a.body.low-builtin-type.?kind == bool
-is-char8-or-32 bool(a low-type)
-	body = a.body
-	body.low-builtin-type and (body.kind == char8 or body.kind == char32)
-is-char8 bool(a low-type)
-	a.body.low-builtin-type.?kind == char8
-is-char8-or-nat8 bool(a low-type)
-	is-char8 a or is-nat8 a
-is-nat8 bool(a low-type)
-	a.body.low-builtin-type.?kind == nat8
-is-nat32 bool(a low-type)
-	a.body.low-builtin-type.?kind == nat32
-is-float32-or-64 bool(a low-type)
-	body = a.body
-	body.low-builtin-type and (body.kind == float32 or body.kind == float64)
-as-char-type char-type?(a low-type)
-	a.body.low-builtin-type.?kind.?to
-as-nat-type nat-type?(a low-type)
-	a.body.low-builtin-type.?kind.?to
-as-int-type int-type?(a low-type)
-	a.body.low-builtin-type.?kind.?to
-as-integral-type integral-type?(a low-type)
-	a.body.low-builtin-type.?kind.?to
+-as-builtin builtin-type?(a low-type) = a.body.builtin-type
+-is-builtin bool(a low-type, kind builtin-type) = a.as-builtin == kind
+is-bool bool(a low-type) = is-builtin a, bool
+is-char8-or-32 bool(a low-type) = is-char8 a or is-char32 a
+is-char8 bool(a low-type) = is-builtin a, char8
+is-char32 bool(a low-type) = is-builtin a, char32
+is-char8-or-nat8 bool(a low-type) = is-char8 a or is-nat8 a
+is-nat8 bool(a low-type) = is-builtin a, nat8
+is-nat32 bool(a low-type) = is-builtin a, nat32
+as-char-type char-type?(a low-type) = a.as-builtin.?to
+as-nat-type nat-type?(a low-type) = a.as-builtin.?to
+as-int-type int-type?(a low-type) = a.as-builtin.?to
+as-integral-type integral-type?(a low-type) = a.as-builtin.?to
 as-integral-type-allow-char integral-type?(a low-type)
-	if x = a.as-char-type
+	if x = as-char-type a
 		match x
 		as char8 then nat8
 		as char32 then nat32
 	else
 		a.as-integral-type
-as-float-type float-type?(a low-type)
-	a.body.low-builtin-type.?kind.?to
-as-array low-type?(a low-type)
-	body = a.body
-	if body.low-builtin-type and body.kind == array
-		only body.type-args
-
-as-array-or-buffer low-type?(type low-type)
-	body = type.body
-	if body.low-builtin-type and (body.kind == array or body.kind == buffer)
-		only type.source.low-type-source-inst!.type-args
-as-buffer low-type?(type low-type)
-	body = type.body
-	if body.low-builtin-type and body.kind == buffer
-		only type.source.low-type-source-inst!.type-args
+as-float-type float-type?(a low-type) = a.as-builtin.?to
+-as-builtin-single-type-arg low-type?(type low-type, kind builtin-type)
+	if type.body.builtin-type == kind
+		only type-args type
+as-array-or-buffer low-type?(type low-type) = as-array type or as-buffer type
+as-array low-type?(type low-type) = as-builtin-single-type-arg type, array
+as-buffer low-type?(type low-type) = as-builtin-single-type-arg type, buffer
 as-option low-type?(type low-type)
 	source = type.source
 	if source.low-type-source-inst and is-option source.decl
-		only type.source.low-type-source-inst!.type-args
-as-weak-ref low-type?(a low-type)
-	if is-weak-ref a
-		only a.source.low-type-source-inst!.type-args
-is-weak-ref bool(a low-type)
-	source = a.source
-	source.low-type-source-inst and is-weak-ref source.decl
-is-bogus bool(a low-type)
-	a.source.low-type-source-bogus
-is-js-any bool(a low-type)
-	a.body.low-builtin-type.?kind == js-any
+		only type-args type
+as-weak-ref low-type?(type low-type) = as-builtin-single-type-arg type, weak-ref
+is-bogus bool(a low-type) = a.source.low-type-source-bogus
+is-js-any bool(a low-type) = is-builtin a, js-any
 
 low-field record
 	name symbol
@@ -647,8 +604,8 @@ type low-type(a match-scalar-low-expr) low-common-types
 	a.case-exprs[0].type
 matched-integral-type char-or-integral-type(a match-scalar-low-expr) low-common-types
 	match body = a.matched.type.body
-	as low-builtin-type
-		body.kind.to!
+	as builtin-type
+		body.to!
 	as low-enum
 		body.storage.to
 	else
