@@ -161,6 +161,9 @@ do
 -check-and-expect expr(ast expr-ast, expected type) check-expr-ctx
 	check-expr ast, expected.expect
 
+-check-expr-with-context expr(context expression-context, ast expr-ast, expected expected) check-expr-ctx
+	check-with-condition context, {check-expr ast, expected}
+
 -check-if if-expr(ast if-ast, expected expected) check-expr-ctx
 	if (?throw-ast ast.first-branch or ?throw-ast ast.second-branch) and not ast.is-else-of-parent
 		add-diag ast.first-keyword-range, diag-if-throw
@@ -169,12 +172,12 @@ do
 	empty-new-range = ast.first-keyword-range
 	# Usually check code in order, but if the first branch is empty, check it last (for better type inference)
 	first-branch expr, type type, second-branch expr = if ast.first-branch
-		first-branch = check-expr-with-context (known-value condition, not is-negated), ast.first-branch!, expected
+		first-branch = check-expr-with-context (known-value condition, not is-negated), ast.first-branch, expected
 		type = expected.inferred
 		second-branch expr = if is-bogus type
 			bogus-expr (ast.second-branch.?range else empty-new-range), type, from-other-bogus
 		elif ast.second-branch
-			check-expr-with-context (known-value condition, is-negated), ast.second-branch!, expected
+			check-expr-with-context (known-value condition, is-negated), ast.second-branch, expected
 		else
 			check-empty-new ast, empty-new-range, expected
 		first-branch, type, second-branch
@@ -209,9 +212,9 @@ do
 				add-diag ast.option.range,
 					diag-unpack-option-unnecessary destructure.name, expr.local.name, ()
 		as call-expr
-			if x = as-call-sum-type-case-get-on-local expr and destructure.local
+			if local, case-type = as-call-sum-type-case-get-on-local expr and destructure.local
 				add-diag ast.option.range,
-					diag-unpack-option-unnecessary destructure.name, x.local.name, x.refined-type.type-inst!.decl.name
+					diag-unpack-option-unnecessary destructure.name, local.name, case-type.type-inst!.decl.name
 		else
 			()
 		expr
@@ -371,13 +374,11 @@ do check-expr-ctx
 		check-call-identifier ast, expected
 
 -check-local-get expr(ast local-get-source, local local, expected expected) check-expr-ctx
-	expr expr, type type = if _, type-refinements = find-last refined-types, it.a == local
-		- local-get-and-refine-expr ast, local, type-refinements
-		- last type-refinements
+	expr expr = if type-refinements = refinements-for-local local
+		local-get-and-refine-expr ast, local, type-refinements
 	else
-		- local-get-expr ast, local
-		- local.type
-	check expected, type, expr
+		local-get-expr ast, local
+	check expected, expr.type, expr
 
 -check-assign-identifier expr
 	source name-and-range
@@ -464,62 +465,6 @@ do check-expr-ctx
 		"a"
 -decode-as-single-unicode-char char32?(a string)
 	only a.to::char32[]
-
--expression-context union(known-value, destructure, no-context)
-| Context where {expr} is known to be {expr-value}
--known-value record(expr expr, expr-value bool)
--no-context record
--check-expr-with-context expr(context expression-context, ast expr-ast, expected expected) check-expr-ctx
-	check-with-condition context, {check-expr ast, expected}
--check-with-condition[t] t(context expression-context, f t mut()) check-expr-ctx
-	restore-locals = locals.size
-	restore-refined-types = refined-types.size
-	original-specs = specs
-	match context
-	as known-value
-		for x in condition-knowledge context.expr, context.expr-value
-			match x
-			as local
-				add-local x
-			as local-refinement
-				add-type-refinement x.local, x.refined-type
-			as build-target
-				specs := add-build-target-to-specs specs, x
-	as destructure
-		add-locals-for-destructure context
-	as no-context
-		()
-	res = f[]
-	restore-locals restore-locals
-	while refined-types.size > restore-refined-types
-		_ = pop! refined-types
-	specs := original-specs
-	res
--add-locals-for-destructure void(destructure destructure) check-expr-ctx
-	for x in destructure.locals
-		add-local x
-
--add-build-target-to-specs specs(specs specs, target build-target) common-types
-	get-or-add-specs specs.inner ~ match target
-	as java
-		java-spec
-	as js
-		js-spec
-
--add-type-refinement void(local local, refined-type type) expr-ctx
-	refined-types ~= local, if existing = find refined-types, it.a == local
-		existing.b ~ refined-type
-	else
-		as-type-args refined-type
-
--add-local void(local local) check-expr-ctx
-	if some locals, it.name == local.name
-		add-diag local.local-must-have-name-range, diag-duplicate-declaration param-or-local, local.name
-	locals ~= local
--restore-locals void(size nat) check-expr-ctx
-	while locals.size > size then pop-local
--pop-local void() expr-ctx
-	_ = pop! locals
 
 -check-shared expr(ast shared-ast, expected expected) check-expr-ctx
 	if inner = lambda-ast ast.inner
@@ -756,7 +701,6 @@ check-while-or-until-body expr(ast while-or-until-body-ast, expected expected) c
 	matched, matched-type = check-and-infer ast.matched
 	local local? = if local = ast.local
 		local, matched-type
-	if local then add-local local
 	# Use an arbitrary non-matchable inst as default
 	inst = matched-type.type-inst else void
 	decl = inst.decl
@@ -765,7 +709,8 @@ check-while-or-until-body expr(ast while-or-until-body-ast, expected expected) c
 			add-diag ast.matched.range,
 				diag-match-on-non-matchable type-with-container matched-type
 		bogus expected, ast.matched
-	res = match body = decl.body
+	do with in with-local local
+	match body = decl.body
 	as type-body-bogus
 		not-matchable[]
 	as builtin-type
@@ -791,9 +736,6 @@ check-while-or-until-body expr(ast while-or-until-body-ast, expected expected) c
 			check-match-sum-type ast, expected, local, matched, inst
 		else
 			not-matchable[]
-	if local
-		pop-local
-	res
 
 -can-match-sum-type bool(a sum-type-kind)
 	match a
@@ -848,8 +790,8 @@ do check-expr-ctx
 	matched expr
 	sum-type type-inst
 do check-expr-ctx
-	matched-local = local or as-immut-local-get matched
-	cases = check-match-sum-type-cases matched-local, sum-type, ast.cases, expected
+	matched-refinable refinable? = local or as-refinable matched
+	cases = check-match-sum-type-cases matched-refinable, sum-type, ast.cases, expected
 	body = sum-type.decl.body.sum-type!
 	is-union = body.kind == union_
 	else_ expr? = if is-union
@@ -872,12 +814,8 @@ do check-expr-ctx
 		unless some cases, it.case-type == member-inst
 			- member-inst
 
--as-immut-local-get local?(a expr)
-	if res = as-local-get a and not is-mutable res
-		res
-
 -check-match-sum-type-cases match-sum-type-case[]
-	matched-local local?
+	matched-local refinable?
 	matched-variant type-inst
 	case-asts case-ast[]
 	expected expected
@@ -917,7 +855,7 @@ do check-expr-ctx
 	destructure, check-expr-with-context destructure.to, ast.then_, expected
 
 -check-match-sum-type-case match-sum-type-case?
-	matched-local local?
+	matched-refinable refinable?
 	matched-variant type-inst
 	member-ast case-member-ast
 	then-ast expr-ast
@@ -927,12 +865,9 @@ do check-expr-ctx
 	name = as-name.?name.?name
 	do if name
 	do if case-type = get-sum-type-case-from-name matched-variant, name, member-ast.name-range
-	if matched-local
-		add-type-refinement matched-local, case-type
-	expr = check-expr then-ast, expected
-	if matched-local
-		_ = pop! refined-types
-	case-type, expr
+	case-type: case-type
+	then_: with in maybe-refinement matched-refinable, case-type
+		check-expr then-ast, expected
 
 -get-sum-type-case-from-name type-inst?
 	sum-type type-inst

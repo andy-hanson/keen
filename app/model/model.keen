@@ -162,12 +162,10 @@ subscript type(a type-args, index nat)
 		a
 	as type-array
 		a[index]
-subscript type(a type-args, index index-relative-to-end)
-	a[to-index a, index]
-last type(a type-args)
+last type?(a type-args)
 	match a
 	as no-type-args
-		throw unreachable
+		()
 	as bogus-type
 		a
 	as type-param-index
@@ -1956,7 +1954,7 @@ param-types type array-view(a called)
 called-bogus record(decl called-decl, return-and-param-types return-and-param-types)
 hash void(a called-bogus, state hash-state)
 	trusted hash a.decl.name, state
--as-builtin-fun builtin-fun?(a called)
+as-builtin-fun builtin-fun?(a called)
 	if a.fun-inst
 		a.decl.body.builtin-fun
 
@@ -3215,6 +3213,7 @@ expr union
 	literal-string-like-expr
 	local-get-expr
 	local-get-and-refine-expr
+	local-get-and-call-and-refine-expr
 	local-set-expr
 	logical-expr
 	match-enum-expr
@@ -3276,6 +3275,8 @@ type type(a expr) common-types
 		type a
 	as local-get-and-refine-expr
 		type a
+	as local-get-and-call-and-refine-expr
+		type a
 	as local-set-expr
 		void
 	as logical-expr
@@ -3308,52 +3309,6 @@ type type(a expr) common-types
 		a.after.?type else void
 	as while-or-until-body-expr
 		type a
-
-| Iterate over this to get knowledge deduced when the expression has the given value.
-condition-knowledge record(expr expr, expr-value bool)
-| Indicates that when the condition has the given value:
-| * A local will exist (e.g. `if x = ...`)
-| * Or an already-existing local will have a more specific type
-|	(e.g. `if x.specific-case-type` or `if x` for an option)
-| * Or the scope is for a particular build (e.g. `if java`)
-condition-knowledge-item union(local, local-refinement, build-target)
-local-refinement record(local local, refined-type type)
-some bool(a condition-knowledge, f bool mut(x condition-knowledge-item))
-	match expr = a.expr
-	as call-expr
-		if a.expr-value and x = as-call-sum-type-case-get-on-local expr
-			f[x]
-		elif b = as-builtin-fun expr.called
-			if b == not
-				some (condition-knowledge expr.args.only!, not a.expr-value), f
-			elif a.expr-value and builtin-fun-is-target b
-				f[b.target]
-	as local-get-expr
-		do if a.expr-value
-		local = expr.local
-		if not is-mutable local and inner = unwrap-option local.type
-			f[local, inner]
-	as logical-expr
-		do if a.expr-value
-		if expr.kind == bool-and-bool
-			some (condition-knowledge expr.left, true), f or
-			some (condition-knowledge expr.right, true), f
-	as trusted-expr
-		some (condition-knowledge expr.inner, a.expr-value), f
-	as unpack-option
-		do if a.expr-value
-		some expr.destructure.locals, f[it]
-	else
-		()
-
-as-call-sum-type-case-get-on-local local-refinement?(a call-expr)
-	do if local = a.args.only.?as-local-get
-	do if case-type = a.called.as-sum-type-case-get
-	local, case-type
--as-sum-type-case-get type?(a called)
-	do if a.fun-inst
-	do if sum-type-case-get a.decl.body
-	a.return-type.unwrap-option!
 
 assert-or-forbid-expr record
 	ast assert-or-forbid-ast
@@ -3728,15 +3683,6 @@ to string-like-type(a matchable-string-like-type)
 	as string then string
 	as symbol then symbol
 
-as-local-get local?(a expr)
-	match a
-	as local-get-expr
-		a.local
-	as local-get-and-refine-expr
-		a.local
-	else
-		()
-
 local-get-expr record
 	ast local-get-source
 	local local
@@ -3756,7 +3702,35 @@ to json(a local-get-and-refine-expr)
 	local: a.local.name.to
 	type-refinements: a.type-refinements.to
 range source-range(a local-get-and-refine-expr) = a.ast.range
-type type(a local-get-and-refine-expr) = a.type-refinements[end - 1]
+type type(a local-get-and-refine-expr) = last! a.type-refinements
+
+| `a.x` where the type has been refined
+call-and-refine-source union(call-ast-dot, call-ast-prefix)
+	fun-name name-and-arity()
+	name-range source-range()
+	range source-range()
+| For a {local-get-and-call-and-refine-expr}, this will always be non-empty
+only-arg expr-ast?(a call-and-refine-source)
+	match a
+	as call-ast-dot then a.left
+	as call-ast-prefix then only a.args
+local-get-and-call-and-refine-expr record
+	ast call-and-refine-source
+	local local
+	| May be empty, unlike {type-refinements}
+	local-type-refinements type-args
+	called fun-inst
+	type-refinements type-args
+to json(a local-get-and-call-and-refine-expr)
+	local: a.local.name.to
+	called: a.called.to
+	type-refinements: a.type-refinements.to
+range source-range(a local-get-and-call-and-refine-expr) = a.ast.range
+local-ast name-and-range(a local-get-and-call-and-refine-expr) = name-and-range! only-arg! a.ast
+local-range source-range(a local-get-and-call-and-refine-expr) = a.local-ast.range
+local-type type(a local-get-and-call-and-refine-expr) = last a.local-type-refinements else a.local.type
+name-range source-range(a local-get-and-call-and-refine-expr) = a.ast.name-range
+type type(a local-get-and-call-and-refine-expr) = last! a.type-refinements
 
 local-set-expr record(assignee-ast name-and-range, local local, value expr)
 range source-range(a local-set-expr) = a.assignee-ast.start, a.value.end
@@ -3981,6 +3955,8 @@ some bool(a direct-child-exprs, f bool mut(x expr))
 	as local-get-expr
 		()
 	as local-get-and-refine-expr
+		()
+	as local-get-and-call-and-refine-expr
 		()
 	as local-set-expr
 		f[x.value]

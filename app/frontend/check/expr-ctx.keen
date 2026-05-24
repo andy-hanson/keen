@@ -34,9 +34,11 @@ expr-ctx record mut, call-scope case
 	-used-trusted mut bool
 	locals local mut[]
 	refined-types (local, type-args) mut[]
+	refined-calls refined-call mut[]
 	# When we access a local in a lambda, we need to make sure it's added to the closure of each lambda it's in
 	lambdas lambda-info mut[]
 	allocated-locals type-inst mut[local]
+-refined-call record(local local, called fun-inst, type-refinements type-args)
 new expr-ctx
 	types-and-specs-map types-and-specs-map
 	funs-map funs-map
@@ -51,9 +53,9 @@ do common-types
 	used-trusted: false
 	locals: ()
 	refined-types: ()
+	refined-calls: ()
 	lambdas: ()
 	allocated-locals: ()
-
 funs-map funs-map() expr-ctx
 	the::expr-ctx.funs-map
 specs specs() expr-ctx
@@ -68,8 +70,22 @@ lambdas lambda-info mut[]() expr-ctx
 	the::expr-ctx.lambdas
 locals local mut[]() expr-ctx
 	the::expr-ctx.locals
-refined-types (local, type-args) mut[]() expr-ctx
+-refined-locals (local, type-args) mut[]() expr-ctx
 	the::expr-ctx.refined-types
+-refined-calls refined-call mut[]() expr-ctx
+	the::expr-ctx.refined-calls
+
+refinements-for-local type-args?(local local) expr-ctx
+	?b find-last refined-locals, it.a == local
+as-refined-call local-get-and-call-and-refine-expr?(ast call-and-refine-source) expr-ctx
+	do if arg = only-arg ast
+	do if name-and-range arg
+	do if call = find-last refined-calls, {it.local.name == arg.name and it.called.name == ast.fun-name.name}
+	ast: ast
+	local: call.local
+	local-type-refinements: refinements-for-local call.local else no-type-args
+	called: call.called
+	type-refinements: call.type-refinements
 
 type-container type-container(a expr-ctx)
 	a.container.to
@@ -159,3 +175,181 @@ get-the bool(range source-range, the-type type-inst) check-expr-ctx
 		add-diag range,
 			diag-context-type-missing type-container, specs.all-contexts.slow-to-array, the-type
 		false
+
+expression-context union(known-value, destructure, no-context)
+| Context where {expr} is known to be {expr-value}
+known-value record(expr expr, expr-value bool)
+no-context record
+check-with-condition[t] t(context expression-context, f t mut()) check-expr-ctx
+	restore-locals = locals.size
+	restore-refined-types = refined-locals.size
+	restore-refined-calls = refined-calls.size
+	original-specs = specs
+	match context
+	as known-value
+		for x in condition-knowledge context.expr, context.expr-value
+			match x
+			as local
+				add-local x
+			as local-refinement
+				add-type-refinement x.local, x.refined-type
+			as call-refinement
+				add-call-refinement x
+			as build-target
+				specs := add-build-target-to-specs specs, x
+	as destructure
+		add-locals-for-destructure context
+	as no-context
+		()
+	res = f[]
+	reduce-size-to locals, restore-locals
+	reduce-size-to refined-locals, restore-refined-types
+	reduce-size-to refined-calls, restore-refined-calls
+	specs := original-specs
+	res
+add-locals-for-destructure void(destructure destructure) check-expr-ctx
+	for x in destructure.locals
+		add-local x
+
+-add-build-target-to-specs specs(specs specs, target build-target) common-types
+	get-or-add-specs specs.inner ~ match target
+	as java
+		java-spec
+	as js
+		js-spec
+
+maybe-refinement record(refinable refinable?, refined-type type-inst)
+with-block[t] t(a maybe-refinement, f t mut()) expr-ctx
+	if x = a.refinable
+		match x
+		as local
+			add-type-refinement x, a.refined-type
+		as local-and-called
+			add-call-refinement (x.local, x.called, a.refined-type)
+	res = f[]
+	if x = a.refinable
+		match x
+		as local
+			_ = pop! refined-locals
+		as local-and-called
+			_ = pop! refined-calls
+	res
+
+-add-type-refinement void(local local, refined-type type) expr-ctx
+	refined-locals ~= local, if existing = find refined-locals, it.a == local
+		existing.b ~ refined-type
+	else
+		as-type-args refined-type
+
+-add-call-refinement void(a call-refinement) expr-ctx
+	existing = find refined-calls, {it.local.name == a.local.name and it.called == a.called}
+	refined-calls ~= a.local, a.called, if existing
+		existing.type-refinements ~ a.refined-type
+	else
+		as-type-args a.refined-type
+
+with-local record(local local?)
+with-block[t] t(a with-local, f t mut()) check-expr-ctx
+	if local = a.local
+		add-local local
+	res = f[]
+	if a.local
+		_ = pop! locals
+	res
+
+-add-local void(local local) check-expr-ctx
+	if some locals, it.name == local.name
+		add-diag local.local-must-have-name-range, diag-duplicate-declaration param-or-local, local.name
+	locals ~= local
+
+| Iterate over this to get knowledge deduced when the expression has the given value.
+-condition-knowledge record(expr expr, expr-value bool)
+| Indicates that when the condition has the given value:
+| * A local will exist (e.g. `if x = ...`)
+| * Or an already-existing local will have a more specific type
+|	(e.g. `if x.specific-case-type` or `if x` for an option)
+| * Or the scope is for a particular build (e.g. `if java`)
+-condition-knowledge-item union(local, local-refinement, call-refinement, build-target)
+local-refinement record(local local, refined-type type)
+-call-refinement record(local local, called fun-inst, refined-type type)
+-some bool(a condition-knowledge, f bool mut(x condition-knowledge-item))
+	match expr = a.expr
+	as call-expr
+		if a.expr-value and case-type = as-sum-type-case-get expr.called
+			arg = only! expr.args
+			if local = as-immut-local-get arg
+				f[local, case-type]
+			elif x = as-access-field-of-local arg
+				f[x.local, x.called, case-type]
+		elif a.expr-value and x = as-access-field-of-local expr and inner = unwrap-option x.called.return-type
+			f[x.local, x.called, inner]
+		elif b = as-builtin-fun expr.called
+			if b == not
+				some (condition-knowledge expr.args.only!, not a.expr-value), f
+			elif a.expr-value and builtin-fun-is-target b
+				f[b.target]
+	as local-get-expr
+		do if a.expr-value
+		local = expr.local
+		if not is-mutable local and inner = unwrap-option local.type
+			f[local, inner]
+	as logical-expr
+		do if a.expr-value
+		if expr.kind == bool-and-bool
+			some (condition-knowledge expr.left, true), f or
+			some (condition-knowledge expr.right, true), f
+	as trusted-expr
+		some (condition-knowledge expr.inner, a.expr-value), f
+	as unpack-option
+		do if a.expr-value
+		some expr.destructure.locals, f[it]
+	else
+		()
+
+refinable union(local, local-and-called)
+local-and-called record(local local, called fun-inst)
+as-refinable refinable?(expr expr)
+	as-immut-local-get expr or as-access-field-of-local expr
+
+as-call-sum-type-case-get-on-local (local, type)?(expr call-expr)
+	if case-type = as-sum-type-case-get expr.called
+		if local = as-immut-local-get only! expr.args
+			local, case-type
+-as-sum-type-case-get type?(a called)
+	do if fun-inst a
+	do if sum-type-case-get a.decl.body
+	a.return-type.unwrap-option!
+
+-as-immut-local-get local?(a expr)
+	if res = as-local-get a and not is-mutable res
+		res
+-as-local-get local?(a expr)
+	match a
+	as local-get-expr
+		a.local
+	as local-get-and-refine-expr
+		a.local
+	else
+		()
+-as-access-field-of-local local-and-called?(a expr)
+	match a
+	as call-expr
+		called = a.called
+		do if arg = only a.args
+		do if fun-inst called
+		do if is-immutable-field-getter called or is-pure-function called
+		do if local = as-immut-local-get arg
+		local, called
+	as local-get-and-call-and-refine-expr
+		a.local, a.called
+	else
+		()
+
+# Allow accessing an immutable field even if the type is mutable
+-is-immutable-field-getter bool(a fun-inst)
+	body = a.decl.body
+	record-field-get body and not body.field.mutability
+-is-pure-function bool(a fun-inst)
+	every a.param-types, it.worst-case-mutability == data_ and
+	every a.specs.all-contexts, it.worst-case-mutability == data_ and
+	not is-global a.specs
