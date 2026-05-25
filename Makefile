@@ -33,15 +33,13 @@ test-end-to-end: bin/keen
 test-end-to-end-overwrite: bin/keen
 	bin/keen run test-cases/end-to-end -- --overwrite-output
 
-today = $(shell date --iso-8601 --utc)
-
 bin/imports/date.txt:
 	mkdir -p bin/imports
-	echo $(today) > bin/imports/date.txt
+	printf '%s' "$$(date --iso-8601 --utc)" > bin/imports/date.txt
 
 bin/imports/commit-hash.txt:
 	mkdir -p bin/imports
-	git rev-parse --short HEAD > bin/imports/commit-hash.txt
+	printf '%s' "$$(git rev-parse --short HEAD)" > bin/imports/commit-hash.txt
 
 app/backend/java/lib/Keen.class: app/backend/java/lib/Keen.java
 	javac app/backend/java/lib/Keen.java

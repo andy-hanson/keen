@@ -41,8 +41,8 @@ make test
 
 For most changes you just need to run `make test`.
 
-For development, avoid globally installed `keen` and instead add this repository's `bin` to the PATH.
-(E.g., `export PATH=$PATH:~/keen/bin` in `.bashrc`, assuming you cloned this repository to your home directory.)
+For development, it's recommended to remove any other installed `keen` and instead add this repository's `bin` to the PATH.
+(E.g., `export PATH="$HOME/keen/bin:$PATH"` in `.bashrc`, assuming you cloned this repository to your home directory.)
 
 IDE extensions get `keen` from the PATH, so you can `make bin/keen` and reload the IDE and it will be using the latest code.
 You don't need to reinstall the extension.
