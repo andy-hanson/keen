@@ -19,7 +19,6 @@ with-block Code_attribute(a build-code, f void mut(a code-builder))
 			- LineNumberTable_attribute a.constants["LineNumberTable"], builder.line-number-table.move-to
 		-- unless is-empty builder.stack-map
 			- StackMapTable_attribute a.constants["StackMapTable"], builder.stack-map.move-to
-# MOVE
 code-builder record mut
 	-out bytecode-out
 	constants constants-builder
@@ -64,15 +63,21 @@ add-to-exception-table void(a code-builder, start nat16, end nat16, catch-type c
 	a.exception-table ~= start, end, a.next-index, catch-type
 	write-stack-frame a, frame
 -write-stack-frame void(a code-builder, frame stack-frame)
-	cur-pos = a.next-index
-	do unless cur-pos + 1 == a.next-stack-frame-relative-to # In that case it would be a duplicate
-	# TODO:PERF for efficiency, use the simpler frames where possible and not always full_frame
-	full full_frame =
-		offset-delta: cur-pos - a.next-stack-frame-relative-to
-		locals: frame.locals
-		stack: frame.stack
-	a.stack-map ~= full
-	a.next-stack-frame-relative-to := cur-pos + 1
+	should-emit = if a.next-index + 1 == a.next-stack-frame-relative-to
+		last = full_frame! last! a.stack-map
+		unless frame.locals == last.locals and frame.stack == last.stack
+			# Noop so the new stack frame can apply to a different position
+			a.out ~= 0x00
+			true
+	else
+		true
+	if should-emit
+		# TODO:PERF for efficiency, use the simpler frames where possible and not always full_frame
+		a.stack-map ~=
+			offset-delta: a.next-index - a.next-stack-frame-relative-to
+			locals: frame.locals
+			stack: frame.stack
+		a.next-stack-frame-relative-to := a.next-index + 1
 
 next-index nat16(a code-builder)
 	a.out.next-index.to
