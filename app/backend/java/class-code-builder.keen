@@ -5,8 +5,16 @@ import
 
 build-code record mut
 	constants constants-builder
+	initial-stack-frame stack-frame
 with-block Code_attribute(a build-code, f void mut(a code-builder))
-	builder code-builder = (), a.constants, (), (), (), ()
+	builder code-builder =
+		out: ()
+		constants: a.constants
+		exception-table: ()
+		prev-stack-frame: a.initial-stack-frame
+		next-stack-frame-relative-to: 0
+		stack-map: ()
+		line-number-table: ()
 	f[builder]
 	code = finish builder.out
 	attribute-name-index: a.constants["Code"]
@@ -23,6 +31,7 @@ code-builder record mut
 	-out bytecode-out
 	constants constants-builder
 	-exception-table exception-table-entry mut[]
+	-prev-stack-frame mut stack-frame
 	-next-stack-frame-relative-to mut nat16
 	-stack-map stack_map_frame mut[]
 	-line-number-table line-number-table-entry mut[]
@@ -30,6 +39,7 @@ code-builder record mut
 stack-frame record
 	locals verification_type_info[]
 	stack verification_type_info[]
+new stack-frame() = (), ()
 
 deferred-jump record mut
 	-jump-from nat16
@@ -64,20 +74,44 @@ add-to-exception-table void(a code-builder, start nat16, end nat16, catch-type c
 	write-stack-frame a, frame
 -write-stack-frame void(a code-builder, frame stack-frame)
 	should-emit = if a.next-index + 1 == a.next-stack-frame-relative-to
-		last = full_frame! last! a.stack-map
-		unless frame.locals == last.locals and frame.stack == last.stack
+		unless a.prev-stack-frame == frame
 			# Noop so the new stack frame can apply to a different position
 			a.out ~= 0x00
 			true
 	else
 		true
 	if should-emit
-		# TODO:PERF for efficiency, use the simpler frames where possible and not always full_frame
-		a.stack-map ~=
-			offset-delta: a.next-index - a.next-stack-frame-relative-to
-			locals: frame.locals
-			stack: frame.stack
+		a.stack-map ~= stack-map-frame-for-diff a.prev-stack-frame, frame, a.next-index - a.next-stack-frame-relative-to
+		a.prev-stack-frame := frame
 		a.next-stack-frame-relative-to := a.next-index + 1
+
+-stack-map-frame-for-diff stack_map_frame(prev stack-frame, cur stack-frame, offset-delta nat16)
+	# In every simplified case, the locals need to agree up to additions or deletions at the end
+	min-locals = min prev.locals.size, cur.locals.size
+	res stack_map_frame? = if cur.locals[0 .. min-locals] == prev.locals[0 .. min-locals]
+		match cur.locals.size <=> prev.locals.size
+		as equal
+			if is-empty cur.stack
+				if offset-delta <= max-offset-for-same-frame
+					same_frame offset-delta.to
+				else
+					same_frame_extended offset-delta
+			elif stack-item = only cur.stack
+				if offset-delta <= max-offset-for-same-locals
+					same_locals_1_stack_item_frame offset-delta.to, stack-item
+				else
+					same_locals_1_stack_item_frame_extended offset-delta, stack-item
+		as less
+			do if is-empty cur.stack
+			chop-n = prev.locals.size - cur.locals.size
+			do if 1 <= chop-n and chop-n <= max-n-to-chop
+			chop_frame chop-n.to, offset-delta
+		as greater
+			do if is-empty cur.stack
+			append-n = cur.locals.size - prev.locals.size
+			do if 1 <= append-n and append-n <= max-n-to-append
+			append_frame offset-delta, cur.locals[prev.locals.size .. end].to
+	res else full_frame offset-delta, cur.locals, cur.stack
 
 next-index nat16(a code-builder)
 	a.out.next-index.to
