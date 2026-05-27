@@ -39,8 +39,6 @@ import
 	index nat
 	| Description of what was expected.
 	expected string
-+ == bool(a parse-error, b parse-error)
-	trusted a.input == b.input and a.index == b.index and a.expected == b.expected
 +show string(a parse-error)
 	# TODO: show where it is. Also handle funny characters
 	peek = if a.index == a.input.size then "EOF" else "'{(a.input.to::char8[])[a.index]}'"
@@ -317,45 +315,43 @@ import
 | Parses a signed integer in decimal format.
 | This allows e.g. "1", "+23", "-45".
 +int int64 grammar()
-	("+".optional ~~ (transform nat, it.to::int64)) / ("+" ~~ (transform nat, -it.to::int64))
-~parse-int int64(a string-view)
-	forbid is-empty a else inner-parse-error "integer"
-	if a[0] == "+"
-		a[1 .. end].parse-nat.to
-	elif a[0] == "-"
-		-a[1 .. end].parse-nat
-	else
-		a.parse-nat.to
+	parse: of iter
+		sign = try-take-sign iter
+		int-of-nat sign, take-nat iter
 
-~take-nat nat64(iter string-iterator)
-	if try-take iter, "0b"
-		take-nat iter, 2
-	elif try-take iter, "0o"
-		take-nat iter, 8
-	elif try-take iter, "0x"
-		take-nat iter, 16
-	else
-		take-nat iter, 10
--take-nat nat64(iter string-iterator, base nat64)
+-int-of-nat int(sign sign?, a nat)
 	try
-		acc mut nat64 = next-digit iter, base else throw inner-parse-error "natural number"
-		while x = next-digit iter, base
-			acc *:= base
-			acc +:= x
-		acc
+		if sign
+			match sign
+			as negative
+				-a
+			as positive
+				to a
+		else
+			to a
 	catch as arithmetic-error
-		throw inner-parse-error "number that fits in a nat64"
+		throw inner-parse-error "numeric overflow"
+
+-take-base-and-nat (nat, nat)(iter string-iterator)
+	assert peek-digit iter else inner-parse-error "number"
+	base = try-take-0-base iter else 10
+	assert nat-value mut = next-digit iter, base else inner-parse-error "number"
+	while
+		skip-underscore-if-before-digit iter
+		if digit = next-digit iter, base
+			try
+				nat-value := nat-value * base + digit
+			catch as arithmetic-error
+				throw inner-parse-error "numeric overflow"
+			true
+	base, nat-value
+
+~take-nat nat64(iter string-iterator) =b take-base-and-nat iter
 -next-digit nat64?(a string-iterator, base nat)
-	skip-underscore-if-before-digit a
 	do if char = peek a
 	do if digit = char-to-nat64 char, base
 	_ = take-next a
 	digit
-~parse-nat nat64(a string-view)
-	iter string-iterator = begin a
-	res = take-nat iter
-	assert is-at-end iter else todo
-	res
 
 +is-digit bool(a char8)
 	"0"::char8 <= a and a <= "9"
@@ -377,23 +373,40 @@ import
 	as nat then a.to
 	as int then a.to
 	as float then a
+-sign enum(negative, positive)
 ~take-number number(iter string-iterator)
 	start = copy iter
-	is-signed = try-take iter, "-" or try-take iter, "+"
-	assert peek-digit iter else inner-parse-error "number"
-	while peek-digit iter
+	sign = try-take-sign iter
+	base, nat-value = take-base-and-nat iter
+	if base == 10 and iter.peek == "." and peek-digit-next iter
+		# Float parsing is hard, so just get a string and pass it to the Java (or JS) standard library.
 		_ = take-next iter
-		skip-underscore-if-before-digit iter
-	if iter.peek == "." and peek-digit-next iter
-		_ = take-next iter
-		while peek-digit iter
-			_ = take-next iter
+		while
 			skip-underscore-if-before-digit iter
+			next-digit iter, 10
 		parse-float slice start, iter
-	elif is-signed
-		parse-int slice start, iter
+	elif sign
+		if sign == negative and nat-value == 0
+			# '-0' makes no sense as an int, so assume float
+			-0::float
+		else
+			int-of-nat sign, nat-value
 	else
-		parse-nat slice start, iter
+		nat-value
+
+-try-take-sign sign?(a string-iterator)
+	if try-take a, "-"
+		negative
+	elif try-take a, "+"
+		positive
+
+-try-take-0-base nat?(iter string-iterator)
+	if try-take iter, "0b"
+		2
+	elif try-take iter, "0o"
+		8
+	elif try-take iter, "0x"
+		16
 
 ~peek-digit bool(a string-iterator)
 	(x = peek a) and is-digit x
@@ -405,7 +418,7 @@ import
 		_ = a.take-next
 
 | WARN: Does not validate {a}
-~parse-float float64(a string-view)
+-parse-float float64(a string-view)
 	trusted if java
 		parseDouble fix-number-for-java a
 	elif js
@@ -485,9 +498,9 @@ import
 	skip-whitespace a
 	key.to, value
 
-~try-take-number json?(iter string-iterator)
+~try-take-number number?(iter string-iterator)
 	if peek-digit iter or iter.peek == "-" and peek-digit-next iter
-		to::json take-number iter
+		take-number iter
 
 +kid json grammar()
 	parse: it.parse-kid
@@ -649,7 +662,7 @@ do
 	elif x = try-take-quoted-string iter
 		x.to
 	elif x = try-take-number iter
-		x
+		x.to
 	else
 		throw inner-parse-error "Kid value"
 
@@ -674,11 +687,11 @@ do
 			kid-value-from-name name
 	elif x = try-take-quoted-string iter
 		if try-take iter, ":"
-			x.to::symbol
+			to::symbol x
 		else
-			x.to::json
+			to::json x
 	elif x = try-take-number iter
-		x
+		to::json x
 	else
 		throw inner-parse-error "Kid value"
 
