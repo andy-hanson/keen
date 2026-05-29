@@ -6,35 +6,57 @@ import
 
 parse-config config(config-uri uri, text string-view)
 	line-and-column-getter = line-and-column-getter-for-text text.to
+	diags diag mut[] = ()
 	match parsed = parse-kid text
 	as json
-		diags diagnostic mut[] = ()
-		content = parse-config-inner config-uri.parent-or-empty, diags, parsed
+		content = to-config config-uri.parent-or-empty, diags, parsed
 		config-uri: config-uri
-		diagnostics: diags.move-to
+		diagnostics: map diags, {top-of-file, it}
 		line-and-column-getter: line-and-column-getter
-		include: content.include
-		extern: content.extern
+		imports: content.imports
 	as kid-parse-error
 		range source-range = parsed.pos, parsed.pos + 1
 		config-for-diag config-uri, parsed.expected.diag-config-invalid-kid, range, line-and-column-getter
 
--config-content record(include config-import-uris, extern config-extern-uris)
--parse-config-inner config-content(dir-containing-config uri, diags diagnostic mut[], obj json)
-	include: parse-include dir-containing-config, diags, obj["include"]
-	extern: parse-extern dir-containing-config, diags, obj["exclude"]
+-config-content record(imports config-imports)
+-to-config config-content(dir-containing-config uri, diags diag mut[], value json)
+	check-keys diags, value, ("imports",)
+	imports: to-imports dir-containing-config, diags, value["imports"]
 
--parse-include config-import-uris(dir-containing-config uri, diags diagnostic mut[], json json)
-	map-values json.to::json[symbol], of value
-		parse-uri-or-bogus dir-containing-config, diags, value
+-check-keys void(diags diag mut[], value json, allowed-keys symbol set)
+	match value
+	as null
+		()
+	as json-object
+		for key in keys value
+			unless allowed-keys[key]
+				diags ~= diag-config-unhandled-key allowed-keys, key
+	else
+		diags ~= diag-config-invalid-value "object", value
 
--parse-extern config-extern-uris(dir-containing-config uri, diags diagnostic mut[], json json)
-	map-values json.to::json[symbol], of value
-		if value != null
-			parse-uri-or-bogus dir-containing-config, diags, value
+-to-imports config-imports(dir-containing-config uri, diags diag mut[], object json)
+	match object
+	as null
+		()
+	as json-object
+		imports: for* key, value in object
+			do if uri = to-uri dir-containing-config, diags, value
+			kind configured-import-kind? = match get-extension uri
+			as "" then keen
+			as ".jar" then jar
+			else
+				diags ~= diag-config-invalid-value "Directory (for Keen files) or a '.jar' file", value
+				()
+			if kind
+				- (parse-path key.to), uri, kind
+	else
+		diags ~= diag-config-invalid-value "Imports object", object
+		()
 
--parse-uri-or-bogus uri(dir-containing-config uri, diags diagnostic mut[], value json)
-	parse-uri dir-containing-config, diags, value else bogus-uri
--parse-uri uri?(dir-containing-config uri, diags diagnostic mut[], json json)
-	_ = diags
-	parse-uri-with-cwd dir-containing-config, json.to::string
+-to-uri uri?(dir-containing-config uri, diags diag mut[], value json)
+	try-parse-uri dir-containing-config, value or
+		diags ~= diag-config-invalid-value "URI", value
+		()
+-try-parse-uri uri?(dir-containing-config uri, value json)
+	try s = value.to::string catch as deserialize-error then ()
+	parse-uri-with-cwd dir-containing-config, s

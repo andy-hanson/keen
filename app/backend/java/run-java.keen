@@ -1,7 +1,9 @@
 import
-	KeenClassLoader.class
+	foo/keen/KeenClassLoader
 	java/io/ByteArrayOutputStream
 	java/io/PrintStream
+	java/nio/file/Path
+	java/nio/file/Paths
 	java/lang/Class
 	java/lang/ClassLoader
 	java/lang/String
@@ -10,26 +12,33 @@ import
 	java/lang/reflect/InvocationTargetException
 	java/lang/reflect/Method
 	java/lang/System
+	java/net/URI
+	java/net/URL
+	java/net/URLClassLoader
 	java/nio/charset/StandardCharsets
 	keen/java
 	keen/unsafe
+	../../model/uri
 	../../util/exit-code
 	../../util/java-bytecode-types
 
-run-java void(classes java-compiled-class[], main-args string[]) global, unsafe, java
-	if error = run-java-common classes, main-args
+run-java void(jar-files file-path[], classes java-compiled-class[], main-args string[]) global, unsafe, java
+	if error = run-java-common jar-files, classes, main-args
 		omit-runtime-stack-trace error
 		throw reinterpret-cast error
 
 | Catches errors and redirects output to a returned string.
-run-java-and-catch (string, exit-code)(classes java-compiled-class[], main-args string[]) global, unsafe, java
+run-java-and-catch (string, exit-code)
+	jar-files file-path[]
+	classes java-compiled-class[]
+do global, unsafe, java
 	originalOut = out
 	originalErr = err
 	output ByteArrayOutputStream = ()
 	newOut PrintStream = output, true, UTF_8
 	setOut newOut
 	setErr newOut
-	exit exit-code = if err = run-java-common classes, main-args
+	exit exit-code = if err = run-java-common jar-files, classes, ()
 		printStackTrace err
 		error
 	else
@@ -38,8 +47,11 @@ run-java-and-catch (string, exit-code)(classes java-compiled-class[], main-args 
 	setErr originalErr
 	output.toString.to, exit
 
--run-java-common Throwable?(classes java-compiled-class[], main-args string[]) global, unsafe, java
-	loader KeenClassLoader = getSystemClassLoader,
+-run-java-common Throwable?(jars file-path[], classes java-compiled-class[], main-args string[]) global, unsafe, java
+	urls URL buffer = for jar-path in jars
+		p Path = get jar-path.to::string.to::String, ()
+		p.toUri.toURL
+	loader = KeenClassLoader URLClassLoader urls, getSystemClassLoader
 	for file in classes
 		bytes int8 buffer = file.bytes.safe-reinterpret-cast.cast-mutable
 		if x = try-remove-end file.path, ".class"

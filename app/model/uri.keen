@@ -43,19 +43,27 @@ test
 	a / "" is a
 	a / "b" is "a/b",
 
-first-and-rest (symbol, path?)(a path)
-	if par, base = a.parent-and-base-name
-		first, mid = par.first-and-rest
-		first, if mid
-			mid / base
+| Returns an empty path if they are exactly the same
+starts-with bool(a path, start path) = try-remove-start a, start
+try-remove-start path?(a path, start path)
+	if rest = try-remove-start a.to::string, start.to::string
+		if rest == ""
+			as-path ""
 		else
-			base.to,
-	else
-		a.to, ()
+			?as-path try-remove-start rest, "/"
 test
-	("a/b/c",).first-and-rest is ("a", ("b/c",))
+	a path = as-path "a"
+	a-b path = as-path "a/b"
+	a-b-c path = as-path "a/b/c"
+	try-remove-start a-b-c, a is as-path "b/c"
+	try-remove-start a-b-c, a-b is as-path "c"
+	try-remove-start a-b-c, a-b-c is as-path ""
+	try-remove-start a-b, a-b-c is ()
+	try-remove-start "ab/c".as-path, a is ()
 
 assume-path path(a symbol)
+	a,
+assume-file-path file-path(a symbol)
 	a,
 
 parse-path path(a string-view)
@@ -118,8 +126,7 @@ uri record(to symbol) -new
 -file-scheme string()
 	"file://"
 as-file-path file-path?(a uri)
-	do if uri-is-file a.to::string
-	res = try-remove-start! a.to::symbol.to::string, file-scheme
+	do if res = try-remove-start a.to::string, file-scheme
 	path char8[] = parse-path-inner res, true 'to
 	# A uri has a "/" before a Windows path, like `file:///c%3a`; a file-path does not.
 	str string = if not is-empty path and path[0] == "/" and path[1 .. end].is-windows-path
@@ -152,10 +159,7 @@ test
 parent-or-empty uri(a uri)
 	a.parent else a
 
-new uri()
-	"",
-bogus-uri uri()
-	"bogus:bogus",
+new uri() = "",
 
 is-ancestor-of bool(a uri, b uri)
 	starts-with b.to::string, "{a.to::string}/"
@@ -165,6 +169,8 @@ base-name string(a uri)
 # Return value will start with a "." unless it is the empty string
 get-extension symbol(a path)
 	a.base-name.get-extension
+get-extension symbol(a uri)
+	a.base-name.get-extension
 test
 	("",)::path.get-extension is ""
 	("a.txt",)::path.get-extension is ".txt"
@@ -172,8 +178,6 @@ test
 	("a/b",)::path.get-extension is ""
 	("a/b.txt",)::path.get-extension is ".txt"
 	("a.txt/b",)::path.get-extension is ""
-without-extension path?(a path, extension string)
-	?new without-extension a.to::symbol, extension
 without-extension file-path?(a file-path, extension string)
 	?new without-extension a.to::symbol, extension
 -without-extension symbol?(a symbol, ext string)
@@ -282,10 +286,11 @@ parse-file-path-with-cwd file-path?(cwd file-path, text string)
 	as-file-path parse-uri-with-cwd cwd, text
 must-parse-file-path file-path(text string)
 	parse-file-path text
-parse-file-path file-path(a string)
+parse-file-path file-path(a string) = parse-file-path to::string-view a
+parse-file-path file-path(a string-view)
 	is-windows = a.is-windows-path
 	fixed-a string-view = if is-windows
-		a.lower-case.to
+		a.to.lower-case.to
 	else
 		try-remove-start a, "/" else a.to
 	path = parse-path-inner fixed-a, false
@@ -301,9 +306,6 @@ to uri(a file-path)
 test
 	fp file-path = "/a/b",
 	fp.to::uri is ("file:///a/b",)
-
--uri-is-file bool(a string)
-	starts-with a, file-scheme
 
 rel-path record(n-parents nat, path path)
 show string(a rel-path)
@@ -515,9 +517,25 @@ test
 		unless cur.to::string.is-empty
 			out ~= base-name cur
 
-to-java-uri uri(a path)
-	"java://".parse-uri / a
-is-java-uri bool(a uri)
-	starts-with a.to::symbol.to::string, "java://"
-as-java-uri path?(a uri)
-	?parse-path try-remove-start a.to::symbol.to::string, "java:///"
+jar-and-class record
+	jar-path file-path
+	| Includes '.class'
+	class-path-including-extension path
+class-path-excluding-extension path(a jar-and-class)
+	assume-path to::symbol try-remove-end! a.class-path-including-extension.to::string, ".class"
+make-jar-and-class-uri uri(jar-uri uri, class-path path)
+	assert as-file-path jar-uri
+	get-extension class-path is ""
+	assume-uri "jar:{jar-uri}!/{class-path}.class"
+as-jar-and-class-uri jar-and-class?(a uri)
+	rest = try-remove-start a.to::string, "jar:file:///"
+	if starts-with a.to::string, "jar:"
+		assert rest
+	do if rest
+	assert jar-path, class-path = try-split-once rest, "!/"
+	jar-path.parse-file-path, class-path.parse-path
+
+test
+	as-jar-and-class-uri assume-uri "jar:file:///path/to/foo.jar!/org/foo/Main.class" is
+		jar-path: assume-file-path "/path/to/foo.jar"
+		class-path-including-extension: as-path "org/foo/Main.class"

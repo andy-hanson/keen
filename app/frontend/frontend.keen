@@ -23,8 +23,12 @@ import
 	./parse-java-class
 	./show-model
 
+builtin-java-paths alias
+	(path, uri)[]
+
 frontend record mut, java-classes case
 	-keen-lib uri
+	-builtin-java-paths builtin-java-paths
 	-common-uris common-uris
 	-common-files mut (common-module, keen-file) enum-map
 	-unknown uri mut-set
@@ -61,16 +65,17 @@ show-ctx show-ctx(a frontend, uris-info uris-info, options show-options)
 is-imported-file-uri bool(a frontend, uri uri)
 	a.other-files[uri]
 
-new frontend(keen-lib uri)
+new frontend(keen-lib uri, builtin-java-paths builtin-java-paths)
 	common-uris = common-uris keen-lib
 	res frontend =
 		keen-lib: keen-lib
+		builtin-java-paths: builtin-java-paths
 		common-uris: common-uris
 		common-files: for _, uri in common-uris
 			# Dummy value, about to get overwritten
 			uri: uri
 			referenced-by: ()
-			config-file: unknown, ()
+			config-file: (), unknown, ()
 			config: ()
 			ast-or-diag: unknown
 			resolved-imports: ()
@@ -114,6 +119,7 @@ new frontend(keen-lib uri)
 	parsed mut json?
 	diagnostics mut diagnostic[]
 -config-file record mut
+	uri uri
 	# If this is 'not-found' (and it usually is not-found), we will ignore it and use the parent
 	config mut config-or-diag
 	# Missing only for the root file
@@ -122,6 +128,7 @@ new frontend(keen-lib uri)
 
 -java-class-file record mut
 	path path
+	uri uri
 	parsed mut java-class-or-diag
 	work-needed mut java-work-kind
 	type mut type-decl?
@@ -167,7 +174,7 @@ do
 make-program program(a frontend, fully-loaded-dirs uri set)
 	start = perf-now
 	finally end-make-program start
-	assert a.files-state == all-loaded
+	a.files-state is all-loaded
 	common-modules (common-module, keen-module) enum-map = for _, x in a.common-files
 		x.module!
 	the instantiate-ctx = a.instantiate-ctx
@@ -182,6 +189,7 @@ make-program program(a frontend, fully-loaded-dirs uri set)
 	all-configs: for* uri, x in a.config-files
 		if config = x.config.config
 			- uri, config
+	jar-files: all-jar-files a
 	keen-modules: keen-modules
 	java-modules: for* k, v in a.java-class-files
 		if m = v.module
@@ -217,6 +225,7 @@ files-state files-state(a frontend)
 	elif not is-empty a.loading
 		has-loading
 	else
+		a.count-uncompiled-keen-files is 0
 		all-loaded
 
 change-file void(a frontend, uri uri, changes text-document-content-change-event[])
@@ -247,14 +256,14 @@ set-file void(a frontend, uri uri, result read-file-result)
 
 	match file-type uri
 	as class_
-		path = uri.as-java-uri!
+		path = uri.as-jar-and-class-uri!.class-path-excluding-extension
 		file = ensure-java-class-file a, path, referencable
 		the instantiate-ctx = a.instantiate-ctx
 		match result
 		as array-view
 			parsed = parse-java-class result
 			file.parsed := parsed
-			file.type := initial-type-decl-for-java-class parsed
+			file.type := initial-type-decl-for-java-class parsed, uri
 			ensure-java-class-references a, file
 			for x in file.referenced-by-java
 				add-to-workable-if-so a, x, a.java-class-files[x]!
@@ -289,7 +298,7 @@ set-file void(a frontend, uri uri, result read-file-result)
 					config-for-diag uri, error, (), ()
 			a.line-and-column-getters ~:= uri, config-file.config.line-and-column-getter
 			for file in values a.keen-files
-				update-file-on-config-change a, file
+				update-file-on-config-change a, file, uri
 		else
 			file = ensure-kid-file a, uri
 			match result
@@ -364,13 +373,15 @@ set-file void(a frontend, uri uri, result read-file-result)
 		ensure-config-file a, parent-dir / config-base-name
 	ensure a.config-files, uri, of
 		a.unknown ~= uri
-		config: unknown, parent: parent
+		uri: uri, config: unknown, parent: parent
 
 -ensure-java-class-file java-class-file(a frontend, path path, work-needed java-work-kind)
 	the instantiate-ctx = a.instantiate-ctx
 	res = ensure a.java-class-files, path, of
-		a.unknown ~= path.to-java-uri
+		assert uri = get-uri-for-java-class a, path
+		a.unknown ~= uri
 		path: path
+		uri: uri
 		parsed: unknown
 		work-needed: work-needed
 		type: ()
@@ -383,6 +394,22 @@ set-file void(a frontend, uri uri, result read-file-result)
 		ensure-java-class-references a, res
 		add-to-workable-if-so a, path, res
 	res
+
+-get-uri-for-java-class uri?(a frontend, path path)
+	if jar-uri = get-jar-uri-for-java-class-path a, path
+		make-jar-and-class-uri jar-uri, path
+
+-all-jar-files file-path[](a frontend)
+	sort-unique for* _, file in a.config-files
+		if config = file.config.config
+			config.imports.all-jar-files
+
+-get-jar-uri-for-java-class-path uri?(a frontend, path path)
+	jar-uri-for-builtin a, path or first a.config-files, of _, config-file
+		do if config = config-file.config.config
+		do if res, _ = config.imports[path]
+		do if res.kind == jar
+		res.uri
 
 -ensure-java-class-references void(a frontend, file java-class-file)
 	parsed = file.parsed
@@ -400,7 +427,7 @@ set-file void(a frontend, uri uri, result read-file-result)
 			(ensure-java-class-file a, ref.path, kind).referenced-by-java ~= file.path
 
 -ensure-other-file other-file(a frontend, uri uri)
-	forbid uri.file-type == keen
+	uri.file-type is other
 	ensure a.other-files, uri, of
 		a.unknown ~= uri
 		uri, unknown, ()
@@ -438,7 +465,7 @@ set-file void(a frontend, uri uri, result read-file-result)
 		for importer in file.referenced-by
 			add-to-workable-if-so a, a.keen-files[importer]!
 		false
-	elif a.files-state == all-loaded and a.count-uncompiled-keen-files != 0
+	elif is-empty a.unknown and is-empty a.loading and a.count-uncompiled-keen-files != 0
 		fix-circular-imports a
 		false
 	else
@@ -467,7 +494,7 @@ set-file void(a frontend, uri uri, result read-file-result)
 	as all
 		if can-fill-class-body a, file
 			filled-body := true
-			file.module := get-java-module path, file.type!, class_
+			file.module := get-java-module path, file.uri, file.type!, class_
 		else
 			assert filled-in-supertypes
 
@@ -509,11 +536,29 @@ set-file void(a frontend, uri uri, result read-file-result)
 	imports = fully-resolve-imports file.resolved-imports!
 	check a.keen-lib, a.common-uris, ast, imports, common-types
 
--update-file-on-config-change void(a frontend, file keen-file)
-	do if best-config = find-config file.config-file
-	do unless config = file.config and config.config-uri == best-config.config-uri
-	file.config := best-config
+-update-file-on-config-change void(a frontend, file keen-file, changed-config-uri uri)
+	do if new-config = get-changed-config file.config-file, changed-config-uri
+	do unless is-default-config new-config and file.config and file.config!.is-default-config
+	file.config := new-config
 	updated-ast-or-config a, file
+
+| Returns new config value if it has changed
+-get-changed-config config?(a config-file, changed-config-uri uri)
+	if a.uri == changed-config-uri
+		match config = a.config
+		as config
+			config
+		as read-file-diag
+			find-config a
+	else
+		match a.config
+		as config
+			# It doesn't matter if some ancestor config changed, since this one has content
+			()
+		as read-file-diag
+			?get-changed-config a.parent, changed-config-uri
+
+| Returns empty option only for unknown config; default config is a non-empty option
 -find-config config?(a config-file)
 	match x = a.config
 	as config
@@ -668,6 +713,7 @@ set-file void(a frontend, uri uri, result read-file-result)
 			add-to-workable-if-so a, x
 
 -mark-module-dirty void(a frontend, file keen-file)
+	a.workable-keen -= file.uri
 	if file.module
 		file.module := ()
 		a.count-uncompiled-keen-files +:= 1
@@ -688,7 +734,7 @@ set-file void(a frontend, uri uri, result read-file-result)
 			as parsed-java-class
 				file.module!
 			as read-file-diag
-				read-error file.path.to-java-uri, x
+				read-error file.uri, x
 		as other-file
 			match x = file.content
 			as array-view
@@ -754,33 +800,41 @@ set-file void(a frontend, uri uri, result read-file-result)
 do
 	match path = ast.path
 	as path
-		library-name, rest = path.first-and-rest
-		if library-name == "keen"
+		java = of
+			no-file-imports ast, class_, of
+				ensure-java-class-file a, path, all
+		if rest = try-remove-start path, as-path "keen"
 			# If you import just 'keen', 'rest' will be empty and it will be a resolution error.
-			try-resolve-import-from-uri a, ast, if rest then a.keen-lib / rest else a.keen-lib
-		elif p = without-extension path, ".class"
-			ensure-java-class-file a, p, all
-		elif is-java-library library-name
-			ensure-java-class-file a, path, all
-		elif from-config = config.include[library-name]
-			uri = if rest then from-config / rest else from-config
-			try-resolve-import-from-uri a, ast, uri
+			try-resolve-import-from-uri a, ast, a.keen-lib / rest
+		elif jar-uri-for-builtin a, path
+			java[]
+		elif x, rest = config.imports[path]
+			match x.kind
+			as keen
+				try-resolve-import-from-uri a, ast, x.uri / rest
+			as jar
+				java[]
 		else
-			library-not-configured library-name
+			library-not-configured path
 	as rel-path
 		if rel = resolve-uri-from-file from-uri, path
 			try-resolve-import-from-uri a, ast, rel
 		else
 			relative-import-reaches-past-root path
 
--is-java-library bool(a symbol)
-	match a
-	as com
-		true
-	as java
-		true
-	else
-		false
+-jar-uri-for-builtin uri?(a frontend, path path)
+	first a.builtin-java-paths, of builtin-path, builtin-jar
+		if starts-with path, builtin-path
+			builtin-jar
+
+-no-file-imports mostly-resolved-import(ast import-or-export-ast, file-type file-type, f mostly-resolved-import mut())
+	match ast.kind
+	as import-whole-module-ast
+		f[]
+	as array
+		f[]
+	as import-file-ast
+		cant-import-as-content file-type
 
 -try-resolve-import-from-uri mostly-resolved-import
 	a frontend
@@ -794,13 +848,17 @@ do
 	as array
 		keen-file[]
 	as import-file-ast
-		if uri.file-type == keen
-			cant-import-keen-as-text
-		else
+		file-type = file-type uri
+		if file-type == other
 			ensure-other-file a, uri
+		else
+			cant-import-as-content file-type
 
 test
-	a frontend = keen-lib: parse-uri "test://bin/keen/lib"
+	a frontend =
+		keen-lib: parse-uri "test://bin/keen/lib"
+		builtin-java-paths:
+			- "java".as-path, "file:///java.base.jmod".assume-uri
 	uri-a = parse-uri "test://src/a.keen"
 	set-file a, uri-a, "a"::string.to::read-file-result
 	get-file-content a, uri-a is "a"::char8[]

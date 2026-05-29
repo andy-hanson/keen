@@ -2,7 +2,7 @@
 
 lib = $(shell find lib -name '*.keen')
 app = $(shell find app -name '*.keen')
-compiler_deps = $(lib) $(app) app/backend/java/lib/Keen.class app/backend/java/lib/KeenClassLoader.class bin/imports/date.txt bin/imports/commit-hash.txt
+compiler_deps = $(lib) $(app) bin/foo.keen.jar bin/Keen.class.bytes bin/imports/date.txt bin/imports/commit-hash.txt
 
 clean:
 	mv bin/keen-lkg keen-lkg
@@ -21,6 +21,11 @@ unit-test-js: bin/keen bin/java-classes.tar $(lib) $(app)
 	bin/keen build app lib test --test --out bin/test.js
 	bin/test.js
 	rm bin/test.js bin/test.js.map
+
+bin/org.example.jar: test/org/example/*.java
+	javac test/org/example/*.java
+	jar cf bin/org.example.jar -C test org/example
+	rm test/org/example/*.class
 
 test-diagnostics: bin/keen
 	cd test-cases/diagnostics && bash -c 'diff <(../../bin/keen check . --no-color --all-errors 2>&1) expected.txt'
@@ -41,10 +46,14 @@ bin/imports/commit-hash.txt:
 	mkdir -p bin/imports
 	printf '%s' "$$(git rev-parse --short HEAD)" > bin/imports/commit-hash.txt
 
-app/backend/java/lib/Keen.class: app/backend/java/lib/Keen.java
-	javac app/backend/java/lib/Keen.java
-app/backend/java/lib/KeenClassLoader.class: app/backend/java/lib/KeenClassLoader.java
-	javac app/backend/java/lib/KeenClassLoader.java
+bin/foo.keen.jar: app/foo/keen/KeenClassLoader.java
+	javac app/foo/keen/KeenClassLoader.java
+	cd app && jar cf ../bin/foo.keen.jar foo/keen/KeenClassLoader.class
+	rm app/foo/keen/KeenClassLoader.class
+# We use a '.bytes' suffix to allow importing this as bytes and not as code
+bin/Keen.class.bytes: app/foo/keen/Keen.java
+	javac app/foo/keen/Keen.java
+	mv app/foo/keen/Keen.class bin/Keen.class.bytes
 
 update-lkg: bin/keen
 	mv bin/keen bin/keen-lkg

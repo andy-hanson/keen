@@ -1,3 +1,5 @@
+package foo.keen;
+
 public class Keen {
 	public static void throw_(Throwable a) throws Throwable {
 		throw a;

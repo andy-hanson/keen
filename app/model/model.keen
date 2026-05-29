@@ -620,7 +620,6 @@ to json(a enum_)
 	members: a.members.to
 | A Java interface is a {sum-type} instead.
 java-class record force-data
-	path path
 	super-class mut type-inst?
 flags_ record
 	| Inferred type big enough to store all members
@@ -1046,9 +1045,8 @@ to json(a type-decl-source)
 		a.to
 	as type-decl-source-bogus
 		"bogus"
-type-decl-source-java record(path path, name symbol, type-params name-and-range[])
-module-uri uri(a type-decl-source-java)
-	a.path.to-java-uri
+type-decl-source-java record(module-uri uri, name symbol, type-params name-and-range[])
+class-path path(a type-decl-source-java) = a.module-uri.as-jar-and-class-uri!.class-path-excluding-extension
 type-decl-source-bogus record(module-uri uri, name symbol, type-params type-params)
 range source-range(a type-decl-source)
 	match a
@@ -1589,9 +1587,7 @@ type-params type-params(a fun-decl-source)
 fun-source-bogus record(module-uri uri, name symbol, type-params type-params)
 name-range uri-and-range(a fun-source-bogus)
 	a.module-uri.top-of-file
-fun-source-java record(class-path path, name symbol, type-params type-params)
-module-uri uri(a fun-source-java)
-	to-java-uri a.class-path
+fun-source-java record(module-uri uri, name symbol, type-params type-params)
 
 name-range uri-and-range(a fun-source-java)
 	top-of-file a.module-uri
@@ -2036,13 +2032,10 @@ exports-with-visibility exports(a module, visibility export-visibility)
 
 # Synthetic module generated from a Java class
 java-class-module record
-	| E.g., 'java/util/Foo'
-	path path
+	uri uri
 	public-exports exports
 name string(a java-class-module)
-	a.path.base-name
-uri uri(a java-class-module)
-	a.path.to-java-uri
+	a.uri.base-name
 public-and-internal-exports exports(a java-class-module)
 	a.public-exports
 
@@ -2845,6 +2838,7 @@ max-value nat(a integral-type)
 		max-value
 
 program-with-main record(program program, main-fun-and-diagnostics main-fun-and-diagnostics)
+jar-files file-path[](a program-with-main) = a.program.jar-files
 main-fun main-fun(a program-with-main)
 	a.main-fun-and-diagnostics.main-fun
 
@@ -2903,8 +2897,17 @@ test-selector-some record
 subscript bool(a test-selector-some, uri uri)
 	a.files[uri] or some a.dirs, {is-ancestor-of it, uri}
 
+file-type enum(class_, keen, kid, other)
+show string(a file-type)
+	match a
+	as class_ then ".class"
+	as keen then ".keen"
+	as kid then ".kid"
+	as other then "other"
+
 program record
 	all-configs config[uri]
+	jar-files file-path[] # Excludes builtin jmods
 	keen-modules keen-module[uri]
 	java-modules java-class-module[path]
 	# Some Java class files are loaded indirectly, so we don't produce a module, just a class type.
@@ -2920,11 +2923,11 @@ line-and-character-getters line-and-character-getters(a program)
 module-at-uri keen-module(a program, uri uri)
 	a.keen-modules[uri]!
 java-module-at-uri java-class-module?(a program, uri uri)
-	a.java-modules[uri.as-java-uri!]
+	a.java-modules[uri.as-jar-and-class-uri!.class-path-excluding-extension]
 all-uris uri set(a program)
 	-- map a.all-configs, it.a
 	-- map a.keen-modules, it.a
-	-- map a.all-java-classes, it.a.to-java-uri
+	-- map a.java-modules, it.b.uri
 	-- for* _, module in a.keen-modules
 		module.file-imports-and-exports
 all-dependencies uri set[uri](a program)
@@ -2998,22 +3001,32 @@ config record
 	config-uri uri?
 	diagnostics diagnostic[]
 	line-and-column-getter line-and-column-getter
-	include config-import-uris
-	extern config-extern-uris
-default-config config()
-	(), (), (), (), ()
+	imports config-imports
+default-config config() = (), (), (), ()
+is-default-config bool(a config) = not a.config-uri
 config-for-diag config(uri uri, diag diag, range source-range, line-and-column-getter line-and-column-getter)
 	config-uri: uri
 	diagnostics:
 		- range, diag
 	line-and-column-getter: line-and-column-getter
-	include: ()
-	extern: ()
+	imports: ()
 
-config-import-uris alias
-	uri[symbol]
-config-extern-uris alias
-	uri?[symbol]
+config-imports record
+	imports configured-import[]
+all-jar-files file-path[](a config-imports)
+	for* x in a.imports
+		if x.kind == jar
+			- as-file-path! x.uri
+configured-import record
+	path-prefix path
+	uri uri
+	kind configured-import-kind
+configured-import-kind enum(keen, jar)
+new config-imports() = (),
+subscript (configured-import, path)?(a config-imports, imported path)
+	first a.imports, of x
+		if res = try-remove-start imported, x.path-prefix
+			x, res
 
 local-source union(catch-ast, it-scope-ast, name-and-range, single-destructure-ast, local-source-generated)
 local-source-generated record(name symbol)
@@ -4084,6 +4097,8 @@ diag union
 	diag-context-type-missing
 	diag-context-type-param
 	diag-config-invalid-kid
+	diag-config-invalid-value
+	diag-config-unhandled-key
 	diag-destructure-type-mismatch
 	diag-duplicate-declaration
 	diag-duplicate-exports
@@ -4236,6 +4251,8 @@ diag-contexts-not-allowed-kind enum(spec-impl, method-impl)
 diag-context-type-missing record(container type-container, actual type[], expected type)
 diag-context-type-param record
 diag-config-invalid-kid record(expected string)
+diag-config-invalid-value record(expected string, actual json)
+diag-config-unhandled-key record(allowed symbol set, actual symbol)
 diag-destructure-type-mismatch record
 	expected destructure-expected-type
 	actual type-with-container
@@ -4264,14 +4281,14 @@ diag-extern-body-multiple record
 diag-global-data-type record
 diag-if-throw record
 diag-import-file union
-	cant-import-keen-as-text
+	cant-import-as-content
 	circular-import
 	library-not-configured
 	read-error
 	relative-import-reaches-past-root
-cant-import-keen-as-text record
+cant-import-as-content record(file-type file-type)
 circular-import record(cycle uri[])
-library-not-configured record(library-name symbol)
+library-not-configured record(path path)
 | The imported file will also have a ParseDiag for the issue, but we also show the error in the importer.
 | (This is important in an IDE.)
 read-error record(uri uri, diag read-file-diag)

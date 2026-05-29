@@ -3,6 +3,7 @@ import
 	keen/java
 	keen/js
 	keen/unsafe
+	java/io/BufferedInputStream
 	java/io/BufferedOutputStream
 	java/io/File
 	java/io/FileOutputStream
@@ -34,10 +35,13 @@ import
 	java/util/EnumSet
 	java/util/jar/Attributes
 	java/util/jar/JarEntry
+	java/util/jar/JarInputStream
 	java/util/jar/JarOutputStream
 	java/util/jar/Manifest
 	java/util/List
 	java/util/stream/Stream
+	java/util/zip/ZipEntry
+	java/util/zip/ZipInputStream
 	java/util/zip/ZipOutputStream
 	../frontend/frontend
 	../model/parse-diag
@@ -109,7 +113,7 @@ write-file void(path file-path, content string, permissions permissions, overwri
 	-- if a.public.execute
 		- OTHERS_EXECUTE
 
-write-jar void(path file-path, files java-compiled-class[]) global
+write-jar void(jar-files file-path[], path file-path, files java-compiled-class[]) global
 	do trusted
 	assert java else todo
 	start = perf-now
@@ -122,6 +126,8 @@ write-jar void(path file-path, files java-compiled-class[]) global
 	buf-out BufferedOutputStream = file-out,
 	write buf-out::OutputStream, "#!/usr/bin/java -jar\n"::char8[].safe-reinterpret-cast::int8[].cast-mutable
 	jar-out JarOutputStream = buf-out, manifest
+	for jar-path in jar-files
+		copy-jar-out jar-path, jar-out
 	for file in files
 		putNextEntry jar-out, JarEntry file.path.to
 		write jar-out, file.bytes.safe-reinterpret-cast.cast-mutable
@@ -130,6 +136,16 @@ write-jar void(path file-path, files java-compiled-class[]) global
 	flush buf-out
 	change-permissions path, all.user-only
 	end-write-jar start
+
+-copy-jar-out void(in-path file-path, out JarOutputStream) global, java
+	do trusted
+	input = JarInputStream BufferedInputStream newInputStream in-path.to-java-path, ()
+	finally close input::ZipInputStream
+	while entry = option-of-nullable getNextJarEntry input
+		putNextEntry out, JarEntry entry.getName
+		_ = transferTo input, out
+		closeEntry out
+		closeEntry input
 
 files-in-directory-recursive file-path[](dir-path file-path) global
 	for* path in get-paths-in-dir dir-path
@@ -182,7 +198,7 @@ file-reader record mut
 	-watched-files file-path mut-set
 	-watched-dirs WatchKey mut[file-path]
 	-read-file-inner read-file-result mut(path string)
-	-read-java-class read-file-result mut(class-path path)
+	-read-java-class read-file-result mut(jc jar-and-class)
 	-files-in-directory-recursive file-path[] mut(root file-path)
 with-file-reader record(path-to-keen file-path, watch bool)
 file-reader with-file-reader(path-to-keen file-path, watch bool)
@@ -248,26 +264,40 @@ wait-for-change file-path set(a file-reader)
 			- file-path
 
 -java-class-reader alias
-	read-file-result mut(path path)
+	read-file-result mut(x jar-and-class)
 -with-java-class-reader record(path-to-keen file-path)
 -with-block[t] t(a with-java-class-reader, f t mut(a java-class-reader))
 	do trusted
 	if java
-		base-jmod = find-java-base-jmod
 		jmods FileSystem mut[file-path] = ()
 		finally for _, fs in unsorted jmods
 			# TODO: we should not do this if we got it through 'getFileSystem' instead of 'newFileSystem'
 			close fs
-		f[{read-java-class base-jmod, it, jmods}]
+		f[{read-java-class it, jmods}]
 	elif js
 		tar-path = a.path-to-keen.parent! / "java-classes.tar"
 		tar = read-entire-tar read-file tar-path.to
-		f[{tar["{it}.class"] else not-found}]
+		f[{tar[it.class-path-including-extension.to] else not-found}]
 	else
 		throw todo
 
 files-in-directory-recursive file-path[](a file-reader, root file-path)
 	a.files-in-directory-recursive[root]
+
+get-builtin-java-paths builtin-java-paths() global
+	if java
+		base uri = find-java-base-jmod.to
+		- "java".assume-path, base
+		- "jdk".assume-path, base
+		- "sun".assume-path, base
+		- "com/sun".assume-path, to trusted path-to-jmod "jdk.httpserver"
+	elif js
+		base = to::uri must-parse-file-path "/usr/lib/jvm/java-25-openjdk-amd64/jmods/java.base.jmod"
+		- "java".assume-path, base
+		- "jdk".assume-path, base
+		- "sun".assume-path, base
+	else
+		throw todo
 
 -find-java-base-jmod file-path() global
 	do trusted
@@ -282,18 +312,15 @@ files-in-directory-recursive file-path[](a file-reader, root file-path)
 	java-home string = "java.home".getProperty.to
 	must-parse-file-path "{java-home}/jmods/{jmod-name}.jmod"
 
--read-java-class read-file-result(base-jmod file-path, class_ path, jmods FileSystem mut[file-path]) global, java
+-read-java-class read-file-result(class_ jar-and-class, jmods FileSystem mut[file-path]) global, java
 	do trusted
-	# TODO: Use a better method to determine which jmod the class belongs to.
-	jmod = if starts-with class_.to::string, "com/sun/"
-		path-to-jmod "jdk.httpserver"
+	file-system = ensure jmods, class_.jar-path, of
+		get-or-create-file-system create "jar:{to::uri class_.jar-path}"
+	full-class-path string = if class_.jar-path.get-extension == ".jmod"
+		"classes/{class_.class-path-including-extension}"
 	else
-		base-jmod
-	file-system = ensure jmods, jmod, of
-		# Even though we cache the jmods, if we are running a client program with 'keen run',
-		# it might want to create a file system for the jar too.
-		get-or-create-file-system "jar:file://{jmod}".create
-	path = getPath file-system, "classes/{class_}.class", ()
+		class_.class-path-including-extension.to
+	path = getPath file-system, full-class-path.to, ()
 	try
 		path.readAllBytes.cast-immutable.safe-reinterpret-cast::nat8[]
 	catch as NoSuchFileException
@@ -307,23 +334,13 @@ files-in-directory-recursive file-path[](a file-reader, root file-path)
 		getFileSystem uri
 
 try-read-file read-file-result(a file-reader, uri uri)
-	if path = as-java-uri uri
-		try-read-java-class a, path
+	if x = as-jar-and-class-uri uri
+		a.read-java-class[x]
 	elif file = as-file-path uri
 		watch-file a, file
 		a.read-file-inner[file.to]
 	else
 		not-found
-
-try-read-java-class read-file-result(a file-reader, path path)
-	if path.to::symbol == "KeenClassLoader"
-		keen string = a.path-to-keen.parent!.parent!.to
-		full-path = "{keen}/app/backend/java/lib/KeenClassLoader.class"
-		a.read-file-inner[full-path]
-	else
-		start = perf-now
-		finally end-read-file start
-		a.read-java-class[path]
 
 -read-file-inner read-file-result(path string) global
 	start = perf-now
@@ -353,7 +370,7 @@ cwd file-path() global
 this-executable file-path() global
 	do trusted
 	if java
-		class_ = "Keen".forName
+		class_ = forName "foo.keen.Keen"
 		path = class_.getProtectionDomain.getCodeSource.getLocation.getPath
 		must-parse-file-path (decode path, "UTF-8").to
 	elif js

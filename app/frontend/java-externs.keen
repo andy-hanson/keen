@@ -28,35 +28,36 @@ fill-java-class-supertypes void(type type-decl, class_ parsed-java-class) java-c
 			listed-members: ()
 			methods: ()
 
-get-java-module java-class-module(path path, type type-decl, class_ parsed-java-class) java-ctx
+get-java-module java-class-module(path path, uri uri, type type-decl, class_ parsed-java-class) java-ctx
+	uri.as-jar-and-class-uri!.class-path-excluding-extension is path
 	start = perf-now
 	finally end-get-java-module start
 	fill-interface-methods class_, class_.methods, type
-	path: path
+	uri: uri
 	public-exports:
-		funs: make-funs-map funs-for-java-class path, class_, type
+		funs: make-funs-map funs-for-java-class path, uri, class_, type
 		types-and-specs: to-by-key (type,), {throw unreachable}
 
-initial-type-decl-for-java-class type-decl(a parsed-java-class) instantiate-ctx
-	path = a.this-class
-	hash: next-hash
-	source:
-		:: type-decl-source-java
-		path: path
+initial-type-decl-for-java-class type-decl(a parsed-java-class, uri uri) instantiate-ctx
+	source type-decl-source-java =
+		module-uri: uri
 		name:
-			base = base-name path
+			base = base-name a.this-class
 			if _, rest = try-split-once base, "$"
 				rest.to
 			else
 				base.to
 		type-params: for x in a.type-params then 0, x
+	source.class-path is a.this-class
+	hash: next-hash
+	source: source
 	visibility: public
 	mutability: mut_
 	mutability-is-forced: false
 	doc-comment-references: ()
 	sum-type-cases: ()
 	# For an interface, This will be overwritten by {fill-java-class-supertypes}
-	body: java-class path, ()
+	body: java-class ()
 
 -fill-supertypes void(class_ parsed-java-class, type type-decl) java-ctx
 	type.specs := global-java-unsafe-specs
@@ -103,7 +104,7 @@ initial-type-decl-for-java-class type-decl(a parsed-java-class) instantiate-ctx
 				params: params
 				doc-comment-references: ()
 
--funs-for-java-class fun-decl[](path path, class_ parsed-java-class, type type-decl) java-ctx
+-funs-for-java-class fun-decl[](path path, uri uri, class_ parsed-java-class, type type-decl) java-ctx
 	class-type = instantiated-with-own-type-params type
 	class-type-params name-and-range[] = for x in class_.type-params
 		0, x
@@ -113,7 +114,7 @@ initial-type-decl-for-java-class type-decl(a parsed-java-class) instantiate-ctx
 		do if field.access-flags[public | static] # TODO: support instance fields
 		out ~=
 			hash: next-hash
-			source: fun-source-java path, field.name, class-type-params
+			source: fun-source-java uri, field.name, class-type-params
 			visibility: public
 			return-type: to-type field.generic-type, class_.type-params, ()
 			params: ()
@@ -140,7 +141,7 @@ initial-type-decl-for-java-class type-decl(a parsed-java-class) instantiate-ctx
 			virtual
 		include-this-param = not (is-static or is-constructor)
 		source fun-source-java =
-			class-path: path
+			module-uri: uri
 			name: if is-constructor then "new" else method.name
 			type-params:
 				-- unless is-static then class-type-params
@@ -163,7 +164,7 @@ initial-type-decl-for-java-class type-decl(a parsed-java-class) instantiate-ctx
 		out ~= next-hash, source, public, real-return-type, params, global-java-unsafe-specs, body
 		if is-constructor
 			# Also get a nominal constructor
-			source2 fun-source-java = source.class-path, path.base-name.to, source.type-params
+			source2 fun-source-java = uri, path.base-name.to, source.type-params
 			out ~= next-hash, source2, public, real-return-type, params, global-java-unsafe-specs, body
 
 	if sum = type.body.sum-type

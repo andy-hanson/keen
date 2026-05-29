@@ -1,7 +1,9 @@
+package foo.keen;
+
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 
-final class KeenClassLoader extends ClassLoader {
+public final class KeenClassLoader extends ClassLoader {
 	private final java.util.concurrent.ConcurrentHashMap<String, byte[]> classes = new java.util.concurrent.ConcurrentHashMap<>();
 	private final java.util.concurrent.ConcurrentHashMap<String, byte[]> resources = new java.util.concurrent.ConcurrentHashMap<>();
 
