@@ -97,11 +97,13 @@ lex-tokens tokens(source string-view, diagnostics parse-diagnostic mut[])
 		as "]"
 			emit state, bracket-right, start, iter.pos
 		as "\{"
+			push-inside-braces state, lambda
 			emit state, brace-left, start, iter.pos
 		as "\}"
 			emit state, brace-right, start, iter.pos
-			if q = pop-inside-quotes state
-				take-string-part state, iter, iter.pos, q
+			if braces-kind = pop-inside-braces state
+				if quote-kind = to::quote-kind? braces-kind
+					take-string-part state, iter, iter.pos, quote-kind
 		as "-"
 			if peek-digit iter
 				take-number-after-sign state, start, iter
@@ -210,9 +212,21 @@ lex-tokens tokens(source string-view, diagnostics parse-diagnostic mut[])
 	data_ mut token-data buffer
 	indent-kind indent-kind
 	cur-indent mut nat32
-	n-inside-quotes mut nat
-	inside-quotes mut quote-kind buffer
+	n-inside-braces mut nat
+	inside-braces mut braces-kind buffer
 	diagnostics parse-diagnostic mut[]
+-braces-kind enum(bar, double, indented, lambda)
+-to braces-kind(a quote-kind)
+	match a
+	as bar then bar
+	as double then double
+	as indented then indented
+-to quote-kind?(a braces-kind)
+	match a
+	as bar then bar
+	as double then double
+	as indented then indented
+	as lambda then ()
 -finish tokens(a lexer-state)
 	a.tokens-starts-ends[0 .. a.n-tokens].to, a.data_[0 .. a.n-tokens].to
 -new lexer-state(source string-view, diagnostics parse-diagnostic mut[])
@@ -222,8 +236,8 @@ lex-tokens tokens(source string-view, diagnostics parse-diagnostic mut[])
 	data_: trusted uninitialized-buffer expected-n-tokens
 	indent-kind: detect-indent-kind source.begin
 	cur-indent: 0
-	n-inside-quotes: 0
-	inside-quotes: trusted uninitialized-buffer 4
+	n-inside-braces: 0
+	inside-braces: trusted uninitialized-buffer 4
 	diagnostics: diagnostics
 -emit void(a lexer-state, token token, start pos, end pos)
 	emit a, token, start, end, no-token-data
@@ -247,15 +261,15 @@ lex-tokens tokens(source string-view, diagnostics parse-diagnostic mut[])
 		is-newline-token p
 	else
 		true
--push-inside-quotes void(a lexer-state, q quote-kind)
-	if a.n-inside-quotes == a.inside-quotes.size
-		a.inside-quotes := trusted increase-capacity a.inside-quotes
-	a.inside-quotes[a.n-inside-quotes] := q
-	a.n-inside-quotes +:= 1
--pop-inside-quotes quote-kind?(a lexer-state)
-	unless a.n-inside-quotes == 0
-		a.n-inside-quotes -:= 1
-		a.inside-quotes[a.n-inside-quotes]
+-push-inside-braces void(a lexer-state, value braces-kind)
+	if a.n-inside-braces == a.inside-braces.size
+		a.inside-braces := trusted increase-capacity a.inside-braces
+	a.inside-braces[a.n-inside-braces] := value
+	a.n-inside-braces +:= 1
+-pop-inside-braces braces-kind?(a lexer-state)
+	unless a.n-inside-braces == 0
+		a.n-inside-braces -:= 1
+		a.inside-braces[a.n-inside-braces]
 
 -lex-identifier-like void(state lexer-state, iter string-iterator, start pos)
 	if symbol = try-take-keen-identifier iter
@@ -317,7 +331,8 @@ lex-tokens tokens(source string-view, diagnostics parse-diagnostic mut[])
 		emit state, newline-dedent, start, start
 	emit-newline-same-indent state, start, iter
 -end-all-quotes void(state lexer-state, iter string-iterator)
-	while quote-kind = pop-inside-quotes state
+	while braces-kind = pop-inside-braces state
+		do if quote-kind = to::quote-kind? braces-kind
 		state.diagnostics ~= (iter.pos, iter.pos), closing-brace::parse-diag-expected
 		emit state, brace-right, iter.pos, iter.pos
 		take-string-part state, iter, iter.pos, quote-kind
@@ -511,7 +526,7 @@ region strings
 		match peek iter else "\0"
 		as "\{"
 			_ = take-next iter
-			push-inside-quotes state, indented
+			push-inside-braces state, indented
 			interpolate := true
 			true
 		as "\}"
@@ -631,7 +646,7 @@ do
 				out ~= take-next iter
 				()
 	if interpolate
-		push-inside-quotes state, quote-kind
+		push-inside-braces state, quote-kind.to
 		emit state, quote-kind.then-interpolated, start, end, text
 	else
 		emit state, quote-kind.no-interpolated, start, end, text
