@@ -24,6 +24,8 @@ quick-fill-in-low-fun-body void(ctx lower-context, fun low-fun)
 	range = fun.range
 	low-params = fun.params
 	fun.body := match x = fun-body
+	as fun-body-bogus
+		lower-bogus fun.return-type, range
 	as fun-body-extern-java
 		:: low-fun-body-extern-java
 		kind: x.kind
@@ -32,18 +34,16 @@ quick-fill-in-low-fun-body void(ctx lower-context, fun low-fun)
 		erased-param-types: map x.erased-param-types, {get-low-type it, ()}
 	as auto-fun
 		lower-auto-fun fun, x
-	as builtin-fun
-		lower-builtin-fun fun, x
+	as fun-body-builtin
+		lower-builtin-fun fun, x.kind
 	as enum-or-flags-member
 		constant-low-expr return-type, range, x.value.to
-	as expr
-		low-fun-body-deferred
-	as expr-with-allocated-locals
+	as fun-body-expr
 		low-fun-body-deferred
 	as fun-body-file-import
 		lower-file-import fun, x
-	as flags-function
-		lower-flags-function fun, x
+	as fun-body-flags-function
+		lower-flags-function fun, x.function
 	as fun-body-method
 		info = ctx.sum-types[low-params[0].type]!
 		info.methods-unsorted ~= fun
@@ -140,9 +140,9 @@ get-var low-var(decl var-decl) lower-ctx
 		type-scope: ()
 		specs-scope: ()
 		allocated-locals: decl.initializer.allocated-locals
-	decl, type, lower-expr type, decl.initializer.expr
+	decl, type, lower-expr type, decl.initializer.as-expr
 
-lower-fun-body low-fun-body(cf low-fun, expr expr-maybe-allocated-locals) lower-ctx
+lower-fun-or-test-body low-fun-body(cf low-fun, expr expr, allocated-locals type-inst[local]) lower-ctx
 	do unless is-array-op cf else low-fun-body-always-inline
 	params = match x = cf.source
 	as low-fun-source-regular
@@ -153,11 +153,11 @@ lower-fun-body low-fun-body(cf low-fun, expr expr-maybe-allocated-locals) lower-
 		()
 	as low-fun-source-test-all
 		throw unreachable
-	the lower-expr-ctx = cf, expr.allocated-locals
+	the lower-expr-ctx = cf, allocated-locals
 	type = cf.return-type
 	for param, low-param in zip params, cf.params[0 .. params.size] # Ignore context params
 		begin-param-destructure param, low-param
-	res mut = lower-expr type, expr.expr
+	res mut = lower-expr type, expr
 	for param, low-param in zip params, cf.params[0 .. params.size]
 		res := end-param-destructure type, param.range.to-uri-and-range, param, low-param, res
 	res
@@ -657,7 +657,7 @@ do lower-and-expr-ctx
 			locals-for-option part, optional-field
 
 -gen-assert-option low-expr(option low-expr) lower-ctx
-	gen-union-assume-case (as-option! option.type), option.range, option
+	union-assume-case-low-expr option.type.as-option!, option.range, option
 
 -gen-option-is-non-empty low-expr(option low-expr) lower-ctx
 	union-is-case-low-expr option.range, option, 1
@@ -679,7 +679,7 @@ do lower-and-expr-ctx
 		option-local low-local = member2::low-generated-local-kind, option.type
 		get-option-local low-expr = local-get-low-expr range, option-local
 		let-low-expr range, option-local, option,
-			cast-option = gen-union-assume-case x.type, range, get-option-local
+			cast-option = union-assume-case-low-expr x.type, range, get-option-local
 			cases low-expr[] =
 				- else_
 				- let-low-expr then_.expr.range, x, cast-option, then_.expr
@@ -724,7 +724,7 @@ do lower-and-expr-ctx
 -with-refinements low-expr(type-refinements type-args, unrefined low-expr) lower-and-expr-ctx
 	res mut low-expr = unrefined
 	for t in type-refinements
-		res := gen-union-assume-case t.get-low-type, res.range, res
+		res := union-assume-case-low-expr t.get-low-type, res.range, res
 	res
 
 -lower-local-set low-expr

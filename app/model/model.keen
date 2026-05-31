@@ -470,8 +470,6 @@ worst-case-mutability mutability(a type)
 
 signature-container union(spec-decl, type-decl)
 	module-uri uri()
-	n-type-params nat8()
-	type-param-asts type-params()
 to type-container(a signature-container)
 	match a
 	as spec-decl then a
@@ -770,7 +768,7 @@ name symbol(a type-alias)
 	a.ast.name.name
 n-type-params nat8(_ type-alias)
 	0
-type-param-asts type-params(_ type-alias)
+type-params type-params(_ type-alias)
 	()
 range uri-and-range(a type-alias)
 	a.module-uri, a.ast.range
@@ -799,6 +797,13 @@ type-decl record force-data
 	body mut type-body
 	-insts mut type-insts
 	doc-comment-references mut doc-comment-reference[]
+type-params type-params(a type-decl)
+	if a.source.type-params.size == a.n-type-params
+		a.source.type-params
+	else
+		# Type params were declared but are not allowed on this kind of type
+		a.n-type-params is 0
+		()
 | For a non-template, this will be its only {type-inst}
 -type-insts union mut
 	type-inst
@@ -879,9 +884,6 @@ doc-comment-ast doc-comment-ast(a type-decl)
 	a.source.doc-comment
 doc-comment doc-comment(a type-decl)
 	a.doc-comment-ast, a.doc-comment-references
-type-param-asts type-params(a type-decl)
-	unless a.n-type-params == 0
-		a.source.type-params
 name symbol(a type-decl)
 	a.source.name
 module-uri uri(a type-decl)
@@ -1258,8 +1260,8 @@ doc-comment doc-comment(a spec-decl)
 name symbol(a spec-decl)
 	a.ast.name.name
 n-type-params nat8(a spec-decl)
-	a.type-param-asts.size.to
-type-param-asts type-params(a spec-decl)
+	a.type-params.size.to
+type-params type-params(a spec-decl)
 	a.ast.type-params
 body-is-set bool(a spec-decl)
 	a.late-body
@@ -1329,6 +1331,7 @@ to symbol(a flags-function)
 		"|"
 
 auto-fun record
+	source type-decl
 	kind auto-fun-kind
 	| e.g., '<=>' implementations for each record/union member
 	members called[]
@@ -1348,14 +1351,14 @@ auto-fun-kind enum
 
 fun-body union
 	fun-body-uninitialized
+	fun-body-bogus
 	fun-body-extern-java
 	auto-fun
-	builtin-fun
+	fun-body-builtin
 	enum-or-flags-member
-	expr
-	expr-with-allocated-locals
+	fun-body-expr
 	fun-body-file-import
-	flags-function
+	fun-body-flags-function
 	fun-body-method
 	new-record
 	new-interface
@@ -1364,52 +1367,156 @@ fun-body union
 	sum-type-case-get
 	var-get
 	var-set
-as-expr expr?(a fun-body)
+-fun-name symbol(body fun-body, return-type type)
+	match body
+	as fun-body-uninitialized then throw unreachable
+	as fun-body-bogus then body.name
+	as fun-body-expr then body.ast.name.name
+	as fun-body-extern-java then body.name
+	as auto-fun
+		match body.kind
+		as compare then "<=>"
+		as equals then "=="
+		as from-json then "to"
+		as hash then "hash"
+		as members-of-enum-or-flags then "members"
+		as to-enum-or-flags-option-from-nat then "to"
+		as to-enum-or-flags-option-from-symbol then "to"
+		as to-nat-from-enum-or-flags then "to"
+		as to-symbol-from-enum then "to"
+		as to-symbol-array-from-flags then "to"
+		as to-json then "to"
+	as fun-body-builtin then body.ast.name.name
+	as enum-or-flags-member then body.name
+	as fun-body-file-import then body.name
+	as fun-body-flags-function then body.function.to
+	as fun-body-method then body.method.name
+	as new-interface then "new"
+	as new-record then if body.nominal_ then body.type.name else "new"
+	as record-field-get then body.field.name
+	as record-field-set then "set-{body.field.name}"
+	as sum-type-case-get then return-type.unwrap-option!.type-inst!.decl.name
+	as var-get then body.var.name
+	as var-set then "set-{body.var.name}"
+type-params type-params(a fun-body)
+	match a
+	as fun-body-uninitialized then throw unreachable
+	as fun-body-bogus then a.type-params
+	as fun-body-expr then a.ast.type-params
+	as fun-body-extern-java then a.type-params
+	as auto-fun then a.source.type-params
+	as fun-body-builtin then a.ast.type-params
+	as enum-or-flags-member then ()
+	as fun-body-file-import then ()
+	as fun-body-flags-function then ()
+	as fun-body-method then a.type.type-params
+	as new-interface then a.type.type-params
+	as new-record then a.type.type-params
+	as record-field-get then a.type.type-params
+	as record-field-set then a.type.type-params
+	as sum-type-case-get then a.type.type-params
+	as var-get then ()
+	as var-set then ()
+module-uri uri(a fun-body)
+	match a
+	as fun-body-uninitialized then a.module-uri
+	as fun-body-bogus then a.module-uri
+	as fun-body-expr then a.ast.module-uri
+	as fun-body-extern-java then a.module-uri
+	as auto-fun then a.source.module-uri
+	as fun-body-builtin then a.ast.module-uri
+	as enum-or-flags-member then a.module-uri
+	as fun-body-file-import then a.module-uri
+	as fun-body-flags-function then a.type.module-uri
+	as fun-body-method then a.type.module-uri
+	as new-interface then a.type.module-uri
+	as new-record then a.type.module-uri
+	as record-field-get then a.type.module-uri
+	as record-field-set then a.type.module-uri
+	as sum-type-case-get then a.type.module-uri
+	as var-get then a.var.module-uri
+	as var-set then a.var.module-uri
+range uri-and-range(a fun-body)
+	match a
+	as fun-body-uninitialized then a.module-uri, a.range
+	as fun-body-bogus then a.module-uri, (a.ast.?range else ())
+	as fun-body-expr then a.module-uri, a.ast.range
+	as fun-body-extern-java then a.module-uri, ()
+	as auto-fun then a.source.range
+	as fun-body-builtin then a.module-uri, a.ast.range
+	as enum-or-flags-member then a.range
+	as fun-body-file-import then a.module-uri, a.ast.range
+	as fun-body-flags-function then a.type.range
+	as fun-body-method then a.method.range
+	as new-interface then a.type.range
+	as new-record then a.type.range
+	as record-field-get then a.field.range
+	as record-field-set then a.field.range
+	as sum-type-case-get then a.type.range
+	as var-get then a.var.range
+	as var-set then a.var.range
+name-range uri-and-range(a fun-body)
+	match a
+	as fun-body-uninitialized then throw unreachable
+	as fun-body-bogus then a.module-uri, (a.ast.?name-range else ())
+	as fun-body-expr then a.module-uri, a.ast.name-range
+	as fun-body-extern-java then a.module-uri, ()
+	as auto-fun then a.source.name-range
+	as fun-body-builtin then a.module-uri, a.ast.name-range
+	as enum-or-flags-member then a.name-range
+	as fun-body-file-import then a.module-uri, a.ast.range
+	as fun-body-flags-function then a.type.name-range
+	as fun-body-method then a.method.name-range
+	as new-interface then a.type.name-range
+	as new-record then a.type.name-range
+	as record-field-get then a.field.name-range
+	as record-field-set then a.field.name-range
+	as sum-type-case-get then a.type.name-range
+	as var-get then a.var.name-range
+	as var-set then a.var.name-range
+ast fun-decl-ast?(a fun-body)
+	match a
+	as fun-body-bogus then a.ast
+	as fun-body-builtin then a.ast
+	as fun-body-expr then a.ast
+	else then ()
+doc-comment-ast doc-comment-ast(a fun-body)
+	if ast = a.ast then ast.doc-comment
+
+fun-body-builtin record
+	ast fun-decl-ast
+	kind builtin-fun
+
+fun-body-expr record
+	ast fun-decl-ast
+	expr expr
+	allocated-locals type-inst[local]
+expr-maybe-allocated-locals union(expr, expr-with-allocated-locals)
+as-expr expr(a expr-maybe-allocated-locals)
 	match a
 	as expr then a
 	as expr-with-allocated-locals then a.expr
-	else then ()
-
-expr-maybe-allocated-locals union(expr, expr-with-allocated-locals)
-	to json()
-to fun-body(a expr-maybe-allocated-locals)
-	match a
-	as expr then a
-	as expr-with-allocated-locals then a
 allocated-locals type-inst[local](a expr-maybe-allocated-locals)
 	match a
-	as expr
-		()
-	as expr-with-allocated-locals
-		a.allocated-locals
-expr expr(a expr-maybe-allocated-locals)
-	match a
-	as expr
-		a
-	as expr-with-allocated-locals
-		a.expr
+	as expr then ()
+	as expr-with-allocated-locals then a.allocated-locals
+expr-with-allocated-locals record
+	expr expr
+	allocated-locals type-inst[local]
 
-expr-with-allocated-locals record(expr expr, allocated-locals type-inst[local])
-to json(a expr-with-allocated-locals)
-	expr: a.expr.to
-	allocated-locals: to for::type-inst[symbol] k, v in a.allocated-locals then k.name, v
-
-fun-body-uninitialized record
+fun-body-bogus record(module-uri uri, name symbol, type-params type-params, ast fun-decl-ast?)
+fun-body-uninitialized record(module-uri uri, range source-range)
 fun-body-extern-java record
+	| Never {interface_}
 	kind java-method-kind
+	module-uri uri
 	class_ path
+	name symbol
+	type-params type-params
 	erased-return-type type-inst
 	erased-param-types type-inst[]
-	dummy void
-new fun-body-extern-java
-	kind java-method-kind
-	class_ path
-	erased-return-type type-inst
-	erased-param-types type-inst[]
-do
-	# Interface callers are not 'extern', they are fun-body-method
-	kind isnt interface_
-	kind, class_, erased-return-type, erased-param-types, ()
+with-name fun-body-extern-java(a fun-body-extern-java, name symbol)
+	a.kind, a.module-uri, a.class_, name, a.type-params, a.erased-return-type, a.erased-param-types
 java-method-kind enum
 	static-method-of-class
 	static-method-of-interface
@@ -1420,22 +1527,29 @@ java-method-kind enum
 	instance-field
 is-instance bool(a java-method-kind)
 	a == virtual or a == interface_
-fun-body-file-import record(type import-file-type, content nat8 array-view)
+fun-body-file-import record
+	module-uri uri
+	ast import-or-export-ast
+	type import-file-type
+	content nat8 array-view
+name symbol(a fun-body-file-import) = a.ast.kind.import-file-ast!.name.name
+fun-body-flags-function record(type type-decl, function flags-function)
 fun-body-method record
+	type type-decl
 	method-index nat
 	method signature
 	erased-signature type[]?
 to json(a fun-body-method)
 	a.method.name.to
-new-interface record()
-new-record record(nominal_ bool)
-record-field-get record(field record-field)
+new-interface record(type type-decl)
+new-record record(type type-decl, nominal_ bool)
+record-field-get record(type type-decl, field record-field)
 to json(a record-field-get)
 	a.field.name.to
-record-field-set record(field record-field)
+record-field-set record(type type-decl, field record-field)
 to json(a record-field-set)
 	a.field.name.to
-sum-type-case-get record
+sum-type-case-get record(type type-decl)
 var-get record(var var-decl)
 to json(a var-get)
 	a.var.name.to
@@ -1527,82 +1641,8 @@ builtin-binary enum
 builtin-ternary enum
 	array-set
 
-fun-decl-source union
-	fun-source-bogus
-	fun-source-java
-	fun-decl-ast
-	enum-or-flags-member
-	fun-source-file-import
-	record-field
-	# This is for a variant method
-	signature
-	type-decl
-	var-decl
-do
-	module-uri uri()
-	name-range uri-and-range()
-range uri-and-range(a fun-decl-source)
-	match a
-	as fun-source-bogus
-		a.module-uri, ()
-	as fun-source-java
-		a.module-uri, ()
-	as fun-decl-ast
-		a.module-uri, a.range
-	as enum-or-flags-member
-		a.range
-	as fun-source-file-import
-		a.module-uri, a.ast.range
-	as record-field
-		a.range
-	as signature
-		a.range
-	as type-decl
-		a.range
-	as var-decl
-		a.range
-doc-comment-ast doc-comment-ast(a fun-decl-source)
-	if a.fun-decl-ast
-		a.doc-comment
-type-params type-params(a fun-decl-source)
-	match a
-	as fun-source-bogus
-		a.type-params
-	as fun-source-java
-		a.type-params
-	as fun-decl-ast
-		a.type-params
-	as enum-or-flags-member
-		()
-	as fun-source-file-import
-		()
-	as record-field
-		a.containing-record.type-param-asts
-	as signature
-		a.container.type-param-asts
-	as type-decl
-		a.type-param-asts
-	as var-decl
-		a.type-param-asts
-fun-source-bogus record(module-uri uri, name symbol, type-params type-params)
-name-range uri-and-range(a fun-source-bogus)
-	a.module-uri.top-of-file
-fun-source-java record(module-uri uri, name symbol, type-params type-params)
-
-name-range uri-and-range(a fun-source-java)
-	top-of-file a.module-uri
-fun-source-file-import record
-	| This is the importing module, not imported
-	module-uri uri
-	ast import-or-export-ast
-name symbol(a fun-source-file-import)
-	a.ast.kind.import-file-ast!.name.name
-name-range uri-and-range(a fun-source-file-import)
-	a.module-uri, a.ast.range
-
 fun-decl record force-data, -new
 	hash nat32
-	source fun-decl-source
 	visibility visibility
 	name-and-arity name-and-arity
 	n-type-params nat8
@@ -1616,7 +1656,6 @@ name symbol(a fun-decl) = a.name-and-arity.name
 return-type type(a fun-decl) = a.return-and-param-types.return-type
 param-types type array-view(a fun-decl) = a.return-and-param-types.param-types
 to json(a fun-decl)
-	source: a.source.to
 	visibility: a.visibility.to
 	name: a.name.to
 	n-type-params: a.n-type-params.to
@@ -1625,26 +1664,6 @@ to json(a fun-decl)
 	specs: a.specs.to
 	doc-comment-references: a.doc-comment-references.to
 	body: a.body.to
--n-type-params nat8(a fun-decl-source)
-	match a
-	as fun-source-bogus
-		a.type-params.size.to
-	as fun-source-java
-		a.type-params.size.to
-	as fun-decl-ast
-		a.type-params.size.to
-	as enum-or-flags-member
-		a.containing-enum.n-type-params
-	as fun-source-file-import
-		0
-	as record-field
-		a.containing-record.n-type-params
-	as signature
-		a.container.n-type-params
-	as type-decl
-		a.n-type-params
-	as var-decl
-		a.n-type-params
 | Used by {funs-map}
 -key symbol(a fun-decl) = a.name
 -key name-and-arity(a fun-decl) = a.name-and-arity
@@ -1658,75 +1677,23 @@ to json(a fun-decl)
 
 | For a non-template, this will be its only {fun-inst}.
 fun-decl-insts union(fun-inst, (fun-inst, fun-inst-key) object-memoizer) mut
--fun-name symbol(return-type type, source fun-decl-source, body fun-body)
-	match source
-	as fun-source-bogus
-		source.name
-	as fun-source-java
-		source.name
-	as fun-decl-ast
-		source.name.name
-	as enum-or-flags-member
-		source.name
-	as fun-source-file-import
-		source.name
-	as record-field
-		if body.record-field-set
-			"set-{source.name}"
-		else
-			source.name
-	as signature
-		source.name
-	as type-decl
-		match body
-		as flags-function
-			body.to
-		as new-interface
-			"new"
-		as new-record
-			if body.nominal_ then source.name else "new"
-		as sum-type-case-get
-			return-type.unwrap-option!.type-inst!.decl.name
-		as auto-fun
-			match body.kind
-			as compare then "<=>"
-			as equals then "=="
-			as from-json then "to"
-			as hash then "hash"
-			as members-of-enum-or-flags then "members"
-			as to-enum-or-flags-option-from-nat then "to"
-			as to-enum-or-flags-option-from-symbol then "to"
-			as to-nat-from-enum-or-flags then "to"
-			as to-symbol-from-enum then "to"
-			as to-symbol-array-from-flags then "to"
-			as to-json then "to"
-		else
-			throw unreachable
-	as var-decl
-		match body
-		as var-get
-			source.name
-		as var-set
-			"set-{source.name}"
-		else
-			throw unreachable
 unfinished-fun-decl fun-decl
 	hash nat32
-	source fun-decl-source
 	visibility visibility
 	name-and-arity name-and-arity
+	type-params type-params
+	range uri-and-range
 	specs specs
 do
 	hash: hash
-	source: source
 	visibility: visibility
 	name-and-arity: name-and-arity
-	n-type-params: n-type-params source
+	n-type-params: type-params.size.to
 	return-and-param-types: trusted gc-safe-value
 	params: ()
 	specs: specs
 	doc-comment-references: ()
-	body: fun-body-uninitialized
+	body: fun-body-uninitialized range.uri, range.range
 	insts: trusted gc-safe-value
 fill-in-fun-types void(fun fun-decl, return-type type, params destructure[])
 	fun.params := params
@@ -1738,15 +1705,14 @@ fill-in-fun-types void(fun fun-decl, return-type type, params destructure[])
 		fun, (), fun.specs, (), fun.return-and-param-types
 new fun-decl
 	hash nat32
-	source fun-decl-source
 	visibility visibility
 	return-type type
 	params destructure[]
 	specs specs
 	body fun-body
 do
-	name-and-arity = get-name-and-arity (fun-name return-type, source, body), params.size
-	fun = unfinished-fun-decl hash, source, visibility, name-and-arity, specs
+	name-and-arity = get-name-and-arity (fun-name body, return-type), params.size
+	fun = unfinished-fun-decl hash, visibility, name-and-arity, body.type-params, body.range, specs
 	fill-in-fun-types fun, return-type, params
 	fun.body := body
 	fun
@@ -1762,16 +1728,16 @@ contexts type-args(a fun-decl)
 	trusted a.range <=> b.range
 hash void(a fun-decl, state hash-state)
 	trusted hash a.hash, state
-type-param-asts type-params(a fun-decl)
-	a.source.type-params
+type-params type-params(a fun-decl)
+	a.body.type-params
 module-uri uri(a fun-decl)
-	a.source.module-uri
+	a.body.module-uri
 range uri-and-range(a fun-decl)
-	a.source.range
+	a.body.range
 name-range uri-and-range(a fun-decl)
-	a.source.name-range
+	a.body.name-range
 doc-comment-ast doc-comment-ast(a fun-decl)
-	a.source.doc-comment-ast
+	a.body.doc-comment-ast
 doc-comment doc-comment(a fun-decl)
 	a.doc-comment-ast, a.doc-comment-references
 is-template bool(a fun-decl)
@@ -1808,14 +1774,13 @@ name-range uri-and-range(a test_)
 	a.module-uri, a.ast.keyword-range
 n-type-params nat8(_ test_)
 	0
-type-param-asts type-params(_ test_)
+type-params type-params(_ test_)
 	()
 visibility visibility(_ test_)
 	private
 
 expr-container union(fun-decl, test_, var-decl)
 	doc-comment doc-comment()
-	type-param-asts type-params()
 	name-range uri-and-range()
 to type-container(a expr-container)
 	match a
@@ -1951,8 +1916,8 @@ called-bogus record(decl called-decl, return-and-param-types return-and-param-ty
 hash void(a called-bogus, state hash-state)
 	trusted hash a.decl.name, state
 as-builtin-fun builtin-fun?(a called)
-	if a.fun-inst
-		a.decl.body.builtin-fun
+	if fun-inst a
+		a.decl.body.fun-body-builtin.?kind
 
 called-decl called-decl(a called)
 	match a
@@ -2010,7 +1975,7 @@ name symbol(a var-decl)
 	a.ast.name.name
 n-type-params nat8(_ var-decl)
 	0
-type-param-asts type-params(_ var-decl)
+type-params type-params(_ var-decl)
 	()
 kind var-kind(a var-decl)
 	a.ast.kind
@@ -2080,7 +2045,7 @@ name string(a keen-module)
 	a.uri.base-name
 n-type-params nat8(_ keen-module)
 	0
-type-param-asts type-params(_ keen-module)
+type-params type-params(_ keen-module)
 	()
 range uri-and-range(a keen-module)
 	a.uri.top-of-file
@@ -2399,7 +2364,7 @@ do
 	name-range uri-and-range()
 	doc-comment-ast doc-comment-ast()
 	doc-comment doc-comment()
-	type-param-asts type-params()
+	type-params type-params()
 	visibility visibility()
 	name symbol()
 hash void(a any-decl, state hash-state)
@@ -2428,7 +2393,7 @@ type-with-container record(type type, container type-container)
 type-container union(fun-decl, keen-module, spec-decl, type-alias, type-decl, test_, var-decl)
 	module-uri uri()
 	n-type-params nat8()
-	type-param-asts type-params()
+	type-params type-params()
 forbid-module any-decl(a type-container)
 	match a
 	as fun-decl then a
@@ -4031,7 +3996,7 @@ sum-type-case-getter fun-decl(funs fun-decl[], type type-decl, x sum-type-case)
 	must-find-fun-named funs, type.name, of fun
 		sum-type-case-get fun.body and
 		fun.params.only!.type == x.sum-type and
-		fun.source.type-decl! == type
+		fun.body.type == type
 
 # TODO:PERF this is slow!
 must-find-fun-named fun-decl(funs fun-decl[], name symbol, cb bool mut(x fun-decl))

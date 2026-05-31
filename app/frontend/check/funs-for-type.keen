@@ -37,7 +37,7 @@ do check-ctx, common-types
 	if has-standard-auto-funs type
 		emit = of kind auto-fun-with-members-kind, return-type type, parameters destructure[]
 			do unless auto-fun-overrides[type, kind.to]
-			fun = fun-for-type type, return-type, parameters, auto-fun kind.to, ()
+			fun = fun-for-type type, return-type, parameters, auto-fun type, kind.to, ()
 			out ~= fun
 			auto-funs[kind][type] := fun
 		two-of-it = make-params (inst, inst)
@@ -196,9 +196,9 @@ do check-ctx, common-types, funs-map
 	called-bogus fun, make-return-and-param-types sig.return-type, sig.params, it.type
 
 -with-members auto-fun(body fun-body, members called[])
-	cur = body.auto-fun!
-	assert is-empty cur.members
-	auto-fun cur.kind, members
+	assert auto-fun body
+	assert is-empty body.members
+	auto-fun body.source, body.kind, members
 
 -get-spec spec-decl(a auto-fun-with-members-kind) check-ctx, common-types
 	match a
@@ -312,7 +312,7 @@ as-auto-fun-override auto-fun-override?(fun fun-decl) common-types
 	case-type type-inst
 do check-ctx, common-types
 	params = make-params (sum-type,)
-	out ~= fun-for-type source-type, option[case-type], params, sum-type-case-get
+	out ~= fun-for-type source-type, option[case-type], params, sum-type-case-get source-type
 
 -can-convert-back bool(a type-decl)
 	can-convert-back a.body.sum-type!.kind
@@ -330,7 +330,6 @@ do check-ctx, common-types
 add-funs-for-var void(out funs-out, var var-decl) check-ctx, common-types
 	out ~=
 		hash: next-hash
-		source: var
 		visibility: var.visibility
 		return-type: var.type
 		params: ()
@@ -338,7 +337,6 @@ add-funs-for-var void(out funs-out, var var-decl) check-ctx, common-types
 		body: var-get var
 	out ~=
 		hash: next-hash
-		source: var
 		visibility: var.visibility
 		return-type: void
 		params: make-params (var.type,)
@@ -352,7 +350,6 @@ add-funs-for-var void(out funs-out, var var-decl) check-ctx, common-types
 	body fun-body
 do instantiate-ctx
 	hash: next-hash
-	source: type
 	visibility: type.visibility
 	return-type: return-type
 	params: params
@@ -377,11 +374,11 @@ do instantiate-ctx, common-types
 	overrides auto-fun-overrides
 do instantiate-ctx, common-types
 	inst = only-inst type
-	out ~= fun-for-type type, inst, ().make-params, none
-	out ~= fun-for-type type, inst, (inst,).make-params, negate
-	out ~= fun-for-type type, inst, (inst, inst).make-params, union_
-	out ~= fun-for-type type, inst, (inst, inst).make-params, intersect
-	out ~= fun-for-type type, bool, (inst, inst).make-params, subscript::flags-function
+	out ~= fun-for-type type, inst, ().make-params, fun-body-flags-function type, none
+	out ~= fun-for-type type, inst, (inst,).make-params, fun-body-flags-function type, negate
+	out ~= fun-for-type type, inst, (inst, inst).make-params, fun-body-flags-function type, union_
+	out ~= fun-for-type type, inst, (inst, inst).make-params, fun-body-flags-function type, intersect
+	out ~= fun-for-type type, bool, (inst, inst).make-params, fun-body-flags-function type, subscript::flags-function
 	for member in flags_.members
 		out ~= enum-or-flags-constructor type.visibility, inst, member
 	add-funs-for-enum-or-flags out, type, overrides
@@ -393,22 +390,23 @@ do instantiate-ctx, common-types
 do instantiate-ctx, common-types
 	inst = only-inst type
 	unless overrides[type, members-of-enum-or-flags]
-		out ~= fun-for-type type, array[inst], (), auto-fun members-of-enum-or-flags, ()
+		out ~= fun-for-type type, array[inst], (), auto-fun type, members-of-enum-or-flags, ()
 	unless overrides[type, to-enum-or-flags-option-from-nat]
-		out ~= fun-for-type type, option[inst], (nat64,).make-params, auto-fun to-enum-or-flags-option-from-nat, ()
+		out ~= fun-for-type type, option[inst], (nat64,).make-params,
+			auto-fun type, to-enum-or-flags-option-from-nat, ()
 	unless overrides[type, to-enum-or-flags-option-from-symbol]
-		out ~= fun-for-type type, option[inst], (symbol,).make-params, auto-fun to-enum-or-flags-option-from-symbol, ()
+		out ~= fun-for-type type, option[inst], (symbol,).make-params,
+			auto-fun type, to-enum-or-flags-option-from-symbol, ()
 	unless overrides[type, to-nat-from-enum-or-flags]
 		storage = must-be-enum-or-flags-storage type
-		out ~= fun-for-type type, storage.to, (inst,).make-params, auto-fun to-nat-from-enum-or-flags, ()
+		out ~= fun-for-type type, storage.to, (inst,).make-params, auto-fun type, to-nat-from-enum-or-flags, ()
 	unless overrides[type, to-symbol-from-enum]
-		out ~= fun-for-type type, symbol, (inst,).make-params, auto-fun to-symbol-from-enum, ()
+		out ~= fun-for-type type, symbol, (inst,).make-params, auto-fun type, to-symbol-from-enum, ()
 	unless overrides[type, to-symbol-array-from-flags]
-		out ~= fun-for-type type, array[symbol], (inst,).make-params, auto-fun to-symbol-array-from-flags, ()
+		out ~= fun-for-type type, array[symbol], (inst,).make-params, auto-fun type, to-symbol-array-from-flags, ()
 
 -enum-or-flags-constructor fun-decl(visibility visibility, enum_ type-inst, member enum-or-flags-member) instantiate-ctx
 	hash: next-hash
-	source: member
 	visibility: visibility
 	return-type: enum_
 	params: ()
@@ -423,13 +421,12 @@ do instantiate-ctx, common-types
 
 -record-constructor fun-decl(type type-decl, record_ record_, inst type-inst, nominal_ bool) check-ctx
 	hash: next-hash
-	source: type
 	visibility: record_.new-visibility
 	return-type: inst
 	params: for x in record_.fields
 		make-param x.name, x.type
 	specs: specs type
-	body: new-record nominal_
+	body: new-record type, nominal_
 
 -add-funs-for-record-field void
 	out funs-out
@@ -439,24 +436,22 @@ do instantiate-ctx, common-types
 do check-ctx, common-types
 	out ~=
 		hash: next-hash
-		source: field
 		visibility: field.visibility
 		return-type: field.type
 		params: make-params (record-type,)
 		specs: type.specs
-		body: record-field-get field
+		body: record-field-get type, field
 
 	if set-visibility = field.mutability
 		out ~=
 			hash: next-hash
-			source: field
 			visibility: set-visibility
 			return-type: void
 			params:
 				- make-param "a", record-type
 				- make-param field.name, field.type
 			specs: type.specs
-			body: record-field-set field
+			body: record-field-set type, field
 
 -add-funs-for-sum-type void
 	out funs-out
@@ -481,12 +476,11 @@ do check-ctx, common-types
 		source: local-source-generated method.name
 		type: (lambda type.mutability)[method.return-type, param-tuple]
 	hash: next-hash
-	source: type
 	visibility: type.visibility
 	return-type: inst
 	params: params
 	specs: type.specs
-	body: new-interface
+	body: new-interface type
 
 -lambda-param-type type?(params destructure[]) common-types
 	match params.size

@@ -34,10 +34,6 @@ do check-ctx, common-types, types-get
 	fill-auto-fun-bodies auto-funs
 	check-method-impls structs
 	check-funs-with-asts funs[0 .. asts.size], asts
-	for i, f in with-index file-imports-and-exports.imports
-		funs[asts.size + i].body := file-import-function-body f
-	for i, f in with-index file-imports-and-exports.exports
-		funs[asts.size + file-imports-and-exports.imports.size + i].body := file-import-function-body f
 	funs: funs
 	tests: check-tests test-asts
 	funs-map: the::funs-map
@@ -71,24 +67,20 @@ do check-ctx, types-get
 	visibility = visibility-from-explicit-top-level fun-ast.visibility
 	specs = check-fun-modifiers fun-ast.type-params, fun-ast.modifiers
 	check-type-params fun-ast.type-params
-	fun fun-decl = unfinished-fun-decl next-hash, fun-ast, visibility, fun-ast.name, specs
+	fun = unfinished-fun-decl next-hash, visibility, fun-ast.name, fun-ast.type-params, fun-ast.uri-and-range, specs
 	return-type, params = check-return-type-and-params fun, fun-ast.return-type, fun-ast.params, fun-ast.type-params
 	fill-in-fun-types fun, return-type, params
 	fun
-
--file-import-function-body fun-body(a import-or-export-file)
-	fun-body-file-import a.source.kind.import-file-ast!.type, a.content
 
 -fun-decl-for-file-import-or-export fun-decl(a import-or-export-file, visibility visibility) check-ctx, common-types
 	ast = import-file-ast! a.source.kind
 	return-type = type-for-file-import ast.type
 	hash: next-hash
-	source: fun-source-file-import cur-uri, a.source
 	visibility: visibility
 	return-type: return-type
 	params: ()
 	specs: ()
-	body: fun-body-uninitialized
+	body: fun-body-file-import cur-uri, a.source, a.source.kind.import-file-ast!.type, a.content
 
 -type-for-file-import type(type import-file-type) common-types
 	match type
@@ -112,7 +104,7 @@ do check-ctx, types-get
 		if  not is-empty specs.instantiated-sigs
 			add-diag ast.keyword-range, test_.diag-spec-use-invalid
 		test_ test_ = next-hash, ast, cur-uri, specs, (bogus-expr (), void, temporary), ()
-		test_.body := check-fun-or-test-body test_, void, (), ast.body, false
+		test_.body := check-fun-or-test-body test_, (), void, (), ast.body, false
 		test_
 
 -check-funs-with-asts void
@@ -124,11 +116,17 @@ do check-ctx, common-types, types-get, funs-map
 		fun-ast = asts[i]
 		do if fun.body.fun-body-uninitialized
 		fun.body := if is-bogus fun.return-type
-			bogus-expr fun-ast.body.range, fun.return-type, from-other-bogus
+			ast: fun-ast
+			expr: bogus-expr fun-ast.body.range, fun.return-type, from-other-bogus
+			allocated-locals: ()
 		elif bogus-ast fun-ast.body
-			get-builtin-fun fun
+			get-builtin-fun fun, fun-ast
 		else
-			check-fun-or-test-body fun, fun.return-type, fun.params, fun-ast.body, must-be-auto fun.name 'to
+			res = check-fun-or-test-body fun, fun-ast.type-params, fun.return-type, fun.params, fun-ast.body,
+				must-be-auto fun.name
+			match res
+			as expr then fun-body-expr fun-ast, res, ()
+			as expr-with-allocated-locals then fun-body-expr fun-ast, res.expr, res.allocated-locals
 
 -must-be-auto bool(a symbol)
 	match a
