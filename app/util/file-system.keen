@@ -147,7 +147,7 @@ write-jar void(jar-files file-path[], path file-path, files java-compiled-class[
 		closeEntry out
 		closeEntry input
 
-files-in-directory-recursive file-path[](dir-path file-path) global
+files-in-directory-recursive file-path[](a file-reader-impl, dir-path file-path) global
 	for* path in get-paths-in-dir dir-path
 		match get-path-kind path
 		as other
@@ -155,7 +155,7 @@ files-in-directory-recursive file-path[](dir-path file-path) global
 		as file
 			- path
 		as directory
-			files-in-directory-recursive path
+			files-in-directory-recursive a, path
 
 -get-path-kind path-kind(path file-path) global
 	do trusted
@@ -191,40 +191,49 @@ get-paths-in-dir file-path[](dir-path file-path) global
 	else
 		throw todo
 
-file-reader record mut
-	path-to-keen file-path
+file-reader interface mut
+	path-to-keen file-path()
 	| Only used when '--watch' is passed
-	-watch-service WatchService?
-	-watched-files file-path mut-set
-	-watched-dirs WatchKey mut[file-path]
-	-read-file-inner read-file-result mut(path string)
-	-read-java-class read-file-result mut(jc jar-and-class)
-	-files-in-directory-recursive file-path[] mut(root file-path)
+	try-read-file read-file-result(uri uri)
+	files-in-directory-recursive file-path[](root file-path)
+	wait-for-change file-path set()
 with-file-reader record(path-to-keen file-path, watch bool)
 file-reader with-file-reader(path-to-keen file-path, watch bool)
 	path-to-keen, watch
 with-block[t] t(a with-file-reader, f t mut(a file-reader)) global
-	with read-java-class in with-java-class-reader path-to-keen a
-		watch-service WatchService? = if watch a
-			do trusted
-			assert java else todo
-			newWatchService getDefault::FileSystem
-		finally if watch-service
-			do trusted
-			assert java
-			close watch-service
-		reader file-reader =
-			path-to-keen: path-to-keen a
-			watch-service: watch-service
-			watched-files: ()
-			watched-dirs: ()
-			read-file-inner: it.read-file-inner
-			read-java-class: read-java-class
-			files-in-directory-recursive: it.files-in-directory-recursive
-		f[reader]
+	watch-service WatchService? = if watch a
+		do trusted
+		assert java else todo
+		newWatchService getDefault::FileSystem
+	finally if watch-service
+		do trusted
+		assert java
+		close watch-service
+	reader file-reader-impl =
+		path-to-keen: a.path-to-keen
+		watch-service: watch-service
+		watched-files: ()
+		watched-dirs: ()
+		jmods: ()
+		java-classes-tar: if js
+			tar-path = a.path-to-keen.parent! / "java-classes.tar"
+			read-entire-tar read-file tar-path.to
+	finally for _, fs in reader.jmods
+		assert java
+		trusted close fs
+	f[reader]
 
--watch-file void(a file-reader, file file-path)
-	do if service = watch-service a and try-add a.watched-files, file
+-file-reader-impl record mut, global, file-reader case
+	path-to-keen file-path
+	watch-service WatchService?
+	watched-files file-path mut-set
+	watched-dirs WatchKey mut[file-path]
+	jmods FileSystem mut[file-path]
+	# Used for JS builds only
+	java-classes-tar nat8 array-view[symbol]
+
+-watch-file void(a file-reader-impl, file file-path) global
+	do if service = a.watch-service and try-add a.watched-files, file
 	dir = parent! file
 	_ = ensure a.watched-dirs, dir, of
 		do trusted
@@ -233,7 +242,7 @@ with-block[t] t(a with-file-reader, f t mut(a file-reader)) global
 		register dir.to-java-path, service, buf.reinterpret-cast::(Object Kind buffer), ()
 
 | Returns the path of watched files that changed.
-wait-for-change file-path set(a file-reader)
+-wait-for-change file-path set(a file-reader-impl) global
 	do trusted
 	assert java else todo
 	assert service = a.watch-service
@@ -245,13 +254,13 @@ wait-for-change file-path set(a file-reader)
 		files |:= extra
 	files
 
--poll-and-take-events file-path set?(a file-reader) java
+-poll-and-take-events file-path set?(a file-reader-impl) java
 	do trusted
 	polled = poll a.watch-service!
 	unless is-null polled
 		take-events a, polled
 
--take-events file-path set(a file-reader, key WatchKey) java
+-take-events file-path set(a file-reader-impl, key WatchKey) java
 	do trusted
 	dir file-path = key.watchable.reinterpret-cast::Path.to
 	events = key.pollEvents.toArray
@@ -263,26 +272,6 @@ wait-for-change file-path set(a file-reader)
 		if a.watched-files[file-path]
 			- file-path
 
--java-class-reader alias
-	read-file-result mut(x jar-and-class)
--with-java-class-reader record(path-to-keen file-path)
--with-block[t] t(a with-java-class-reader, f t mut(a java-class-reader))
-	do trusted
-	if java
-		jmods FileSystem mut[file-path] = ()
-		finally for _, fs in unsorted jmods
-			# TODO: we should not do this if we got it through 'getFileSystem' instead of 'newFileSystem'
-			close fs
-		f[{read-java-class it, jmods}]
-	elif js
-		tar-path = a.path-to-keen.parent! / "java-classes.tar"
-		tar = read-entire-tar read-file tar-path.to
-		f[{tar[it.class-path-including-extension.to] else not-found}]
-	else
-		throw todo
-
-files-in-directory-recursive file-path[](a file-reader, root file-path)
-	a.files-in-directory-recursive[root]
 
 get-builtin-java-paths builtin-java-paths() global
 	if java
@@ -312,19 +301,22 @@ get-builtin-java-paths builtin-java-paths() global
 	java-home string = "java.home".getProperty.to
 	must-parse-file-path "{java-home}/jmods/{jmod-name}.jmod"
 
--read-java-class read-file-result(class_ jar-and-class, jmods FileSystem mut[file-path]) global, java
-	do trusted
-	file-system = ensure jmods, class_.jar-path, of
-		get-or-create-file-system create "jar:{to::uri class_.jar-path}"
-	full-class-path string = if class_.jar-path.get-extension == ".jmod"
-		"classes/{class_.class-path-including-extension}"
-	else
-		class_.class-path-including-extension.to
-	path = getPath file-system, full-class-path.to, ()
-	try
-		path.readAllBytes.cast-immutable.safe-reinterpret-cast::nat8[]
-	catch as NoSuchFileException
-		not-found
+-read-java-class read-file-result(a file-reader-impl, class_ jar-and-class) global
+	if java
+		do trusted
+		file-system = ensure a.jmods, class_.jar-path, of
+			get-or-create-file-system create "jar:{to::uri class_.jar-path}"
+		full-class-path string = if class_.jar-path.get-extension == ".jmod"
+			"classes/{class_.class-path-including-extension}"
+		else
+			class_.class-path-including-extension.to
+		path = getPath file-system, full-class-path.to, ()
+		try
+			path.readAllBytes.cast-immutable.safe-reinterpret-cast::nat8[]
+		catch as NoSuchFileException
+			not-found
+	elif js
+		a.java-classes-tar[class_.class-path-including-extension.to] else not-found
 
 -get-or-create-file-system FileSystem(uri URI) global, java
 	do trusted
@@ -333,16 +325,16 @@ get-builtin-java-paths builtin-java-paths() global
 	catch as FileSystemAlreadyExistsException
 		getFileSystem uri
 
-try-read-file read-file-result(a file-reader, uri uri)
+-try-read-file read-file-result(a file-reader-impl, uri uri) global
 	if x = as-jar-and-class-uri uri
-		a.read-java-class[x]
+		read-java-class a, x
 	elif file = as-file-path uri
 		watch-file a, file
-		a.read-file-inner[file.to]
+		read-file-inner a, file.to
 	else
 		not-found
 
--read-file-inner read-file-result(path string) global
+-read-file-inner read-file-result(_ file-reader-impl, path string) global
 	start = perf-now
 	finally end-read-file start
 	try
