@@ -43,7 +43,7 @@ initial-type-decl-for-java-class type-decl(a parsed-java-class, uri uri) instant
 		module-uri: uri
 		name:
 			base = base-name a.this-class
-			if _, rest = try-split-once base, "$"
+			if _, rest = try-split-once-right base, "$"
 				rest.to
 			else
 				base.to
@@ -110,23 +110,48 @@ initial-type-decl-for-java-class type-decl(a parsed-java-class, uri uri) instant
 		0, x
 	is-interface = class_.access[interface_]
 	do with out in build
+
+	this-param local = "this".local-source-generated, class-type
+	erased-this-type = instantiated-with-Object type
 	for field in class_.fields
-		do if field.access-flags[public | static] # TODO: support instance fields
+		do if field.access-flags[public]
+		is-static = field.access-flags[static]
+		field-type = to-type field.generic-type, class_.type-params, ()
+		erased-field-type = to-type-never-generic field.erased-type
 		out ~=
 			hash: next-hash
 			visibility: public
-			return-type: to-type field.generic-type, class_.type-params, ()
-			params: ()
+			return-type: field-type
+			params: unless is-static
+				- this-param
 			specs: global-java-unsafe-specs
 			body:
 				:: fun-body-extern-java
-				kind: static-field
+				kind: if is-static then static-field else instance-field
 				module-uri: uri
 				class_: path
 				name: field.name
-				type-params: class-type-params
-				erased-return-type: to-type-never-generic field.erased-type
-				erased-param-types: ()
+				type-params: unless is-static then class-type-params
+				erased-return-type: erased-field-type
+				erased-param-types: unless is-static
+					- erased-this-type
+		unless field.access-flags[final]
+			value-param local = "value".local-source-generated, field-type
+			out ~=
+				hash: next-hash
+				visibility: public
+				return-type: void
+				params: if is-static then value-param, else this-param, value-param
+				specs: global-java-unsafe-specs
+				body:
+					:: fun-body-extern-java
+					kind: if is-static then set-static-field else set-instance-field
+					module-uri: uri
+					class_: path
+					name: "set-{field.name}"
+					type-params: unless is-static then class-type-params
+					erased-return-type: void
+					erased-param-types: if is-static then erased-field-type, else erased-this-type, erased-field-type
 
 	for method in class_.methods
 		do if method.access-flags[public]
@@ -148,13 +173,13 @@ initial-type-decl-for-java-class type-decl(a parsed-java-class, uri uri) instant
 		real-return-type type = if is-constructor then class-type else return-type
 		params destructure[] =
 			-- if include-this-param
-				- "this".local-source-generated, class-type
+				- this-param
 			-- most-params
 		body fun-body-extern-java =
 			erased-return-type = to-type-never-generic method.erased-return-type
 			erased-param-types type-inst[] =
 				-- if include-this-param
-					- instantiated-with-Object type
+					- erased-this-type
 				-- map method.erased-param-types, it.to-type-never-generic
 			kind: kind
 			module-uri: uri

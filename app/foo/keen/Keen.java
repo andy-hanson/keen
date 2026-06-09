@@ -22,10 +22,12 @@ public class Keen {
 		return a == b;
 	}
 	public static boolean equalInt8(byte a, byte b) {
-		return a == b;
+		// This seems silly, but in Java a byte parameter actually takes an int at runtime, so we need to be sure to only use the byte parts
+		return (a & 0xff) == (b & 0xff);
 	}
 	public static boolean equalInt16(short a, short b) {
-		return a == b;
+		// This seems silly, but in Java a short parameter actually takes an int at runtime, so we need to be sure to only use the short parts
+		return (a & 0xffff) == (b & 0xffff);
 	}
 	public static boolean equalInt32(int a, int b) {
 		return a == b;
@@ -108,6 +110,12 @@ public class Keen {
 	}
 	public static byte compareFloat64IEEE(double a, double b) {
 		return a < b ? (byte) 0 : a > b ? (byte) 2 : (byte) 1;
+	}
+	public static byte divideUnsigned(byte a, byte b) {
+		return (byte) (Byte.toUnsignedInt(a) / Byte.toUnsignedInt(b));
+	}
+	public static short divideUnsigned(short a, short b) {
+		return (short) (Short.toUnsignedInt(a) / Short.toUnsignedInt(b));
 	}
 
 	public static int nat32FromNat64(long a) {

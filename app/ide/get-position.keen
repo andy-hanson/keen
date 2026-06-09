@@ -394,9 +394,20 @@ do keen-module, common-types
 		if pos-kind == after or pos-is-at-call ast, pos
 			expression-position[kind]
 		elif assignment-call-ast ast and has-pos ast.name-range, pos
-			# `x +:= 1` is `set-x (x + 1)`, so at the '+',
-			# treat this as being at 'x + 1' so we get info for the '+' function.
-			expression-position[call-expr! last! kind.call-expr!.args]
+			call = call-expr! kind
+			if starts-with call.called.name.to::string, "set-"
+				# `x +:= 1` is `set-x (x + 1)`, so at the '+',
+				# treat this as being at 'x + 1' so we get info for the '+' function.
+				match last-arg = last! call.args
+				as bogus-call-expr
+					expression-position[last-arg]
+				as call-expr
+					expression-position[last-arg]
+				else
+					throw unreachable
+			else
+				# `x +:= 1` assigns to a local
+				expression-position[call]
 		elif for-or-with-ast ast
 			keyword-at[ast.in-range, ast.keyword.for-or-with-in-kind] or
 			keyword-at-opt[ast.then-range, then-after-for-or-with]
@@ -406,7 +417,7 @@ do keen-module, common-types
 		expression-position-at[a.ast.keyword-range, a] or
 		keyword-at-opt[a.ast.thrown.?else-range, if a.is-forbid then else-after-forbid else else-after-assert]
 	as bogus-call-expr
-		call[a.ast, a]
+		expression-position[a]
 	as bogus-expr
 		expression-position[a]
 	as bogus-wrong-type-expr
@@ -417,7 +428,11 @@ do keen-module, common-types
 		call[a.ast, a]
 	as call-option-expr
 		if pos == a.ast.question-pos
-			expression-position[question-before-name-or-subscript]
+			res = match a.ast
+			as call-ast-dot-question then question-after-dot
+			as call-ast-prefix-question then question-before-name
+			as call-question-subscript-ast then question-before-subscript
+			expression-position[res]
 		elif pos-is-at-call a.ast.to, pos
 			expression-position[a]
 	as finally-expr

@@ -15,7 +15,7 @@ all: clean test bin/keen.tar.xz
 test: unit-test test-diagnostics test-end-to-end
 
 unit-test: unit-test-java unit-test-js
-unit-test-java: bin/keen $(lib) $(app)
+unit-test-java: bin/keen $(lib) $(app) bin/org.example.jar
 	bin/keen test app lib test
 unit-test-js: bin/keen bin/java-classes.tar $(lib) $(app)
 	bin/keen build app lib test --test --out bin/test.js

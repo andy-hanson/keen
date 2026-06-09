@@ -1,4 +1,5 @@
 import
+	keen/col/enum-map
 	keen/col/mut-sorted-set
 	keen/unsafe
 	../../lib/parse: kid-parse-error, expected, parse-kid, pos
@@ -8,7 +9,6 @@ import
 	../model/parse-diag
 	../model/source-range
 	../model/uri
-	../util/enum-map
 	../util/perf
 	./check/check
 	./check/check-ctx
@@ -71,7 +71,7 @@ new frontend(keen-lib uri, builtin-java-paths builtin-java-paths)
 		keen-lib: keen-lib
 		builtin-java-paths: builtin-java-paths
 		common-uris: common-uris
-		common-files: for _, uri in common-uris
+		common-files: map-enum-map common-uris, of _, uri
 			# Dummy value, about to get overwritten
 			uri: uri
 			referenced-by: ()
@@ -93,9 +93,9 @@ new frontend(keen-lib uri, builtin-java-paths builtin-java-paths)
 		other-files: ()
 		workable-java: ()
 		workable-keen: ()
-	res.common-files := for _, uri in common-uris
+	res.common-files := map-enum-map common-uris, of _, uri
 		ensure-keen-file res, uri
-	_ = ensure-java-class-file res, "java/lang/String".as-path, all
+	ensure-java-common-types res
 	res
 
 |  This is initially empty and the fields fill in from top to bottom in various steps.
@@ -175,8 +175,7 @@ make-program program(a frontend, fully-loaded-dirs uri set)
 	start = perf-now
 	finally end-make-program start
 	a.files-state is all-loaded
-	common-modules (common-module, keen-module) enum-map = for _, x in a.common-files
-		x.module!
+	common-modules (common-module, keen-module) enum-map = map-enum-map a.common-files, it.b.module!
 	the instantiate-ctx = a.instantiate-ctx
 	the common-types = a.common-types
 	the common-uris = a.common-uris
@@ -441,9 +440,9 @@ set-file void(a frontend, uri uri, result read-file-result)
 
 	the instantiate-ctx = a.instantiate-ctx
 	bootstrap = a.common-files[bootstrap]
-	if a.workable-keen[bootstrap.uri] and java-String = ?only-inst ?type a.java-class-files[as-path "java/lang/String"]
+	if a.workable-keen[bootstrap.uri] and java-common-types = java-common-types a
 		assert remove a.workable-keen, bootstrap.uri
-		module, common-types = check-bootstrap a.keen-lib, a.common-uris, java-String,
+		module, common-types = check-bootstrap a.keen-lib, a.common-uris, java-common-types,
 			bootstrap.uri, bootstrap.config!, bootstrap.get-ast
 		a.common-types-option := common-types
 		bootstrap.module := module
@@ -468,6 +467,16 @@ set-file void(a frontend, uri uri, result read-file-result)
 		false
 	else
 		true
+
+-ensure-java-common-types void(a frontend)
+	for path in ("java/lang/Object", "java/lang/String")::string[]
+		_ = ensure-java-class-file a, path.to.as-path, all
+-java-common-types java-common-types?(a frontend)
+	do if java-Object = java-common-type a, as-path "java/lang/Object"
+	do if java-String = java-common-type a, as-path "java/lang/String"
+	java-Object: java-Object, java-String: java-String
+-java-common-type type-inst?(a frontend, path path)
+	?only-inst ?type a.java-class-files[path]
 
 -work-on-java-class void(a frontend, path path) common-types, instantiate-ctx
 	the java-classes = a

@@ -1,0 +1,94 @@
+| Coordinate in a grid.
++coord record
+	| Column index. The leftmost column is 0; the rightmost column is `width - 1`.
+	x nat64
+	| Row index. The top row is 0; the bottom row is `height - 1`.
+	y nat64
++new coord() = 0, 0
+
+| Immutable grid (matrix) type
++grid[t] record
+	-elements t[]
+	-width nat64
+	-height nat64
++size[t] nat(a t grid) = a.elements.size
+
++ ==[t] bool(a t grid, b t grid) t equal
+	trusted a.width == b.width and a.height == b.height and a.elements == b.elements
++ <=>[t] comparison(a t grid, b t grid) t compare
+	do trusted
+	compare-width = a.width <=> b.width
+	if compare-width == equal
+		compare-height = a.height <=> b.height
+		if compare-height == equal
+			a.elements <=> b.elements
+		else
+			compare-height
+	else
+		compare-width
++ hash[t] void(a t grid, state hash-state) t hash
+	do trusted
+	hash a.width, state
+	hash a.height, state
+	hash a.elements, state
++to[t] json(a t grid) t to-json
+	width: a.width
+	height: a.height
+	rows: map::json[] a.rows, it.to
++to[t] t grid(a json) t from-json
+	width nat = a["width"].to
+	height nat = a["height"].to
+	rows json[] = a["rows"].to
+	rows.size is height else deserialize-error "height must match number of rows", a
+	elements t[] = for* j in rows
+		row t[] = j.to
+		row.size is width else deserialize-error "width must match number of elements in row", j
+		-- row
+	elements, width, height
+
++new[t] t grid() = (), (0, 0)
++new[t] t grid(elements t[], size coord)
+	size.x * size.y is elements.size
+	elements, size.x, size.y
+
++subscript[t] t(a t grid, coord coord)
+	a.elements[index-for a, coord]
+
+-index-for[t] nat64(a t grid, coord coord)
+	assert coord.x < a.width
+	assert coord.y < a.height
+	res = coord.y * a.width + coord.x
+	assert res < a.elements.size
+	res
+
++row[t] t array-view(a t grid, y nat64)
+	assert y < a.height else index-too-big y, a.height
+	begin = y * a.width
+	a.elements[begin .. begin + a.width]
+
++some[t] bool(a t grid, f bool mut(elem t))
+	some a.elements, f
+
++grid-rows[t] record
+	-inner t grid
++rows[t] t grid-rows(a t grid) = a,
++size[t] nat(a t grid-rows) = a.inner.height
++some[t] bool(a t grid-rows, f bool mut(elem t array-view))
+	some 0::nat64 .. a.size, {f[row a.inner, it]}
+
++grid-with-coords[t] record(inner t grid)
++with-coords[t] t grid-with-coords(a t grid) = a,
++size[t] nat64(a t grid-with-coords)
+	a.inner.size
++some[t] bool(a t grid-with-coords, f bool mut(xy coord, value t))
+	coord mut coord = ()
+	some a.inner, of x
+		res = f[coord, x]
+		coord next-coord:= a.inner.width
+		res
+-next-coord coord(a coord, width nat64)
+	new-x = a.x + 1
+	if new-x == width
+		0, a.y + 1
+	else
+		new-x, a.y

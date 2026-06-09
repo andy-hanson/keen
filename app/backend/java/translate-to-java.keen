@@ -62,7 +62,7 @@ do show-ctx
 		name: constants["main"]
 		descriptor: constants["([Ljava/lang/String;)V"]
 		attributes: code,
-	Object = java-Object
+	Object class-reference = java-Object
 	constant-pool: finish constants
 	access: final | public
 	this-class: this-class
@@ -239,7 +239,7 @@ do
 		name: clinit
 		descriptor: init-no-args-descriptor
 		attributes: code,
-	Object = java-Object
+	Object class-reference = java-Object
 	constant-pool: finish constants
 	access: final
 	this-class: this-class
@@ -265,7 +265,7 @@ do
 		name: clinit
 		descriptor: init-no-args-descriptor
 		attributes: code,
-	Object = java-Object
+	Object class-reference = java-Object
 	constant-pool: finish constants
 	access: final
 	this-class: this-class
@@ -612,11 +612,7 @@ do java-expr-ctx
 					()
 				as static-method-of-interface
 					()
-				as constructor
-					throw unreachable
-				as static-field
-					throw unreachable
-				as instance-field
+				else
 					throw unreachable
 		all-methods = method-decls ~~ method-impls
 		match union-representation type
@@ -966,7 +962,7 @@ do java-refs
 			do if (java-method-kind union-info, fun) == static-method-of-class
 			methods-out ~= method-for-fun this-class, fun
 		methods-out ~= init-vars this-class, vars
-	Object = java-Object
+	Object class-reference = java-Object
 	source SourceFile_attribute =
 		attribute-name-index: SourceFile
 		source-file: constants[show-uri uri 'to]
@@ -1118,6 +1114,8 @@ do java-refs
 		translate-builtin-ternary out, body, only3! args
 		pushed fun.return-type
 		return out, fun.return-type.as-runtime-type
+	as java-fun
+		throw todo
 	as js-fun
 		throw unreachable
 
@@ -1194,13 +1192,19 @@ do java-refs
 				xload out, type, l
 		invokespecial out, constructor-method-ref fun
 	as static-field
-		# TODO: use 'refs' for this
-		body = fun.body.low-fun-body-extern-java!
-		class-name symbol =  body.class_.to
-		getstatic out, field constants, (class_ constants, class-name),
-			name-and-type constants, fun.fun-name, descriptor-for-field-type body.erased-return-type
+		body = low-fun-body-extern-java! fun.body
+		getstatic out, java-field body.class_, fun.name!, body.erased-return-type
 	as instance-field
-		throw todo
+		body = low-fun-body-extern-java! fun.body
+		getfield out, java-field body.class_, fun.name!, body.erased-return-type
+	as set-static-field
+		body = low-fun-body-extern-java! fun.body
+		field-name symbol = to try-remove-start! fun.name!.to::string, "set-"
+		putstatic out, java-field body.class_, field-name, body.erased-param-types.only!
+	as set-instance-field
+		body = low-fun-body-extern-java! fun.body
+		field-name symbol = to try-remove-start! fun.name!.to::string, "set-"
+		putfield out, java-field body.class_, field-name, body.erased-param-types.only2!.b
 
 -emit-expr void(out code-builder, pos expr-pos, a low-expr) java-expr-ctx
 	unless constant-low-expr a
@@ -1219,6 +1223,10 @@ do java-refs
 		handle-pos out, pos, type
 	as builtin-ternary-low-expr
 		translate-builtin-ternary out, a.fun, (a.arg0, a.arg1, a.arg2)
+		handle-pos out, pos, type
+	as builtin-java-instanceof-low-expr
+		function-like out, type, (a.arg,), of
+			instanceof out, class_ a.instanceof-type
 		handle-pos out, pos, type
 	as builtin-js-low-expr
 		throw unreachable
@@ -2240,12 +2248,6 @@ do java-expr-ctx
 	param0-type low-type
 do java-refs
 	match fun
-	as add-float
-		match as-float-type! return-type
-		as float32
-			fadd out
-		as float64
-			dadd out
 	as array-get
 		if is-empty-type return-type
 			pop out, T_LONG
@@ -2280,18 +2282,12 @@ do java-refs
 		invokestatic out, keen-equal-float-ieee param0-type.as-float-type!
 	as less-float-ieee
 		invokestatic out, keen-less-float-ieee param0-type.as-float-type!
-	as mul-float
+	as unsafe-add-float
 		match as-float-type! return-type
 		as float32
-			fmul out
+			fadd out
 		as float64
-			dmul out
-	as sub-float
-		match as-float-type! return-type
-		as float32
-			fsub out
-		as float64
-			dsub out
+			dadd out
 	as unsafe-bit-shift-left
 		if return-type.as-integral-type! == nat64
 			l2i out # second argument must be an int
@@ -2339,6 +2335,18 @@ do java-refs
 		drem out
 	as unsafe-mod-nat64
 		invokestatic out, java-remainderUnsigned nat64
+	as unsafe-mul-float
+		match as-float-type! return-type
+		as float32
+			fmul out
+		as float64
+			dmul out
+	as unsafe-sub-float
+		match as-float-type! return-type
+		as float32
+			fsub out
+		as float64
+			dsub out
 	as wrap-add
 		if is-64-bit as-integral-type! return-type
 			ladd out
