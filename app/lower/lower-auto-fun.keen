@@ -84,7 +84,7 @@ lower-auto-fun low-expr(fun low-fun, a auto-fun) lower-ctx, quick-fill-in-low-fu
 		as flags_
 			gen-json-array lower-flags-to-array range, json-array-type, param, {constant-json-string it.name.to}
 		as low-record
-			lower-record-to-json range, param, a.members
+			lower-record-to-json range, param, body.fields, a.members
 		as low-union
 			lower-union-to-json range, param, body.members, a.members
 	as to-symbol-array-from-flags
@@ -271,7 +271,9 @@ do lower-and-expr-ctx, quick-fill-in-low-fun-body
 		else then throw deserialize-error "u", a
 	###
 	get-param = local-get-low-expr range, param
-	only-key-and-value low-local = temp::low-generated-local-kind, return-type only-key-and-value-from-json-function
+	key-and-value-type = return-type only-key-and-value-from-json-function
+	key-field, value-field = only2! key-and-value-type.body.low-record!.fields
+	only-key-and-value low-local = temp::low-generated-local-kind, key-and-value-type
 	get-kv = local-get-low-expr range, only-key-and-value
 	:: let-low-expr
 	range: range
@@ -280,11 +282,11 @@ do lower-and-expr-ctx, quick-fill-in-low-fun-body
 	then_:
 		:: match-string-like-low-expr
 		range: range
-		matched: record-field-get-low-expr range, get-kv, 0
+		matched: record-field-get-low-expr range, get-kv, key-field
 		equals: equal-symbol-function
 		cases: for case-index, from-json in with-index case-from-json
 			case_ = lower-and-call from-json, range,
-				- record-field-get-low-expr range, get-kv, 1
+				- record-field-get-low-expr range, get-kv, value-field
 			value: constant-symbol case_.type.simple-name
 			then_: create-union-low-expr union_, range, case-index, case_
 		else_: gen-throw-deserialize-error union_, range, get-param
@@ -399,8 +401,8 @@ do lower-and-expr-ctx, quick-fill-in-low-fun-body
 	p1 = local-get-low-expr range, param1
 	compare-field = of index nat
 		lower-and-call field-called[index], range,
-			- gen-record-field-get range, p0, index
-			- gen-record-field-get range, p1, index
+			- gen-record-field-get range, p0, fields[index]
+			- gen-record-field-get range, p1, fields[index]
 	res mut = compare-field[0]
 	for i in 1::nat .. fields.size
 		res := f-fold[res, compare-field[i]]
@@ -516,13 +518,14 @@ do lower-and-expr-ctx, quick-fill-in-low-fun-body
 -lower-record-to-json low-expr
 	range uri-and-range
 	param low-local
+	fields low-field[]
 	field-to-json called[]
 do lower-and-expr-ctx, quick-fill-in-low-fun-body
 	get-param = local-get-low-expr range, param
 	names symbol[] = map get-param.type.type-body.record_!.fields, it.name
-	gen-new-json-object range, names, for index, called in with-index field-to-json
+	gen-new-json-object range, names, for field, called in zip fields, field-to-json
 		lower-and-call called, range,
-			- gen-record-field-get range, get-param, index
+			- gen-record-field-get range, get-param, field
 
 -gen-new-json-object low-expr(range uri-and-range, names symbol[], values low-expr[]) lower-ctx
 	names.size is values.size
@@ -602,9 +605,9 @@ do lower-and-expr-ctx, quick-fill-in-low-fun-body
 	do unless is-empty fields else gen-void range
 	get-value = local-get-low-expr range, value
 	get-hash-state = local-get-low-expr range, hash-state
-	seq-low-expr range, for i in 0 .. fields.size
-		lower-and-call field-hash[i], range,
-			- gen-record-field-get range, get-value, i
+	seq-low-expr range, for field, hash in zip fields, field-hash
+		lower-and-call hash, range,
+			- gen-record-field-get range, get-value, field
 			- get-hash-state
 
 -lower-hash-union low-expr

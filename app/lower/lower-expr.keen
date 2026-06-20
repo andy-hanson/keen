@@ -54,6 +54,8 @@ quick-fill-in-low-fun-body void(ctx lower-context, fun low-fun)
 					get-low-fun-from-called case_.type-args-scope, (), impl
 			as low-sum-type-case-new-interface
 				low-fun-for-new-interface-method-impl case_.case-type, fun, x.method-index
+			as low-sum-type-case-record-field-lens
+				low-fun-for-record-field-lens-method-impl case_.case-type, fun, x.method-index
 		unless preserve-methods
 			ctx.deferred-methods ~= fun
 		low-fun-body-method x.method-index, if sig = x.erased-signature
@@ -71,17 +73,21 @@ quick-fill-in-low-fun-body void(ctx lower-context, fun low-fun)
 				local-get-low-expr range, param
 	as record-field-get
 		record_ = local-get-low-expr range, only! low-params
-		index = field-index-from-field record_.type, x.field
-		gen-record-field-get range, record_, index
+		gen-record-field-get range, record_, get-low-field record_.type, x.field
+	as record-field-lens
+		record-type, _ = only2! return-type.source.low-type-source-inst!.type-args
+		case-index, case-type = low-type-for-record-field-lens fun.return-type, get-low-field record-type, x.field
+		constant-low-expr return-type, range,
+			get-constant-union all-constants, return-type, case-index,
+				get-constant-record all-constants, case-type, ()
 	as record-field-set
 		param0, param1 = only2! low-params
 		p0 = local-get-low-expr range, param0
 		p1 = local-get-low-expr range, param1
-		index = field-index-from-field p0.type, x.field
 		:: record-field-set-low-expr
 		range: range
 		record_: p0
-		field-index: index
+		field: get-low-field p0.type, x.field
 		value: p1
 	as sum-type-case-get
 		case_ = sum-type-case-index low-params.only!.type, as-option! return-type
@@ -114,7 +120,7 @@ quick-fill-in-low-fun-body void(ctx lower-context, fun low-fun)
 		constant-low-expr return-type, range, to::scalar-value
 			is-empty-type only! fun.source.low-fun-source-regular!.type-args
 	as builtin-fun-is-target
-		constant-low-expr return-type, range, to::scalar-value a.target == target
+		constant-low-expr return-type, range, to::scalar-value a.target == the-target
 -to-constant constant(type low-type, a builtin-fun-constant) lower-ctx
 	match a
 	as bool
@@ -149,7 +155,7 @@ lower-fun-or-test-body low-fun-body(cf low-fun, expr expr, allocated-locals type
 	params = match x = cf.source
 	as low-fun-source-regular
 		x.decl.params
-	as low-fun-source-new-interface-method-impl
+	as low-fun-source-interface-or-lens-method-impl
 		throw unreachable
 	as low-fun-source-test
 		()
@@ -560,9 +566,10 @@ do lower-and-expr-ctx
 	do if is-valid-destructure x else lower-bogus type, range
 	get-root-local = local-get-low-expr range, root-local
 	res mut = expr
-	for part-index, part in with-index x.parts
+	fields = root-local.type.body.low-record!.fields
+	for field, part in zip fields, x.parts
 		part-range = to-uri-and-range part.range
-		its-value = gen-record-field-get part-range, get-root-local, part-index
+		its-value = gen-record-field-get part-range, get-root-local, field
 		its-local-and-expr = end-destructure type, part-range, part, res
 		res := its-local-and-expr.expr
 		if l = its-local-and-expr.local
@@ -648,13 +655,13 @@ do lower-and-expr-ctx
 	as destructure-split
 		assert is-valid-destructure a else todo
 		non-option-expr = gen-assert-option option-expr
-		for* index in 0 .. a.parts.size
-			part = a.parts[index]
+		fields = non-option-expr.type.body.low-record!.fields
+		for* field, part in zip fields, a.parts
 			optional-field-type = get-low-type option[part.type]
 			range uri-and-range = cur-uri, part.range
 			optional-field = if-low-expr range, option-expr.gen-option-is-non-empty,
 				then_: gen-option optional-field-type, range,
-					gen-record-field-get range, non-option-expr, index
+					gen-record-field-get range, non-option-expr, field
 				else_: gen-empty-option optional-field-type, range
 			locals-for-option part, optional-field
 

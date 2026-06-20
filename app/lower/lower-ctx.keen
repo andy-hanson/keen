@@ -18,14 +18,14 @@ type-args-scope alias
 type-args-scope-for-fun type-args-scope(a low-fun)
 	match x = a.source
 	as low-fun-source-regular then x.type-args
-	as low-fun-source-new-interface-method-impl then throw unreachable
+	as low-fun-source-interface-or-lens-method-impl then throw unreachable
 	as low-fun-source-test then ()
 	as low-fun-source-test-all then throw unreachable
 
 specs-scope-for-fun low-fun[](a low-fun)
 	match x = a.source
 	as low-fun-source-regular then x.spec-impls
-	as low-fun-source-new-interface-method-impl then throw unreachable
+	as low-fun-source-interface-or-lens-method-impl then throw unreachable
 	as low-fun-source-test then ()
 	as low-fun-source-test-all then throw unreachable
 
@@ -139,12 +139,12 @@ show-ctx show-ctx() lower-context
 
 all-constants all-constants-builder() lower-context
 	the::lower-context.all-constants
-target build-target() lower-context
+the-target build-target() lower-context
 	the::lower-context.target
 is-java bool() lower-context
-	target == java
+	the-target == java
 is-js bool() lower-context
-	target == js
+	the-target == js
 preserve-methods bool() lower-context
 	is-java # TODO: Would be nice to do this in JS too
 hash-nat-function low-fun(nat-type nat-type) lower-context
@@ -176,7 +176,11 @@ low-sum-type-info record mut
 	methods-unsorted low-fun mut[]
 	cases low-sum-type-case mut[]
 
-low-sum-type-case union(low-sum-type-case-regular, low-sum-type-case-new-interface) mut
+low-sum-type-case union mut
+	low-sum-type-case-regular
+	low-sum-type-case-new-interface
+	low-sum-type-case-record-field-lens
+do
 	case-type low-type()
 	method-impls low-fun? buffer()
 low-sum-type-case-regular record mut
@@ -187,6 +191,9 @@ low-sum-type-case-regular record mut
 	| These will be filled in when the method is used.
 	method-impls low-fun? buffer
 low-sum-type-case-new-interface record mut
+	case-type low-type
+	method-impls low-fun? buffer
+low-sum-type-case-record-field-lens record mut
 	case-type low-type
 	method-impls low-fun? buffer
 
@@ -256,22 +263,22 @@ do lower-context, quick-fill-in-low-fun-body
 		quick-fill-in-low-fun-body the::lower-context, res
 	res
 
-low-fun-for-new-interface-method-impl low-fun(record_ low-type, method low-fun, method-index nat) lower-context
-	field = record_.body.low-record!.fields[method-index]
+low-fun-for-new-interface-method-impl low-fun(case-type low-type, method low-fun, method-index nat) lower-context
+	field = case-type.body.low-record!.fields[method-index]
 	return-type, lambda-param-type = only2! field.type.source.low-type-source-inst!.type-args
 	lambda-params = method.params[1 .. end]
 	params low-local[] =
-		- method-first-arg, record_
+		- method-first-arg, case-type
 		-- lambda-params
 	res low-fun =
 		hash: take-next-id
-		source: low-fun-source-new-interface-method-impl record_
+		source: low-fun-source-interface-or-lens-method-impl case-type
 		return-type: return-type
 		params: params
 		body:
-			range = record_.source.range
+			range = case-type.source.range
 			get-record = local-get-low-expr range, params[0]
-			get-lambda = record-field-get-low-expr range, get-record, method-index
+			get-lambda = record-field-get-low-expr range, get-record, field
 			lambda-param low-expr = match lambda-params.size
 			as 0
 				lambda-param-type, range, constant-gc-safe-value
@@ -281,6 +288,36 @@ low-fun-for-new-interface-method-impl low-fun(record_ low-type, method low-fun, 
 				create-record-low-expr lambda-param-type, range, for p in params[1 .. end]
 					local-get-low-expr range, p
 			builtin-binary-low-expr return-type, range, call-lambda, get-lambda, lambda-param
+	add-low-fun res
+	res
+
+low-fun-for-record-field-lens-method-impl low-fun(case-type low-type, method low-fun, method-index nat) lower-context
+	field = case-type.source.low-type-source-record-field-lens!.field
+	params low-local[] =
+		- method-first-arg, case-type
+		-- method.params[1 .. end]
+	range = case-type.source.range
+	body low-expr = match method-index
+	as 0 # get
+		_, value = only2! method.params
+		record-field-get-low-expr range, (local-get-low-expr range, value), field
+	as 1 # set
+		_, outer, inner = only3! method.params
+		get-outer = local-get-low-expr range, outer
+		record_ = low-record! outer.type.body
+		create-record-low-expr outer.type, range, for f in record_.fields
+			if f == field
+				local-get-low-expr range, inner
+			else
+				record-field-get-low-expr range, get-outer, f
+	else
+		throw unreachable
+	res low-fun =
+		hash: take-next-id
+		source: low-fun-source-interface-or-lens-method-impl case-type
+		return-type: method.return-type
+		params: params
+		body: body
 	add-low-fun res
 	res
 
@@ -325,14 +362,39 @@ low-type-for-new-interface (nat, low-type)(interface_ low-type, params low-local
 	info.cases ~=
 		:: low-sum-type-case-new-interface
 		case-type: res
-		method-impls:
-			n-methods = interface_.source.low-type-source-inst!.decl.body.sum-type!.methods.size
-			method-impls low-fun? buffer = n-of n-methods, ()
-			for method in info.methods-unsorted
-				method-index = method.body.low-fun-body-method!.method-index
-				method-impls[method-index] := low-fun-for-new-interface-method-impl res, method, method-index
-			method-impls
+		method-impls: initial-method-impls interface_, info, of method, method-index
+			low-fun-for-new-interface-method-impl res, method, method-index
 	case-index, res
+
+low-type-for-record-field-lens (nat, low-type)(lens low-type, field low-field) lower-context
+	res low-type =
+		id: take-next-id
+		source: low-type-source-record-field-lens lens, field
+		body:
+			:: low-record
+			prevent-constant: false
+			fields: ()
+	the::lower-context.all-low-types ~= res
+	info = the::lower-context.sum-types[lens]!
+	case-index = info.cases.size
+	info.cases ~=
+		:: low-sum-type-case-record-field-lens
+		case-type: res
+		method-impls: initial-method-impls lens, info, of method, method-index
+			low-fun-for-record-field-lens-method-impl res, method, method-index
+	case-index, res
+
+-initial-method-impls low-fun? buffer
+	interface_ low-type
+	info low-sum-type-info
+	f low-fun mut(method low-fun, method-index nat)
+do lower-context
+	n-methods = interface_.source.low-type-source-inst!.decl.body.sum-type!.methods.size
+	method-impls low-fun? buffer = n-of n-methods, ()
+	for method in info.methods-unsorted
+		method-index = method.body.low-fun-body-method!.method-index
+		method-impls[method-index] := f[method, method-index]
+	method-impls
 
 get-low-type low-type(type type, type-args-scope type-args-scope) lower-context, quick-fill-in-low-fun-body
 	match type
