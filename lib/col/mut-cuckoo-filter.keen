@@ -1,0 +1,165 @@
+import
+	keen/bits
+	keen/random/random
+	keen/random/xoshiro
+	keen/random/util
+
+| Probabilistic set (has some false positives).
++mut-cuckoo-filter record mut
+	-size_ mut nat32
+	-version mut nat8
+	-buckets bucket buffer
+	-bucket-index-mask nat32
+	-random random
+
+| Use a capacity higher than the number of hashes you will add.
+| It's recommended to create a single {mut-cuckoo-filter} with a large capacity up-front
+| and reuse it after calling {clear}.
++new mut-cuckoo-filter(capacity nat)
+	capacity isnt 0
+	num-buckets = round-up-to-power-of-two capacity.to::nat32
+	size_: 0
+	version: 1
+	buckets: n-of num-buckets, 0
+	bucket-index-mask: num-buckets - 1
+	random: xoshiro 7
+
+| Number of values that have been successfully added
++size nat(a mut-cuckoo-filter)
+	a.size_
+
+| Same value that was passed to {new-with-capacity}
++capacity nat(a mut-cuckoo-filter)
+	a.buckets.size.to
+
+| This works in O(1) time (by incrementing an internal version).
++clear void(a mut-cuckoo-filter)
+	if a.version == max-version
+		for i in 0 .. a.buckets.size
+			a.buckets[i] := 0
+		a.version := 0
+	else
+		a.version +:= 1
+
+| If {hash} has been inserted, this will definitely return {true}.
+| If {hash} was never inserted, this will probably return {false}.
+| In other words, a response of {false} means the key is certainly not in the filter,
+| but a response of {true} is uncertain.
++probably-contains bool(a mut-cuckoo-filter, hash nat64)
+	i0, i1, fp = get-indices-and-fingerprint hash, a.bucket-index-mask
+	contains a.buckets[i0], fp, a.version or contains a.buckets[i1], fp, a.version
+
++try-add-result enum
+	already-contained
+	added
+	failed-to-add
+| If this returns {added}, calls to {probably-contains} given {hash} will definitely return {true}.
+| This may return {already-contained} even if this exact hash was not added before.
+| In that case it also guarantees that calls to {probably-contains} given {hash} will definitely return {true}.
+| If there are too many conflics this will return {failed-to-add}. In that case the call has no effect.
++try-add try-add-result(a mut-cuckoo-filter, hash nat64)
+	the random = a.random
+	i0, i1, fp = get-indices-and-fingerprint hash, a.bucket-index-mask
+	if contains a.buckets[i0], fp, a.version or contains a.buckets[i1], fp, a.version
+		already-contained
+	elif try-add-at a, i0, fp or try-add-at a, i1, fp or reinsert a, (i0, i1)::(nat32, nat32).random, fp
+		a.size_ +:= 1
+		added
+	else
+		failed-to-add
+
+-try-add-at bool(a mut-cuckoo-filter, index nat32, fingerprint fingerprint)
+	if new-bucket = insert-fingerprint a.buckets[index], fingerprint, a.version
+		a.buckets[index] := new-bucket
+		true
+
+-reinsert bool(a mut-cuckoo-filter, initial-index nat32, initial-fingerprint fingerprint)
+	the random = a.random
+	fingerprint mut = initial-fingerprint
+	index mut = initial-index
+	attempt mut nat32 = 0
+	undo (nat, nat) mut[] = ()
+	until
+		j = random bucket-size
+		temp = get-fingerprint a.buckets[index], j, a.version
+		undo ~= index, a.buckets[index]
+		a.buckets[index] := set-entry a.buckets[index], j, fingerprint, a.version
+		fingerprint := temp
+		index := alternative-index fingerprint, index, a.bucket-index-mask
+		if try-add-at a, index, fingerprint
+			true
+		else
+			attempt +:= 1
+			if attempt == max-reinsert-attempts
+				for index2, value in reverse undo
+					a.buckets[index2] := value
+				false
+-max-reinsert-attempts nat32() = 16
+
+| Bucket is a 4-bit version followed by 4 15-bit fingerprints
+-bucket alias
+	nat64
+-fingerprint alias
+	nat16
+-bucket-size nat32() = 4
+-max-version nat8() = 0b1111
+-fingerprint-size-bits nat() = 15
+-max-fingerprint nat() = 0x7fff
+
+-get-version nat8(a bucket)
+	wrap-to a >> 60
+-version-tag nat(version nat8)
+	version::nat << 60
+-get-fingerprint nat16(a bucket, index nat, version nat8)
+	assert index < bucket-size
+	if a.get-version == version
+		get-fingerprint-without-checking-version a, index
+-get-fingerprint-without-checking-version nat16(a bucket, index nat)
+	assert index < bucket-size
+	wrap-to (a >> (index * fingerprint-size-bits)) & max-fingerprint
+-set-entry bucket(a bucket, index nat, f fingerprint, version nat8)
+	assert index < bucket-size
+	x = f::nat << (index * fingerprint-size-bits)
+	if a.get-version == version
+		(clear-entry a, index) | x
+	else
+		version.version-tag | x
+-clear-entry bucket(a bucket, index nat)
+	assert index < bucket-size
+	a & ~(max-fingerprint << (index * fingerprint-size-bits))
+-insert-fingerprint bucket?(a bucket, f fingerprint, version nat8)
+	if a.get-version == version
+		first 0 .. bucket-size, of index
+			if (get-fingerprint-without-checking-version a, index) == 0
+				a | (f::nat << (index * fingerprint-size-bits))
+	else
+		version.version-tag | f
+-contains bool(a bucket, f fingerprint, version nat8)
+	a.get-version == version and
+	some 0 .. bucket-size, of index
+		(get-fingerprint-without-checking-version a, index) == f
+
+-get-indices-and-fingerprint (nat32, nat32, fingerprint)(hash nat64, bucket-index-mask nat32)
+	index0 = hash.wrap-to::nat32 & bucket-index-mask
+	fingerprint nat16 = to hash % (max-fingerprint - 1) + 1
+	- index0
+	- alternative-index fingerprint, index0, bucket-index-mask
+	- fingerprint
+-alternative-index nat32(fingerprint fingerprint, index0 nat32, bucket-index-mask nat32)
+	(index0 ^ fingerprint.metro-hash.wrap-to) & bucket-index-mask
+
+~metro-hash nat64(a nat64)
+	k0 = 0xd6d018f5
+	k1 = 0xa2aa033b
+	k2 = 0x62992fc1
+	k3 = 0x30bc5b29
+	seed = 1337
+	h mut = (seed +  k2) * k0
+	h +:= a * k3
+	h ^:= wrap-mul k1, rotate-right h, 55
+	h ^:= wrap-mul k2, rotate-right h, 33
+	h ^:= wrap-mul k0, rotate-right h, 29
+	h ^:= h >> 32
+	h wrap-mul:= k0
+	h ^:= h >> 29
+	h

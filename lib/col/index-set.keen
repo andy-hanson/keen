@@ -1,6 +1,8 @@
 import
-	../../bits
+	../bits
+	./mut-index-set
 
+| Set of {nat}s. This takes up space proportional to the largest value.
 +index-set record
 	# This is one more than the highest number that would currently fit in the tree.
 	-capacity nat64
@@ -10,15 +12,15 @@ import
 	trusted a.root == b.root
 
 -node union(inner-node, leaf-node, empty)
--inner-node record(a node, b node, c node, d node)
--leaf-node record(a nat64, b nat64, c nat64, d nat64) # TODO:PERF would probably be better to just use an array
+-inner-node record(n0 node, n1 node, n2 node, n3 node)
+-leaf-node record(l0 nat64, l1 nat64, l2 nat64, l3 nat64) # TODO:PERF would probably be better to just use an array
 -empty record
 
 -subscript nat64(a leaf-node, n nat64)
 	a.values[n]
 
 -values nat64[](a leaf-node)
-	a.a, a.b, a.c, a.d
+	a.l0, a.l1, a.l2, a.l3
 -bits-in-leaf-node nat64()
 	# 64 * 4
 	256
@@ -29,6 +31,12 @@ import
 	res mut index-set = 0, empty
 	for x in a
 		res ~:= x
+	res
++move-to index-set(a mut-index-set)
+	res mut index-set = ()
+	for x in a
+		res ~:= x
+	a.words := ()
 	res
 
 +is-empty bool(a index-set)
@@ -48,9 +56,9 @@ import
 -size-recur nat64(acc nat64, a node)
 	match a
 	as inner-node
-		acc 'size-recur a.a 'size-recur a.b 'size-recur a.c 'size-recur a.d
+		acc 'size-recur a.n0 'size-recur a.n1 'size-recur a.n2 'size-recur a.n3
 	as leaf-node
-		acc + a.a.count-ones + a.b.count-ones + a.c.count-ones + a.d.count-ones
+		acc + a.l0.count-ones + a.l1.count-ones + a.l2.count-ones + a.l3.count-ones
 	as empty
 		acc
 
@@ -69,15 +77,15 @@ import
 		quarter = half / 2
 		if index < half
 			if index < quarter
-				contains a.a, index, quarter
+				contains a.n0, index, quarter
 			else
-				contains a.b, index - quarter, quarter
+				contains a.n1, index - quarter, quarter
 		else
 			index2 = index - half
 			if index2 < quarter
-				contains a.c, index2, quarter
+				contains a.n2, index2, quarter
 			else
-				contains a.d, index2 - quarter, quarter
+				contains a.n3, index2 - quarter, quarter
 	as leaf-node
 		n is bits-in-leaf-node
 		a[word-index index] 'has-bit index.bit-index
@@ -119,19 +127,19 @@ import
 	quarter = half / 2
 	if index < half
 		if index < quarter
-			if res = try-add i.a, index, quarter
-				with-a i, res
+			if res = try-add i.n0, index, quarter
+				set i, n0, res
 		else
-			if res = try-add i.b, index - quarter, quarter
-				with-b i, res
+			if res = try-add i.n1, index - quarter, quarter
+				set i, n1, res
 	else
 		index2 = index - half
 		if index2 < quarter
-			if res = try-add i.c, index2, quarter
-				with-c i, res
+			if res = try-add i.n2, index2, quarter
+				set i, n2, res
 		else
-			if res = try-add i.d, index2 - quarter, quarter
-				with-d i, res
+			if res = try-add i.n3, index2 - quarter, quarter
+				set i, n3, res
 -try-add node?(l leaf-node, index nat64, n nat64)
 	n is bits-in-leaf-node
 	word-index = word-index index
@@ -163,19 +171,19 @@ import
 		quarter = half / 2
 		new-node inner-node? = if index < half
 			if index < quarter
-				if res = try-remove a.a, index, quarter
-					with-a a, res
+				if res = try-remove a.n0, index, quarter
+					set a, n0, res
 			else
-				if res = try-remove a.b, index - quarter, quarter
-					with-b a, res
+				if res = try-remove a.n1, index - quarter, quarter
+					set a, n1, res
 		else
 			index2 = index - half
 			if index2 < quarter
-				if res = try-remove a.c, index2, quarter
-					with-c a, res
+				if res = try-remove a.n2, index2, quarter
+					set a, n2, res
 			else
-				if res = try-remove a.d, index2 - quarter, quarter
-					with-d a, res
+				if res = try-remove a.n3, index2 - quarter, quarter
+					set a, n3, res
 		if new-node
 			if is-all-empty new-node
 				empty
@@ -197,9 +205,9 @@ import
 -simplify-after-remove-or-filter index-set(node node, capacity nat64)
 	match node
 	as inner-node
-		if is-empty node.b and is-empty node.c and is-empty node.d
-			forbid is-empty node.a
-			simplify-after-remove-or-filter node.a, capacity / 4
+		if is-empty node.n1 and is-empty node.n2 and is-empty node.n3
+			forbid is-empty node.n0
+			simplify-after-remove-or-filter node.n0, capacity / 4
 		else
 			capacity, node
 	as leaf-node
@@ -210,31 +218,16 @@ import
 		0, empty
 
 -is-all-empty bool(a inner-node)
-	is-empty a.a and is-empty a.b and is-empty a.c and is-empty a.d
-
-# TODO:MOVE
--with-a inner-node(a inner-node, new-a node)
-	new-a, a.b, a.c, a.d
--with-b inner-node(a inner-node, new-b node)
-	a.a, new-b, a.c, a.d
--with-c inner-node(a inner-node, new-c node)
-	a.a, a.b, new-c, a.d
--with-d inner-node(a inner-node, new-d node)
-	a.a, a.b, a.c, new-d
+	is-empty a.n0 and is-empty a.n1 and is-empty a.n2 and is-empty a.n3
 
 -update-leaf leaf-node(a leaf-node, word-index nat64, new-word nat64)
-	match word-index
-	as 0
-		new-word, a.b, a.c, a.d
-	as 1
-		a.a, new-word, a.c, a.d
-	as 2
-		a.a, a.b, new-word, a.d
-	as 3
-		a.a, a.b, a.c, new-word
-	else
-		throw unreachable
-
+	to-set = match word-index
+	as 0 then l0
+	as 1 then l1
+	as 2 then l2
+	as 3 then l3
+	else then throw unreachable
+	set a, to-set, new-word
 ###
 # TODO: ~ index-set(a index-set, b index-set)
 
@@ -269,10 +262,10 @@ intersect index-set(a index-set, b index-set)
 			three-quarters = quarter + half
 			# If low < quarter, wrap-sub will give an impossibly high value
 			# and the recursive call will return 0.
-			ca = count-range a.a, quarter, low, len
-			cb = count-range a.b, quarter, (low 'wrap-sub quarter), len
-			cc = count-range a.c, quarter, (low 'wrap-sub half), len
-			cd = count-range a.d, quarter, (low 'wrap-sub three-quarters), len
+			ca = count-range a.n0, quarter, low, len
+			cb = count-range a.n1, quarter, (low 'wrap-sub quarter), len
+			cc = count-range a.n2, quarter, (low 'wrap-sub half), len
+			cd = count-range a.n3, quarter, (low 'wrap-sub three-quarters), len
 			ca + cb + cc + cd
 		as leaf-node
 			n is bits-in-leaf-node
@@ -322,18 +315,18 @@ intersect index-set(a index-set, b index-set)
 		assert n > bits-in-leaf-node
 		half = n / 2
 		quarter = half / 2
-		new-a = filter-less-recur a.a, quarter, limit, 0
-		new-b = filter-less-recur a.b, quarter, limit, 0x40
-		new-c = filter-less-recur a.c, quarter, limit, 0x80
-		new-d = filter-less-recur a.c, quarter, limit, 0xc0
+		new-a = filter-less-recur a.n0, quarter, limit, 0
+		new-b = filter-less-recur a.n1, quarter, limit, 0x40
+		new-c = filter-less-recur a.n2, quarter, limit, 0x80
+		new-d = filter-less-recur a.n3, quarter, limit, 0xc0
 		new-node inner-node = new-a, new-b, new-c, new-d
 		if is-all-empty new-node then empty else new-node
 	as leaf-node
 		n is bits-in-leaf-node
-		new-a = filter-less-word a.a, limit, 0
-		new-b = filter-less-word a.b, limit, 0x40
-		new-c = filter-less-word a.c, limit, 0x80
-		new-d = filter-less-word a.d, limit, 0xc0
+		new-a = filter-less-word a.l0, limit, 0
+		new-b = filter-less-word a.l1, limit, 0x40
+		new-c = filter-less-word a.l2, limit, 0x80
+		new-d = filter-less-word a.l3, limit, 0xc0
 		(new-a, new-b, new-c, new-d)::leaf-node
 	as empty
 		empty
@@ -369,14 +362,14 @@ intersect index-set(a index-set, b index-set)
 		half = n / 2
 		quarter = half / 2
 		three-quarters = half + quarter
-		if some-recur node.a, offset, quarter, f
+		if some-recur node.n0, offset, quarter, f
 			true
-		elif some-recur node.b, offset + quarter, quarter, f
+		elif some-recur node.n1, offset + quarter, quarter, f
 			true
-		elif some-recur node.c, offset + half, quarter, f
+		elif some-recur node.n2, offset + half, quarter, f
 			true
 		else
-			some-recur node.d, offset + three-quarters, quarter, f
+			some-recur node.n3, offset + three-quarters, quarter, f
 	as leaf-node
 		word-index mut nat64 = 0
 		some node.values, of value
@@ -391,8 +384,8 @@ intersect index-set(a index-set, b index-set)
 -dbg string(a node)
 	match a
 	as inner-node
-		"({dbg a.a} {dbg a.b} {dbg a.c} {dbg a.d})"
+		"({dbg a.n0} {dbg a.n1} {dbg a.n2} {dbg a.n3})"
 	as leaf-node
-		"[{to-hex a.a} {to-hex a.b} {to-hex a.c} {to-hex a.d}]"
+		"[{to-hex a.l0} {to-hex a.l1} {to-hex a.l2} {to-hex a.l3}]"
 	as empty
 		"_"

@@ -86,6 +86,11 @@ import
 +list-new[t] t mut[](a t[])
 	a.to, a.size
 
+| Result will not have to reallocate until it has a size more than {capacity}.
++new-with-capacity[t] t mut[](capacity nat)
+	backing: trusted uninitialized-buffer capacity
+	size-and-locked: 0
+
 | Copy elements to a new {mut-array}.
 +to[t] t mut[](a t[])
 	res t mut[] = ()
@@ -151,11 +156,6 @@ import
 	a.size := b.size
 	b.backing := a-backing
 	b.size := a-size
-
-+swap[t] void(a t mut[], i nat64, j nat64)
-	temp = a[i]
-	a[i] := a[j]
-	a[j] := temp
 
 -check-index[t] void(a t mut[], index nat64)
 	assert index < a.size else index-too-big index, a.size
@@ -234,7 +234,7 @@ import
 		a.backing[a.size .. new-size] := values
 		a.size := new-size
 	else
-		i mut nat64 = 0
+		i mut = 0
 		until i == values.size
 			a ~= values[i]
 			i +:= 1
@@ -296,8 +296,8 @@ region mutating iteration
 	do trusted
 	size = lock-for-writing a
 	finally unlock-for-writing a, size
-	i mut nat64 = 0
-	while i < size
+	i mut = 0
+	until i == size
 		a.backing[i] := f[a.backing[i]]
 		i +:= 1
 
@@ -305,16 +305,27 @@ region mutating iteration
 | If {f} throws an exception, {a} will contain only processed elements.
 +filter=[t] void(a t mut[], f bool mut(elem t))
 	do trusted
-	out mut nat64 = 0
+	out mut = 0
 	size = lock-for-writing a
 	finally unlock-for-writing a, out
-	i mut nat64 = 0
-	while i < size
+	i mut = 0
+	until i == size
 		x = a.backing[i]
 		if f[x]
 			a.backing[out] := x
 			out +:= 1
 		i +:= 1
+
++flat-map=[t] void(a t mut[], f t[] mut(elem t))
+	out t mut[] = ()
+	trusted
+		size = lock-for-writing a
+		finally unlock-for-writing a, size
+		i mut = 0
+		until i == size
+			out ~~= f[a.backing[i]]
+			i +:= 1
+	swap a, out
 
 | Pushes {n} of {gc-safe-value} to the mut-array.
 | This can be useful to prepare the array for being written by low-level code.
@@ -337,7 +348,7 @@ region mutating iteration
 	do trusted
 	was-locked = lock-for-reading a
 	finally unlock-for-reading a, was-locked
-	i mut nat64 = 0
+	i mut = 0
 	size = a.size
 	do until
 	if i < size

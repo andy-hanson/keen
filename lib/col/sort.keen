@@ -102,6 +102,7 @@ do (col, elem) list-new, (col, elem) some, col size, k sorted-key
 
 | Sorts in place and removes unique elements.
 | Returns a new view which will be shorter if non-unique elements were removed.
+| Elements that come later are preferred.
 -sort-unique-in-place[t, k] t buffer-view(a t buffer-view, get-key k data(x t)) k sorted-key
 	a sort= get-key[it]
 	out mut = 0
@@ -110,10 +111,11 @@ do (col, elem) list-new, (col, elem) some, col size, k sorted-key
 	while in_ != a.size
 		x = a[in_]
 		key = get-key[x]
-		unless prev == key
-			a[out] := x
-			out +:= 1
-			prev := key
+		if prev == key
+			out -:= 1
+		a[out] := x
+		out +:= 1
+		prev := key
 		in_ +:= 1
 	a[0 .. out]
 
@@ -128,7 +130,7 @@ do (col, elem) list-new, (col, elem) some, col size, k sorted-key
 	trusted mut-a.cast-immutable, mut-b.cast-immutable
 
 | Sort `a` in place, and move elements of `b` in the same permutation as `a`.
-~sort-in-place-by-first[t, u] void(a t buffer-view, b u buffer-view) t sorted-key
++sort-in-place-by-first[t, u] void(a t buffer-view, b u buffer-view) t sorted-key
 	assert a.size == b.size
 	if a.size > 1
 		swap-at a, 0, a.size / 2
@@ -147,6 +149,7 @@ do (col, elem) list-new, (col, elem) some, col size, k sorted-key
 	left nat64
 	right nat64
 do t sorted-key
+	assert a.size == b.size
 	l mut = left
 	r mut = right
 	while l <= r
@@ -157,4 +160,63 @@ do t sorted-key
 			swap-at a, l, r
 			swap-at b, l, r
 			r -:= 1
+	l
+
+| If {a} has an even number of elements, prefers the higher median.
++median[t] t(a t array-view) t sorted-key
+	median-by a, {it}
++median-by[t, k] t(a t array-view, get-key k mut(x t)) k sorted-key
+	forbid is-empty a
+	nth-sorted-by a, a.size / 2, get-key
+
+| Equivalent to `a.sort[n]` but faster
++nth-sorted[t] t(a t array-view, n nat) t sorted-key
+	nth-sorted-by a, n, {it}
++nth-sorted-by[t, k] t(a t array-view, n nat, get-key k mut(x t)) k sorted-key
+	assert n < a.size else index-too-big n, a.size
+	nth-sorted-and-mess a.to, n, get-key
+| This may rearrange the array in an arbitrary way.
+-nth-sorted-and-mess[t, k] t(a t buffer-view, n nat, get-key k mut(x t)) k sorted-key
+	assert n < a.size
+	if n <= 10
+		a sort= get-key
+		a[n]
+	else
+		groups = divide-and-round-up a.size, 5
+		medians t[] = for i in 0 .. groups
+			group = a[5 * i .. if i == groups - 1 then a.size else 5 * (i + 1)]
+			nth-sorted-and-mess group, group.size / 2, get-key
+		pivot-index = pivot-around a, (median-by medians, get-key), get-key
+		match n <=> pivot-index
+		as less
+			nth-sorted-and-mess a[0 .. pivot-index], n, get-key
+		as equal
+			a[pivot-index]
+		as greater
+			nth-sorted-and-mess a[pivot-index + 1 .. end], n - pivot-index - 1, get-key
+| Rearranges the array around the pivot. Returns the index of the pivot.
+| All elements in `a[0 .. index]` will be <= the pivot
+| and elements `a[index + 1 .. end]` will be > the pivot.
+| If there are multiple copies of the pivot, this returns the index of the last one.
+-pivot-around[t, k] nat(a t buffer-view, pivot t, get-key k mut(x t)) k sorted-key
+	forbid is-empty a
+	# Invariant: Everything at an index < l is <= pivot ; everything at an index > r is > pivot
+	l mut = 0
+	r mut = a.size - 1
+	found-pivot mut = 0
+	pivot-key = get-key[pivot]
+	while l <= r
+		match get-key[a[l]] <=> pivot-key
+		as less
+			l +:= 1
+		as equal
+			found-pivot := l
+			l +:= 1
+		as greater
+			if get-key[a[r]] > pivot-key
+				r -:= 1
+			else
+				swap-at a, l, r
+	l -:= 1
+	swap-at a, found-pivot, l
 	l

@@ -1,5 +1,6 @@
 no-std
 import
+	../bits
 	../bool
 	../compare
 	../hash
@@ -16,9 +17,21 @@ import
 
 | Mutable unordered map.
 +mut-map[k, v] record mut
-	-locked mut bool
-	-size_ mut nat64
+	| Highest bit is for locked
+	-size-and-locked mut nat32
 	-entries mut (k, v)? buffer
+
+-locked-flag nat32() = 0x80000000
+
+-write-locked[k, v] bool(a v mut[k])
+	bits-intersect a.size-and-locked, locked-flag
+-set-write-locked[k, v] void(a v mut[k], b bool)
+	if b
+		forbid write-locked a else was-locked
+		a.size-and-locked |:= locked-flag
+	else
+		assert write-locked a
+		a.size-and-locked &:= ~locked-flag
 
 | Later pairs overwrite earlier pairs with the same key.
 +list-new[k, v] v mut[k](a (k, v)[]) k key
@@ -30,7 +43,8 @@ import
 | Since hash conflicts are possible,
 | this makes no guarantees about whether more allocations will be needed.
 ~mut-map-with-capacity[k, v] v mut[k](capacity nat64) k key
-	false, 0, n-of capacity, ()
+	size-and-locked: 0
+	entries: n-of capacity, ()
 
 | Convert a list of pairs to a map.
 | Later pairs overwrite earlier pairs with the same key.
@@ -60,15 +74,16 @@ import
 	clear a
 	res
 +move-to[k, v] v mut[k](a v mut[k]) k key
-	forbid a.locked
-	res v mut[k] = false, a.size_, a.entries
-	a.size_ := 0
+	forbid write-locked a
+	res v mut[k] = a.size-and-locked, a.entries
+	a.size-and-locked := 0
 	a.entries := ()
 	res
 
 | Copy pairs to a new {mut-map}.
 +copy[k, v] v mut[k](a v mut[k]) k key
-	false, a.size_, a.entries.copy
+	size-and-locked: a.size-and-locked & ~locked-flag
+	entries: a.entries.copy
 
 | {true} if `{a}.{size} == 0`.
 +is-empty[k, v] bool(a v mut[k]) k key
@@ -76,7 +91,7 @@ import
 
 | Number of pairs in the map.
 +size[k, v] nat64(a v mut[k])
-	a.size_
+	a.size-and-locked & ~locked-flag
 
 ~hint-size[k, v] void(a v mut[k], size nat64) k key
 	if size > a.entries.size / 2
@@ -91,7 +106,7 @@ import
 | Sets the key to the given value, so that `{a}[{key}]` will return {value}.
 | If the key was already in the map, this overwrites the previous value.
 +set-subscript[k, v] void(a v mut[k], key k, value v) k key
-	forbid a.locked else was-locked
+	forbid write-locked a else was-locked
 	if index = get-index a.entries, key
 		# TODO:PERF this needlessly overwrites the key with an equivalent one -----------------------------------------
 		a.entries[index] := key, value
@@ -100,24 +115,24 @@ import
 
 | Removes all pairs, leaving the map empty.
 +clear[k, v] void(a v mut[k]) k key
-	forbid a.locked else was-locked
+	forbid write-locked a else was-locked
 	a.entries := ()
-	a.size_ := 0
+	a.size-and-locked := 0
 
 | Set the contents of {a} to the contents of {b} and vice versa.
 | This is O(1).
 +swap[k, v] void(a v mut[k], b v mut[k]) k key
-	forbid a.locked or b.locked else was-locked
+	forbid write-locked a or write-locked b else was-locked
 	temp-entries = a.entries
 	a.entries := b.entries
 	b.entries := temp-entries
-	temp-size = a.size_
-	a.size_ := b.size_
-	b.size_ := temp-size
+	temp-size = a.size-and-locked
+	a.size-and-locked := b.size-and-locked
+	b.size-and-locked := temp-size
 
 | If the key is in the map, removes it and returns the associated value.
 +remove[k, v] v?(a v mut[k], key k) k key
-	forbid a.locked else was-locked
+	forbid write-locked a else was-locked
 	do if index = get-index a.entries, key
 	value = a.entries[index]!.b
 	remove-at-index a, index
@@ -131,22 +146,23 @@ import
 	while key, _ = a.entries[from]
 		key-desired-index = (trusted seeded-hash key) % a.entries.size
 		if (walk-distance a.entries, key-desired-index, hole) < (walk-distance a.entries, key-desired-index, from)
-			swap a.entries, hole, from
+			swap-at a.entries, hole, from
 			hole := from
 		from next-index:= a.entries
-	a.size_ -:= 1
+	a.size-and-locked -:= 1
 
 | Ensures that a key is the map.
 | If the key is already in the map, does nothing and returns the associated value.
 | Otherwise, sets the value to `{get-value}[]` and returns that.
 +ensure[k, v] v(a v mut[k], key k, get-value v mut()) k key
-	forbid a.locked else was-locked
-	a.locked := true
-	finally a.locked := false
+	forbid write-locked a else was-locked
 	res = if index = get-index a.entries, key
 		a.entries[index]!.b
 	else
-		value = get-value[]
+		value =
+			a.write-locked := true
+			finally a.write-locked := false
+			get-value[]
 		must-add a, key, value
 		value
 	res
@@ -157,7 +173,7 @@ import
 -must-add[k, v] void(a v mut[k], key k, value v) k key
 	if should-expand-before-add a
 		do-expand a
-	a.size_ +:= 1
+	a.size-and-locked +:= 1
 	must-add-to-entries a.entries, key, value
 
 -must-add-to-entries[k, v] void(entries (k, v)? buffer, initial-key k, initial-value v) k key
@@ -219,10 +235,11 @@ import
 		entries.size + to - from
 
 -should-expand-before-add[k, v] bool(a v mut[k]) k key
-	if a.size_ <= 8
-		a.size_ == a.entries.size
+	forbid write-locked a
+	if a.size-and-locked <= 8
+		a.size-and-locked::nat == a.entries.size
 	else
-		a.size_ * 4 / 3 >= a.entries.size
+		a.size-and-locked::nat * 4 / 3 >= a.entries.size
 
 -do-expand[k, v] void(a v mut[k]) k key
 	expand-to-capacity a, if a.entries.size < 2 then 2 else a.entries.size * 2
@@ -237,9 +254,9 @@ import
 | Filters the map in place.
 | Calls {f} on every key and value and removes the key if {f} returns {false}.
 +filter=[k, v] void(a v mut[k], f bool mut(key k, value v)) k key
-	forbid a.locked else was-locked
-	a.locked := true
-	finally a.locked := false
+	forbid write-locked a else was-locked
+	a.write-locked := true
+	finally a.write-locked := false
 	for key in a.keys
 		index = get-index! a.entries, key
 		unless f[a.entries[index]!]
@@ -248,9 +265,9 @@ import
 | Calls {f} on every key and value, and replaces the value with the new value returned by {f}.
 | Does not modify keys.
 +map-values=[k, v] void(a v mut[k], f v mut(key k, value v)) k key
-	forbid a.locked else was-locked
-	a.locked := true
-	finally a.locked := false
+	forbid write-locked a else was-locked
+	a.write-locked := true
+	finally a.write-locked := false
 	for index, entry in with-index a.entries
 		if key, value = entry
 			a.entries[index] := key, f[key, value]
@@ -265,9 +282,12 @@ import
 	map a.to::(k, v)[], it.b
 
 +some[k, v] bool(a v mut[k], f bool mut(key k, value v)) k key
-	forbid a.locked else was-locked
-	a.locked := true
-	finally a.locked := false
+	locked-before = write-locked a
+	unless locked-before
+		a.write-locked := true
+	finally
+		unless locked-before
+			a.write-locked := false
 	some a.to::(k, v)[], f
 
 +mut-map-unsorted[k, v] record mut
@@ -277,6 +297,12 @@ import
 +size[k, v] nat(a (k, v) mut-map-unsorted)
 	size a.inner
 +some[k, v] bool(a (k, v) mut-map-unsorted, f bool mut(key k, value v)) unsafe
+	locked-before = write-locked a.inner
+	unless locked-before
+		a.inner.write-locked := true
+	finally
+		unless locked-before
+			a.inner.write-locked := false
 	entries = a.inner.entries
 	i mut = 0
 	do until

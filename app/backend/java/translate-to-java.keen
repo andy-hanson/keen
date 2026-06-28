@@ -533,7 +533,7 @@ do java-expr-ctx
 -push-constant-integral void(out code-builder, type integral-type, constant constant)
 	value int = match constant
 	as scalar-value
-		to constant
+		wrap-to-signed type, to constant
 	as constant-gc-safe-value
 		0
 	else
@@ -543,25 +543,33 @@ do java-expr-ctx
 	else
 		# Use 'wrap-to' instead of 'to' since we may actually be dealing with an unsigned type
 		iconst out, value.wrap-to
+| When loading a nat8 like 128, we actually want to load -128 since that is how Java stores it.
+-wrap-to-signed int(type integral-type, value int)
+	match type
+	as nat8
+		if value >= 0x80 then value - 0x100 else value
+	as nat16
+		if value >= 0x8000 then value - 0x10000 else value
+	as nat32
+		if value >= 0x8000_0000 then value - 0x1_0000_0000 else value
+	else
+		value
 
 -translate-type void(type low-type) java-ctx
 	forbid as-extern type
 	the java-refs = start-new-class names
-	is-exception-case = union-info.exception-case-types[type]
+	is-exception-case = program.exception-case-types[type]
 	super-class = if is-exception-case then java-Throwable else java-Object
-	interface-structs = union-info.type-to-interfaces[type] else ()
-	interfaces class-reference[] = map interface-structs, it.class_
+	interface-types = union-info.type-to-interfaces[type] else ()
+	interfaces class-reference[] = map interface-types, it.class_
 	this-class-name = class-name type
 	this-class = class_ type
 
 	method-impls method_info[] = with out in build
-		for interface_ in interface-structs
-			do if info = program.method-impls[interface_]
-			index = index-of! interface_.body.low-union!.members, type
-			for method, impl in zip info.methods, info.cases[index]
-				kind = java-method-kind union-info, method
-				if is-instance kind
-					out ~= method-impl method, impl
+		each-method-impl type, interface-types, program, of method, impl
+			kind = java-method-kind union-info, method
+			if is-instance kind
+				out ~= method-impl method, impl
 		if is-exception-case
 			impls = program.method-impls[program.exception]!
 			# TODO:PERF have the index handy so we don't have to search for it again
@@ -1428,6 +1436,8 @@ do java-refs
 			emit-expr out, inner-pos, a.else_
 	as match-union-low-expr
 		emit-match-union out, pos, type, a
+	as new-interface-low-expr
+		throw unreachable
 	as record-field-get-low-expr
 		emit-and-continue out, a.record_
 		unless as-wrapper a.record_.type

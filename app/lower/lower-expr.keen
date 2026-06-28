@@ -56,15 +56,18 @@ quick-fill-in-low-fun-body void(ctx lower-context, fun low-fun)
 				low-fun-for-new-interface-method-impl case_.case-type, fun, x.method-index
 			as low-sum-type-case-record-field-lens
 				low-fun-for-record-field-lens-method-impl case_.case-type, fun, x.method-index
-		unless preserve-methods
+		unless preserve-methods fun.params[0].type
 			ctx.deferred-methods ~= fun
 		low-fun-body-method x.method-index, if sig = x.erased-signature
 			for type in sig then get-low-type type, ()
 	as new-interface
-		case-index, case-type = low-type-for-new-interface fun.return-type, fun.params
-		create-union-low-expr return-type, range, case-index,
-			create-record-low-expr case-type, fun.range, for param in fun.params
-				local-get-low-expr fun.range, param
+		if is-js
+			low-fun-body-always-inline
+		else
+			case-index, case-type = low-type-for-new-interface fun.return-type, fun.params
+			create-union-low-expr return-type, range, case-index,
+				create-record-low-expr case-type, fun.range, for param in fun.params
+					local-get-low-expr fun.range, param
 	as new-record
 		if is-empty low-params and not prevent-constant return-type.body.low-record!
 			constant-low-expr return-type, range, get-constant-record ctx.all-constants, return-type, ()
@@ -193,27 +196,12 @@ do lower-and-expr-ctx
 	do if low-called = get-low-fun-from-called a.called else
 		lower-bogus type, range
 	if is-array-op low-called
-		input-arg, lambda-arg = only2! a.args
-		input = lower-expr low-called.params[0].type, input-arg
-		in-element-type = if is-range input.type then range-element-type input.type else as-array-or-buffer! input.type
-		out-element-type = if is-void type then type else as-array-or-buffer! type
-		empty-out-array constant-array? = unless is-void type
-			constant-array! get-constant-array all-constants, type, ()
-		match lambda-arg
-		as lambda-expr
-			forbid lambda-arg.mut-type-for-explicit-shared # This won't happen because 'for-loop' takes a 'mut' lambda
-			rg uri-and-range = cur-uri, lambda-arg.range
-			body = lower-with-destructure out-element-type, rg, lambda-arg.param, of
-				lower-expr out-element-type, lambda-arg.body
-			array-op-low-expr type, range, input, body.local, empty-out-array, body.expr
-		else
-			lambda-type = low-called.params[1].type
-			lambda = lower-expr lambda-type, lambda-arg
-			with-temp-if-needed range, lambda, of get-lambda
-				in-element low-local = temp, in-element-type
-				array-op-low-expr type, range, input, in-element, empty-out-array,
-					builtin-binary-low-expr out-element-type, range, call-lambda, get-lambda,
-						local-get-low-expr range, in-element
+		lower-array-op type, range, a, low-called
+	elif is-js and low-called.source.low-fun-source-regular!.decl.body.new-interface
+		type.body.low-union!.has-new-interface-members := true
+		args low-expr[] = for param, arg in zip low-called.params, a.args
+			lower-expr param.type, arg
+		new-interface-low-expr type, range, args
 	else
 		args low-expr[] =
 			# Since 'list-new' is allowed to implement the 'new' spec, we need to support those here
@@ -228,6 +216,34 @@ do lower-and-expr-ctx
 		# because we may be calling a spec-impl that has a narrower type than the spec.
 		# (The call expr's type can't reflect this and uses the spec's declared type.)
 		gen-call range, low-called, args
+
+-lower-array-op low-expr
+	type low-type
+	range uri-and-range
+	a call-expr
+	low-called low-fun
+do lower-and-expr-ctx
+	input-arg, lambda-arg = only2! a.args
+	input = lower-expr low-called.params[0].type, input-arg
+	in-element-type = if is-range input.type then range-element-type input.type else as-array-or-buffer! input.type
+	out-element-type = if is-void type then type else as-array-or-buffer! type
+	empty-out-array constant-array? = unless is-void type
+		constant-array! get-constant-array all-constants, type, ()
+	match lambda-arg
+	as lambda-expr
+		forbid lambda-arg.mut-type-for-explicit-shared # This won't happen because 'for-loop' takes a 'mut' lambda
+		rg uri-and-range = cur-uri, lambda-arg.range
+		body = lower-with-destructure out-element-type, rg, lambda-arg.param, of
+			lower-expr out-element-type, lambda-arg.body
+		array-op-low-expr type, range, input, body.local, empty-out-array, body.expr
+	else
+		lambda-type = low-called.params[1].type
+		lambda = lower-expr lambda-type, lambda-arg
+		with-temp-if-needed range, lambda, of get-lambda
+			in-element low-local = temp, in-element-type
+			array-op-low-expr type, range, input, in-element, empty-out-array,
+				builtin-binary-low-expr out-element-type, range, call-lambda, get-lambda,
+					local-get-low-expr range, in-element
 
 -to low-builtin-unary(a builtin-unary)
 	match a

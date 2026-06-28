@@ -1,0 +1,91 @@
+import
+	../../col/mut-cuckoo-filter
+	keen/random/random
+	keen/random/util
+	keen/random/xoshiro
+
+test
+	the random = xoshiro 0
+	a mut-cuckoo-filter = capacity: 4
+	# Deliberately use hashes that will conflict (all multiples of capacity) to test reinsert logic
+	for i in 0 .. 7
+		try-add a, i * 4 is added
+		for j in 0 .. i + 1
+			probably-contains a, j * 4 is true
+	try-add a, 28 is failed-to-add
+	probably-contains a, 28 is false
+	for i in 0 .. 7
+		probably-contains a, i * 4 is true
+		probably-contains a, i * 4 + 1 is false
+		probably-contains a, i * 4 + 2 is false
+		probably-contains a, i * 4 + 3 is false
+
+test
+	a mut-cuckoo-filter = capacity: 8
+	try-add a, 123 is added
+	probably-contains a, 123 is true
+	try-add a, 123 is already-contained
+	try-add a, 456 is added
+	probably-contains a, 123 is true
+	probably-contains a, 456 is true
+	probably-contains a, 789 is false
+
+test
+	# Test rolling over max-version
+	a mut-cuckoo-filter = capacity: 4
+	assert-empty void mut() = of
+		for j in 0 .. 16
+			probably-contains a, j * 4 is false
+	for i in 0 .. 16
+		assert-empty[]
+		try-add a, i * 4 is added
+		clear a
+	assert-empty[]
+	try-add a, 16 * 4 is added
+	probably-contains a, 16 * 4 is true
+
+test
+	the random = xoshiro 0
+	n nat32 = 0x100000
+	# Use an under-capacity filter to test reinserts
+	a mut-cuckoo-filter = capacity: n / 4
+	compare nat64 mut-set = ()
+	values nat64[] = for _ in 0 .. n
+		random n * 2
+	false-positives mut = 0
+	failed-to-insert nat64 mut-set = ()
+	for value in values
+		added = try-add compare, value
+		match try-add a, value
+		as already-contained
+			if added
+				false-positives +:= 1
+		as added
+			added is true
+		as failed-to-add
+			failed-to-insert ~= value
+	false-positives is 35
+	failed-to-insert.to::nat[] is 547682,
+	false-positives := 0
+	for value in values
+		compare[value] is true
+		probably-contains a, value is not failed-to-insert[value]
+	for _ in 0 .. n
+		value = random n * 2
+		actual = probably-contains a, value
+		if compare[value] and not failed-to-insert[value]
+			actual is true
+		elif actual
+			false-positives +:= 1
+	false-positives is 48
+
+test
+	map::nat[] 0 .. 8, it.metro-hash is
+		- 0x626fdc468ff6d70e
+		- 0x9cb00c463905c750
+		- 0x193a41ed34c788a8
+		- 0xd6ab428827404544
+		- 0xd9d3e9f0ed71e67e
+		- 0x55e756c0803a76a9
+		- 0xa09c12b426fdd414
+		- 0x3aa1a9969d17c2f2

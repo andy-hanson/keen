@@ -113,7 +113,7 @@ do show-ctx
 		uri, uri.to
 
 -translate-type js-class-decl?(a low-type) to-js
-	extends js-name? = if union-info.exception-case-types[a]
+	extends js-name? = if program.exception-case-types[a]
 		js-name exception
 	match a.body
 	as builtin-type
@@ -254,10 +254,25 @@ do show-ctx
 	comment: show-low-type a
 	name: js-name a
 	extends: extends
-	members: unless is-empty r.fields
+	members:
 		source source = source a
-		- gen-constructor source, extends, names, of index, get
-			gen-type-assert source, get, r.fields[index].type
+		do with out in build
+		unless is-empty r.fields
+			out ~= gen-constructor source, extends, names, of index, get
+				gen-type-assert source, get, r.fields[index].type
+		each-method-impl a, (union-info.type-to-interfaces[a] else ()), program, of method, impl
+			params js-destructure[] = map method.params[1 .. end], it.local-name-no-mangle
+			args js-expr[] =
+				- gen-this source
+				-- map params, of param
+					gen-identifier source, param.js-name!
+			body js-block-statement =
+				ref = to-ref source, impl!, if impl!.async-fun-kind == always-async then async else sync
+				statements:
+					- gen-return source,
+						gen-call-sync source, ref, args
+			out ~= source, mangled-names[method, sync],
+				js-class-method sync, params, body
 
 -class-for-union js-class-decl?(a low-type, extends js-name?) to-js
 	match union-representation a
@@ -467,7 +482,8 @@ do
 	as low-fun-body-extern-java
 		throw unreachable
 	as low-fun-body-method
-		throw todo
+		gen-call-property-sync source, (get-local source, a.params[0]), mangled-names[a, sync],
+			map a.params[1 .. end], {get-local source, it}
 	as low-fun-body-deferred
 		throw unreachable
 	as low-fun-body-always-inline
@@ -482,6 +498,9 @@ do
 		throw todo
 	as js-fun
 		throw todo
+
+-gen-call-Number js-expr(source source, arg js-expr)
+	gen-call-sync source, (gen-global source, "Number"), (arg,)
 
 -translate-builtin-unary js-expr-or-block-statement
 	type low-type
@@ -507,9 +526,7 @@ do to-expr
 	as drop
 		gen-unary source, void, arg
 	as float32-from-bits
-		Number = gen-global source, "Number"
-		gen-convert source, 4, "Uint32Array", "Float32Array",
-			gen-call-sync source, Number, (arg,)
+		gen-convert source, 4, "Uint32Array", "Float32Array", gen-call-Number source, arg
 	as float64-from-bits
 		gen-convert source, 8, "BigInt64Array", "Float64Array", arg
 	as uninitialized-buffer
@@ -563,16 +580,35 @@ do to-expr
 			gen-call-sync source, (gen-identifier source, name.no-prefix), (arg,)
 		else
 			in_ = as-integral-type-allow-char! arg-type
-			gen-as-integral source, out, if is-64-bit in_
-				if is-64-bit out
-					arg
-				else
-					gen-call-sync source, (gen-global source, "Number"), (arg,)
+			if is-64-bit in_
+				gen-as-integral-from-bigint source, out, arg
+			elif is-64-bit out
+				gen-call-sync source, (gen-global source, "BigInt"), (arg,)
 			else
-				if is-64-bit out
-					gen-call-sync source, (gen-global source, "BigInt"), (arg,)
-				else
-					arg
+				gen-as-integral source, out, arg
+
+-gen-as-integral-from-bigint js-expr(source source, type integral-type, arg js-expr)
+	match type
+	as int8
+		gen-as-intX-from-int64 source, type, arg, 0xff
+	as int16
+		gen-as-intX-from-int64 source, type, arg, 0xffff
+	as int32
+		gen-as-intX-from-int64 source, type, arg, 0xffffffff
+	as int64
+		gen-call-sync source, (gen-identifier source, "_int64OfNat64".no-prefix), (arg,)
+	as nat8
+		gen-call-Number source, gen-bitwise-and source, arg, gen-bigint-unsigned source, 0xff
+	as nat16
+		gen-call-Number source, gen-bitwise-and source, arg, gen-bigint-unsigned source, 0xffff
+	as nat32
+		gen-call-Number source, gen-bitwise-and source, arg, gen-bigint-unsigned source, 0xffffffff
+	as nat64
+		gen-bitwise-and source, arg, gen-bigint-unsigned source, max-value
+-gen-as-intX-from-int64 js-expr(source source, type integral-type, arg js-expr, max-value nat64)
+	gen-as-integral source, type,
+		gen-call-Number source,
+			gen-bitwise-and source, arg, gen-bigint-unsigned source, max-value
 
 -translate-builtin-binary js-expr-or-block-statement
 	type low-type
@@ -871,6 +907,28 @@ do
 			res
 	as match-union-low-expr
 		translate-match-union source, type, a
+	as new-interface-low-expr
+		methods = program.method-impls[a.type]!.methods
+		source,
+			:: js-object-expr
+			keys: for method in methods
+				mangled-names[method, sync]
+			values: for method in methods
+				lambda = to-js-expr a.args[method.body.low-fun-body-method!.method-index]
+				arity = method.params.size - 1
+				match arity
+				as 0
+					lambda
+				as 1
+					lambda
+				as 2
+					gen-call-sync source, (gen-global source, "__lambdaToMethod2"), (lambda,)
+				as 3
+					gen-call-sync source, (gen-global source, "__lambdaToMethod3"), (lambda,)
+				as 4
+					gen-call-sync source, (gen-global source, "__lambdaToMethod4"), (lambda,)
+				else
+					throw todo
 	as record-field-get-low-expr
 		gen-property-access source, a.record_.to-js-expr, a.field.name.to
 	as record-field-set-low-expr
@@ -1238,6 +1296,14 @@ do to-expr
 		source.to
 	mangle-index: ensure the::to-expr-ctx.temp-local-indices, a, of
 		the::to-expr-ctx.temp-local-indices.size
+-local-name-no-mangle js-name(a low-local)
+	kind: local
+	keen-name: match source = a.source
+	as local
+		source.name.to
+	as low-generated-local-kind
+		source.to
+	mangle-index: ()
 
 -local-or-temp js-name(a low-local?, temp-base-name string) to-expr
 	if a
@@ -1314,7 +1380,11 @@ do to-expr
 		else
 			throw unreachable
 	as bool
-		gen-bool source, a.as-bool
+		gen-bool source, match a
+		as constant-gc-safe-value
+			false
+		else
+			as-bool a
 	as buffer
 		match a
 		as constant-gc-safe-value

@@ -1,21 +1,211 @@
 no-std
 import
+	../col/array
 	../col/buffer
 	../col/collection
+	../col/enum-map
+	../col/mut-array
+	../col/mut-index-set
 	../col/util
+	../bool
 	../compare
 	../misc
 	../number
+	../json
+	../option
 	../range
+	../tuple
 	./random
 
-+shuffle[out, col, elem] out(a col, random random) col size, (col, elem) some, (out, elem) list-new
++random bool() random
+	2.random == 1
+
++random[e] e() random, e enum-like
+	random members::e[]
+
++random nat8() random
+	to random (max-value::nat8::nat + 1)
++random nat8(max-exclusive nat8) random
+	to random max-exclusive::nat64
++random nat16() random
+	to random (max-value::nat16::nat + 1)
++random nat16(max-exclusive nat16) random
+	to random max-exclusive::nat64
++random nat32() random
+	to random (max-value::nat32::nat + 1)
++random nat32(max-exclusive nat32) random
+	to random max-exclusive::nat64
++random nat64() random
+	next64 the::random
++random nat64(max-exclusive nat) random
+	max-exclusive isnt 0
+	next the::random, max-exclusive
+
++random[t] t(choices (t, t)) random
+	if random then choices.a else choices.b
+
++random[col, elem] elem(choices col) random, (col, elem) array-like
+	choices.size isnt 0
+	choices[next the::random, choices.size]
+
++shuffle[out, col, elem] out(a col) random, col size, (col, elem) some, (out, elem) list-new
 	buf elem buffer = map a, {it}
-	shuffle-in-place buf, random
+	shuffle buf
 	list-new trusted cast-immutable buf
 
-+shuffle-in-place[t] void(a t buffer, random random)
++shuffle[t] void(a t buffer) random
 	#  Fisher-Yates shuffle
 	do if a.size > 1
 	for i in reverse 1 .. a.size
-		swap a, i, next-in-range random, 0 .. i + 1
+		swap-at a, i, random i + 1
+
++shuffle[t] void(a t mut[]) random
+	for i in reverse 1 .. a.size
+		swap-at a, i, random i + 1
+
++remove-random[t] t?(a t mut[]) random
+	unless is-empty a
+		remove-at a, random a.size
+
+| Chooses a random element from {choices} {n} times.
+| The choices are unrelated and the same element may be chosen multiple times.
++randoms-with-replacement[col, elem] elem[](choices col, n nat) random, (col, elem) array-like
+	map 0 .. n, {random choices}
+
+| Returns an empty option if {f} rejected every choice.
+| This is equivalent to but more efficient than than calling {random-where} in a loop.
+| This minimizes calls to {f} and avoid calling it until we are about to return a choice.
+| It also avoids calling {f} twice on the same element.
++randoms-with-replacement-where[col, elem] elem[]?
+	choices col
+	n nat
+	f bool mut(x elem)
+do random, (col, elem) array-like
+	size = choices.size
+	forbid choices.size == 0
+	rejected mut-index-set = new-with-capacity min size, n
+	res elem mut[] = new-with-capacity n
+	until res.size == n or rejected.size * 2 > size
+		index = random size
+		do unless rejected[index]
+		if f[choices[index]]
+			res ~= choices[index]
+		else
+			rejected ~= index
+	if res.size == n
+		move-to res
+	else
+		remaining nat mut[] = shuffle filter::nat[] 0 .. choices.size, {not rejected[it]}
+		until res.size == n or is-empty remaining
+			i = random remaining.size
+			elem = choices[remaining[i]]
+			if f[elem]
+				res ~= elem
+			else
+				_ = remove-at remaining, i
+		unless is-empty remaining
+			move-to res
+
+| This may return less than {n} elements if {choices} is not big enough.
++randoms-without-replacement[col, elem] elem[](choices col, n nat) random, (col, elem) array-like
+	randoms-without-replacement-where choices, n, {true}
+
+| This may return less than {n} elements if there aren't that many that satisfy {f}.
++randoms-without-replacement-where[col, elem] elem[]
+	choices col
+	n nat
+	f bool mut(x elem)
+do random, (col, elem) array-like
+	for i in random-indices-without-replacement-where choices, n, f
+		choices[i]
+
++random-indices-without-replacement nat[](size nat, n nat) random
+	assert n <= size
+	random-indices-without-replacement-where 0 .. size, n, {true}
+
+| WARN: This may return less than {n} indices if there aren't that many that satisfy {f}.
++random-indices-without-replacement-where[col, elem] nat[]
+	choices col
+	n nat
+	f bool mut(x elem)
+do random, (col, elem) array-like
+	size = choices.size
+	tried-indices mut-index-set = new-with-capacity n
+	res nat mut[] = new-with-capacity n
+	until res.size == n or tried-indices.size * 2 > size
+		index = random size
+		if try-add tried-indices, index and f[choices[index]]
+			res ~= index
+	unless res.size == n
+		remaining nat[] = shuffle filter::nat[] 0 .. choices.size, {not tried-indices[it]}
+		i mut = 0
+		until res.size == n or i == remaining.size
+			if f[choices[remaining[i]]]
+				res ~= remaining[i]
+			i +:= 1
+	move-to res
+
+| Returns an empty option if {f} rejected every choice.
++random-where[col, elem] elem?(choices col, f bool mut(x elem)) random, (col, elem) array-like
+	choices?[random-index-where choices, f]
+
+| Returns an empty option if {f} rejected every choice.
+| This minimizes calls to {f}.
+| {f} will only be called so long as it rejects choices and will not be asked twice about the same choice.
++random-index-where[col, elem] nat?(choices col, f bool mut(x elem)) random, (col, elem) array-like
+	size = choices.size
+	do unless size == 0
+	tried-indices mut-index-set = new-with-capacity size
+	res mut nat? = ()
+	until res or tried-indices.size * 2 > size
+		index = random size
+		if try-add tried-indices, index and f[choices[index]]
+			res := index
+	res else
+		remaining nat[] = shuffle filter::nat[] 0 .. choices.size, {not tried-indices[it]}
+		find remaining, f[choices[it]]
+
++weighted-choice record
+	~sum-weight nat
+	~prob nat[]
+	| Same size as {prob}
+	~aliases nat[]
++size nat(a weighted-choice) = a.prob.size
+| Preprocesses weights so that we can quickly make weighted random choices.
+| Conceptually, this is like repeating each choice by its weight,
+| then choosing a random element from the resulting array.
+| For the implementation, this uses the Walker alias method.
++weighted-choice weighted-choice(weights nat[])
+	# Note: This is our '100%' probability value (to avoid needing floats)
+	sum-weight = sum weights
+	sum-weight isnt 0
+	prob nat buffer = map weights, it * weights.size
+	aliases nat buffer = map 0 .. weights.size, {it}
+	short nat mut[] = ()
+	long nat mut[] = ()
+	for index, p in with-index prob
+		if p < sum-weight
+			short ~= index
+		elif p > sum-weight
+			long ~= index
+	while not is-empty short and not is-empty long
+		j = pop! short
+		k = peek! long
+		aliases[j] := k
+		prob[k] -:= sum-weight - prob[j]
+		if prob[k] < sum-weight
+			short ~= k
+			_ = pop! long
+	sum-weight: sum-weight
+	prob: trusted cast-immutable prob
+	aliases: trusted cast-immutable aliases
++random-index nat(a weighted-choice) random
+	i = random a.size
+	if a.aliases[i] == i or (random a.sum-weight) < a.prob[i]
+		i
+	else
+		a.aliases[i]
+| Chooses a value using {random-index}.
++random[t] t(a weighted-choice, values t[]) random
+	values.size is a.size
+	values[random-index a]

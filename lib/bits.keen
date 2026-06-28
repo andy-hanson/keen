@@ -4,11 +4,11 @@
 | So, the number 5 has bits 0 and 2 set, since 5 is `2**0 + 2**2`.
 no-std
 import
+	java/lang/Integer
 	java/lang/Long
 	./bool
 	./compare
 	./exception
-	./js
 	./misc
 	./number
 	./option
@@ -79,7 +79,7 @@ import
 + | nat32(a nat32, b nat32)
 + | nat64(a nat64, b nat64)
 
-| Performs exclusive or of each bit in parallel.
+| Performs exclusive or (xor) of each bit in parallel.
 | Output bits will be 1 iff the corresponding input bits are not equal.
 + ^ nat8(a nat8, b nat8)
 + ^ nat16(a nat16, b nat16)
@@ -155,6 +155,8 @@ import
 
 | Number with only the bit at `bit-index` set.
 | Same as `1 << bit-index`.
++nth-bit nat32(bit-index nat32)
+	1 << bit-index
 +nth-bit nat64(bit-index nat64)
 	1 << bit-index
 
@@ -163,14 +165,29 @@ import
 	bits-intersect a, bit-index.nth-bit
 
 | Sets the bit at `bit-index` to 1.
++add-bit nat32(a nat32, bit-index nat32)
+	a | bit-index.nth-bit
 +add-bit nat64(a nat64, bit-index nat64)
 	a | bit-index.nth-bit
 
 | Sets the bit at `bit-index` to 0.
++remove-bit nat32(a nat32, bit-index nat32)
+	a & ~bit-index.nth-bit
 +remove-bit nat64(a nat64, bit-index nat64)
 	a & ~bit-index.nth-bit
 
 | Returns the number of 1 bits in `a`.
++count-ones nat32(a nat32)
+	if trusted java
+		trusted a.wrap-to::int32.bitCount.wrap-to
+	else
+		res mut nat32 = 0
+		x mut = a
+		until x == 0
+			res wrap-add:= x & 1
+			x >>:= 1
+		res
+
 +count-ones nat64(a nat64)
 	if trusted java
 		trusted a.wrap-to::int64.bitCount.wrap-to
@@ -182,9 +199,29 @@ import
 			x >>:= 1
 		res
 
-+one-bits record(bits nat64)
++one-bits one-bits32(bits nat32) = bits,
++one-bits one-bits64(bits nat64) = bits,
+
++one-bits32 record(bits nat32)
++size nat(a one-bits32) = count-ones a.bits
 | Calls `f` on the index of each `1` bit.
-+some bool(a one-bits, f bool mut(bit nat64))
++some bool(a one-bits32, f bool mut(bit nat32))
+	cur mut = a.bits
+	offset mut nat32 = 0
+	do until
+	if cur == 0
+		false
+	elif bits-intersect cur, 1 and f[offset]
+		true
+	else
+		cur >>:= 1
+		offset wrap-add:= 1
+		()
+
++one-bits64 record(bits nat64)
++size nat(a one-bits64) = count-ones a.bits
+| Calls `f` on the index of each `1` bit.
++some bool(a one-bits64, f bool mut(bit nat64))
 	cur mut = a.bits
 	offset mut nat64 = 0
 	do until
@@ -196,6 +233,28 @@ import
 		cur >>:= 1
 		offset wrap-add:= 1
 		()
+
+| Returns the index of the {n}th 1 bit in the word.
+| (Low bits have low indices, so the 1s place is index 0, the 2s place is index 1, etc.)
+| Returns an empty option unless there are at least `{n} + 1` one bits in {word}.
++nth-one-bit nat32?(word nat32, n nat32)
+	do if n < word.count-ones
+	cur mut = word
+	# Clear the lowest {index} 1 bits
+	i mut = 0
+	until i == n
+		cur &:= wrap-sub cur, 1
+		i wrap-add:= 1
+	trailing-zeroes cur
++nth-one-bit nat64?(word nat64, n nat64)
+	do if n < word.count-ones
+	cur mut = word
+	# Clear the lowest {index} 1 bits
+	i mut = 0
+	until i == n
+		cur &:= wrap-sub cur, 1
+		i wrap-add:= 1
+	trailing-zeroes cur
 
 +bits-cat nat16(a nat8, b nat8)
 	a::nat16 << 8 | b
@@ -228,19 +287,62 @@ import
 	else
 		trusted 1 'unsafe-bit-shift-left n 'wrap-sub 1
 
++log-2-rounded-up nat64(a nat64)
+	do unless a == 0
+	trusted if java
+		floor = 63 'wrap-sub a.wrap-to.numberOfLeadingZeros.wrap-to
+		floor + ((1 << floor) != a).to
+	elif js
+		res = log-2-rounded-down a
+		res + (1 << res != a).to
+	else
+		throw todo
+
 +log-2-rounded-down nat64(a nat64)
 	do unless a == 0
 	trusted if java
 		63 'wrap-sub a.wrap-to.numberOfLeadingZeros.wrap-to
 	elif js
-		binary = call-property a.to, "toString", 2
-		binary["length"].to 'wrap-sub 1
+		log mut = 0
+		cur mut = a
+		while cur > 1
+			cur >>:= 1
+			log +:= 1
+		log
 	else
 		throw todo
+
+| Number of 0s in the binary representation of a number
++trailing-zeroes nat32(a nat32)
+	trusted if java
+		wrap-to numberOfTrailingZeros wrap-to::int32 a
+	elif a == 0
+		32
+	else
+		res mut nat32 = 0
+		cur mut = a
+		while is-even cur
+			cur := cur >> 1
+			res +:= 1
+		res
++trailing-zeroes nat64(a nat64)
+	trusted if java
+		wrap-to numberOfTrailingZeros wrap-to::int64 a
+	elif a == 0
+		64
+	else
+		res mut = 0
+		cur mut = a
+		while is-even cur
+			cur := cur >> 1
+			res +:= 1
+		res
 
 +is-power-of-two bool(a nat64)
 	a != 0 and (a & (a 'wrap-sub 1)) == 0
 
++round-up-to-power-of-two nat32(a nat32)
+	to round-up-to-power-of-two a::nat64
 +round-up-to-power-of-two nat64(a nat64)
 	trusted if java
 		h nat64 = a.wrap-to.highestOneBit.wrap-to

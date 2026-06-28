@@ -1,0 +1,100 @@
+import
+	../../col/mut-sorted-map
+
+test
+	a (nat64, string) mut-sorted-map = (3, "30"), (6, "60")
+	verify a, "[3 -> 30, 6 -> 60]"
+	a map= of k, v
+		10 - k, "{v}!"
+	verify a, "[4 -> 60!, 7 -> 30!]"
+
+test
+	a (nat64, string) mut-sorted-map = (3, "3"), (5, "5"), (7, "7"), (8, "8"), (9, "9"), (10, "10")
+	verify a, "[3 -> 3, 5 -> 5, 7 -> 7, 8 -> 8, 9 -> 9, 10 -> 10]"
+
+	# Insert into the previous slot
+	remove-key a, 5 is "5"
+	verify a, "[3 -> 3, 5 -> _, 7 -> 7, 8 -> 8, 9 -> 9, 10 -> 10]"
+	a[6] := "6"
+	verify a, "[3 -> 3, 6 -> 6, 7 -> 7, 8 -> 8, 9 -> 9, 10 -> 10]"
+
+	# Insert into the particular slot
+	remove-key a, 6 is "6"
+	verify a, "[3 -> 3, 6 -> _, 7 -> 7, 8 -> 8, 9 -> 9, 10 -> 10]"
+	a[5] := "5"
+	verify a, "[3 -> 3, 5 -> 5, 7 -> 7, 8 -> 8, 9 -> 9, 10 -> 10]"
+
+test
+	a (nat64, string) mut-sorted-map = ()
+	verify a, "[]"
+
+	a[5] := "5"
+	verify a, "[5 -> 5]"
+	a[5] is "5"
+
+	a[8] := "8"
+	verify a, "[5 -> 5, 8 -> 8]"
+
+	a[11] := "11"
+	a[10] := "10"
+	verify a, "[5 -> 5, 8 -> 8, 10 -> 10, 11 -> 11]"
+
+	a[2] := "2"
+	verify a, "[5 -> 5, 8 -> 8, 10 -> 10, 11 -> 11], [2 -> 2]"
+
+	# Pushes near the end of a node if possible, even if that node is big
+	a[7] := "7"
+	verify a, "[5 -> 5, 7 -> 7, 8 -> 8, 10 -> 10, 11 -> 11], [2 -> 2]"
+
+	a[0] := "0"
+	a[6] := "6"
+	a[1] := "1"
+	verify a, "[5 -> 5, 7 -> 7, 8 -> 8, 10 -> 10, 11 -> 11], [0 -> 0, 1 -> 1, 2 -> 2, 6 -> 6]"
+	a[1] := "one"
+	verify a, "[5 -> 5, 7 -> 7, 8 -> 8, 10 -> 10, 11 -> 11], [0 -> 0, 1 -> one, 2 -> 2, 6 -> 6]"
+	a[1] is "one"
+
+	# If near end, removes completely
+	remove-key a, 1 is "one"
+	verify a, "[5 -> 5, 7 -> 7, 8 -> 8, 10 -> 10, 11 -> 11], [0 -> 0, 2 -> 2, 6 -> 6]"
+	remove-key a, 1 is ()
+
+	# Adding some more values so removals can't fully remove
+	a ~~= (13, "13"), (15, "15"), (17, "17")
+	node2 = "[0 -> 0, 2 -> 2, 6 -> 6]"
+	verify a, "[5 -> 5, 7 -> 7, 8 -> 8, 10 -> 10, 11 -> 11, 13 -> 13, 15 -> 15, 17 -> 17], {node2}"
+
+	remove-key a, 5 is "5"
+	verify a, "[5 -> _, 7 -> 7, 8 -> 8, 10 -> 10, 11 -> 11, 13 -> 13, 15 -> 15, 17 -> 17], {node2}"
+	remove-key a, 5 is ()
+
+	remove-key a, 8 is "8"
+	verify a, "[5 -> _, 7 -> 7, 8 -> _, 10 -> 10, 11 -> 11, 13 -> 13, 15 -> 15, 17 -> 17], {node2}"
+
+	# Setting near a deleted value re-uses the slot
+	a[9] := "9"
+	verify a, "[5 -> _, 7 -> 7, 9 -> 9, 10 -> 10, 11 -> 11, 13 -> 13, 15 -> 15, 17 -> 17], {node2}"
+
+	# Removing enough values makes us compact
+	remove-key a, 9 is "9"
+	verify a, "[5 -> _, 7 -> 7, 9 -> _, 10 -> 10, 11 -> 11, 13 -> 13, 15 -> 15, 17 -> 17], {node2}"
+
+	# Before, physical sizes are 8 and 3, and first logical size size is 6.
+	# After the removal, first node size is 5 and total physical size is 10, so we compact.
+	remove-key a, 10 is "10"
+	verify a, "[0 -> 0, 2 -> 2, 6 -> 6, 7 -> 7, 11 -> 11, 13 -> 13, 15 -> 15, 17 -> 17]"
+
+	# Now test compaction for another reason -- enough items are inserted on the right
+
+	# First get 'a' down to size
+	remove-key a, 7 is "7"
+	remove-key a, 13 is "13"
+	remove-key a, 15 is "15"
+	verify a, "[0 -> 0, 2 -> 2, 6 -> 6, 7 -> _, 11 -> 11, 17 -> 17]"
+
+	# Now physical size of a is 6, logical size is 5.
+	a ~~= ((1, "1"), (5, "5"), (3, "3"))
+	verify a, "[0 -> 0, 2 -> 2, 6 -> 6, 7 -> _, 11 -> 11, 17 -> 17], [1 -> 1, 3 -> 3, 5 -> 5]"
+
+	a[4] := "4"
+	verify a, "[0 -> 0, 1 -> 1, 2 -> 2, 3 -> 3, 4 -> 4, 5 -> 5, 6 -> 6, 11 -> 11, 17 -> 17]"
