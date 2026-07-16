@@ -21,15 +21,15 @@ import
 	| {backing}.{size} is the capacity.
 	| Unused parts of backing are filled with {gc-safe-value}.
 	-backing mut t buffer
-	-size-and-locked mut nat64
+	-size-and-locked mut nat32
 
 | Returns the size. Call {unlock-for-writing} in a 'finally'.
--lock-for-writing[t] nat(a t mut[]) unsafe
+-lock-for-writing[t] nat32(a t mut[]) unsafe
 	assert-can-write a
 	res = a.size-and-locked
 	a.size-and-locked := res | top-two-bits
 	res
--unlock-for-writing[t] void(a t mut[], size nat) unsafe
+-unlock-for-writing[t] void(a t mut[], size nat32) unsafe
 	a.size-and-locked := size
 | Returns the old lock value. Pass this to {unlock-for-reading} in a 'finally'.
 | Note: This will only work if read locks work in a nested way.
@@ -52,31 +52,31 @@ import
 -can-write[t] bool(a t mut[])
 	a.size-and-locked & top-two-bits == 0
 | This bit will be marked to prevent both reading and writing.
--top-bit nat64()
-	1 << 63
+-top-bit nat32()
+	1 << 31
 | This bit will be marked to prevent reading but not writing.
--almost-top-bit nat64()
-	1 << 62
--top-two-bits nat64()
-	3 << 62
+-almost-top-bit nat32()
+	1 << 30
+-top-two-bits nat32()
+	3 << 30
 
 | {true} if `{a}.{size} == 0`.
 +is-empty[t] bool(a t mut[])
 	a.size == 0
 
-+size[t] nat64(a t mut[])
++size[t] nat32(a t mut[])
 	assert-can-read a
-	a.size-and-locked & 0x0fffffffffffffff
--set-size[t] void(a t mut[], size nat64)
+	a.size-and-locked & 0x3fffffff
+-set-size[t] void(a t mut[], size nat32)
 	assert-can-write a
 	a.size-and-locked := size
 
-+subscript[t] t(a t mut[], index nat64)
++subscript[t] t(a t mut[], index nat32)
 	check-index a, index
 	a.backing[index]
 +subscript[t] t(a t mut[], index index-relative-to-end)
 	a[to-index a, index]
-+set-subscript[t] void(a t mut[], index nat64, value t)
++set-subscript[t] void(a t mut[], index nat32, value t)
 	assert-can-write a
 	check-index a, index
 	a.backing[index] := value
@@ -104,7 +104,7 @@ import
 
 | Removes all elements with index >= {new-size}.
 | This is O(1).
-+reduce-size-to[t] void(a t mut[], new-size nat64)
++reduce-size-to[t] void(a t mut[], new-size nat32)
 	assert-can-write a
 	assert new-size <= a.size
 	do trusted
@@ -133,7 +133,7 @@ import
 		a.backing
 	else
 		with out in build a.size
-			for i in 0::nat64 .. a.size
+			for i in 0::nat32 .. a.size
 				out ~= a.backing[i]
 	a.backing := ()
 	a.size := 0
@@ -188,7 +188,7 @@ import
 | Removes the last {n} elements and returns them as an array.
 | The result is guaranteed to be of size {n}.
 | Throws {index-too-big} if there are not at least {n} elements.
-+pop-n[t] t[](a t mut[], n nat64)
++pop-n[t] t[](a t mut[], n nat32)
 	assert-can-write a
 	check-index-lte a, n
 	new-size = a.size - n
@@ -201,7 +201,7 @@ import
 | Removes the first {n} elements and returns them as an array.
 | The result is guaranteed to be of size {n}.
 | Throws {index-too-big} if there are not at least {n} elements.
-+pop-n-left[t] t[](a t mut[], n nat64)
++pop-n-left[t] t[](a t mut[], n nat32)
 	assert-can-write a
 	assert n <= a.size else index-too-big n, a.size
 	res t[] = a.backing[0 .. n].to
@@ -234,7 +234,7 @@ import
 		a.backing[a.size .. new-size] := values
 		a.size := new-size
 	else
-		i mut = 0
+		i mut nat32 = 0
 		until i == values.size
 			a ~= values[i]
 			i +:= 1
@@ -248,17 +248,17 @@ import
 	if a.size == a.backing.size
 		ensure-capacity-round-up a, a.size + 1
 
--increase-capacity-to[t] void(a t mut[], new-capacity nat64)
+-increase-capacity-to[t] void(a t mut[], new-capacity nat32)
 	do trusted
 	assert new-capacity > a.backing.size
 	old-backing = a.backing
 	a.backing := uninitialized-buffer new-capacity
 	a.backing[0 .. a.size] := old-backing[0 .. a.size]
 
--ensure-capacity-round-up[t] void(a t mut[], min-capacity nat64)
+-ensure-capacity-round-up[t] void(a t mut[], min-capacity nat32)
 	ensure-capacity-exact a, min-capacity.round-up-to-power-of-two
 
--ensure-capacity-exact[t] void(a t mut[], min-capacity nat64)
+-ensure-capacity-exact[t] void(a t mut[], min-capacity nat32)
 	assert-can-write a
 	if a.backing.size < min-capacity
 		increase-capacity-to a, min-capacity
@@ -266,7 +266,7 @@ import
 | The new contents of {a} will be `a[0 .. index] ~~ (value,) ~~ a[index .. end]`.
 | So, `{a}[{index}]` will be {value}.
 | This is O(a.size - index) due to having to move a[index .. end] to the right by 1.
-+insert-at[t] void(a t mut[], index nat64, value t)
++insert-at[t] void(a t mut[], index nat32, value t)
 	assert-can-write a
 	check-index-lte a, index
 	do trusted
@@ -279,7 +279,7 @@ import
 | The new contents of {a} will be `a[0 .. index] ~~ a[index + 1 .. end]`.
 | Returns the old `a[index]` which will have been removed.
 | This is O(a.size - index) due to having to shift `a[index + 1 .. end]` to the left by 1.
-+remove-at[t] t(a t mut[], index nat64)
++remove-at[t] t(a t mut[], index nat32)
 	assert-can-write a
 	check-index a, index
 	res = a[index]
@@ -296,7 +296,7 @@ region mutating iteration
 	do trusted
 	size = lock-for-writing a
 	finally unlock-for-writing a, size
-	i mut = 0
+	i mut nat32 = 0
 	until i == size
 		a.backing[i] := f[a.backing[i]]
 		i +:= 1
@@ -305,10 +305,10 @@ region mutating iteration
 | If {f} throws an exception, {a} will contain only processed elements.
 +filter=[t] void(a t mut[], f bool mut(elem t))
 	do trusted
-	out mut = 0
+	out mut nat32 = 0
 	size = lock-for-writing a
 	finally unlock-for-writing a, out
-	i mut = 0
+	i mut nat32 = 0
 	until i == size
 		x = a.backing[i]
 		if f[x]
@@ -321,7 +321,7 @@ region mutating iteration
 	trusted
 		size = lock-for-writing a
 		finally unlock-for-writing a, size
-		i mut = 0
+		i mut nat32 = 0
 		until i == size
 			out ~~= f[a.backing[i]]
 			i +:= 1
@@ -329,7 +329,7 @@ region mutating iteration
 
 | Pushes {n} of {gc-safe-value} to the mut-array.
 | This can be useful to prepare the array for being written by low-level code.
-~push-gc-safe-values[t] void(a t mut[], n nat64) unsafe
+~push-gc-safe-values[t] void(a t mut[], n nat32) unsafe
 	assert-can-write a
 	new-size = a.size + n
 	ensure-capacity-round-up a, new-size
@@ -348,7 +348,7 @@ region mutating iteration
 	do trusted
 	was-locked = lock-for-reading a
 	finally unlock-for-reading a, was-locked
-	i mut = 0
+	i mut nat32 = 0
 	size = a.size
 	do until
 	if i < size
