@@ -103,6 +103,9 @@ quick-fill-in-low-fun-body void(ctx lower-context, fun low-fun)
 	as fun-body-uninitialized
 		throw unreachable
 
+-is-primitive-comparable bool(a low-type)
+	as-float-type a or as-integral-type-allow-bool-char a
+
 -lower-builtin-fun low-fun-body(fun low-fun, a builtin-fun) lower-ctx
 	return-type = fun.return-type
 	range = fun.range
@@ -110,7 +113,31 @@ quick-fill-in-low-fun-body void(ctx lower-context, fun low-fun)
 	as builtin-unary
 		a.to::low-builtin-unary
 	as builtin-binary
-		a.to::low-builtin-binary
+		match a
+		as array-get then array-get
+		as bitwise-and then bitwise-and
+		as bitwise-or then bitwise-or
+		as bitwise-xor then bitwise-xor
+		as call-lambda then call-lambda
+		as compare then compare
+		as compare-less then lower-comparison fun, a
+		as compare-less-or-equal then lower-comparison fun, a
+		as compare-greater then lower-comparison fun, a
+		as compare-greater-or-equal then lower-comparison fun, a
+		as equal-exact then equal-exact
+		as equal-float-ieee then equal-float-ieee
+		as less-float-ieee then less-float-ieee
+		as not-equal-exact then lower-comparison fun, a
+		as unsafe-bit-shift-left then unsafe-bit-shift-left
+		as unsafe-bit-shift-right then unsafe-bit-shift-right
+		as unsafe-add-float then unsafe-add-float
+		as unsafe-div then unsafe-div
+		as unsafe-mod then unsafe-mod
+		as unsafe-mul-float then unsafe-mul-float
+		as unsafe-sub-float then unsafe-sub-float
+		as wrap-add then wrap-add
+		as wrap-mul then wrap-mul
+		as wrap-sub then wrap-sub
 	as builtin-ternary
 		a.to::low-builtin-ternary
 	as java-fun
@@ -134,6 +161,35 @@ quick-fill-in-low-fun-body void(ctx lower-context, fun low-fun)
 		constant-none type
 	as builtin-fun-constant-gc-safe-value
 		constant-gc-safe-value
+
+-lower-comparison low-fun-body(fun low-fun, fn builtin-binary) lower-ctx
+	p0, p1 = only2! fun.params
+	arg-type = p0.type
+	p1.type is arg-type
+	if is-primitive-comparable arg-type
+		fn
+	else
+		compare = only! fun.source.low-fun-source-regular!.spec-impls
+		comparison = compare.return-type
+		range = fun.range
+		compared = call-low-expr range, compare, map fun.params, {local-get-low-expr range, it}
+		comparison-is = of value comparison
+			gen-equal-integral range, compared, gen-comparison comparison, range, value
+		comparison-isnt = of value comparison
+			gen-not-equal-integral range, compared, gen-comparison comparison, range, value
+		match fn
+		as compare-less
+			comparison-is[less]
+		as compare-less-or-equal
+			comparison-isnt[greater]
+		as compare-greater
+			comparison-is[greater]
+		as compare-greater-or-equal
+			comparison-isnt[less]
+		as not-equal-exact
+			gen-not range, compared
+		else
+			throw unreachable
 
 -lower-file-import low-expr(cf low-fun, import_ fun-body-file-import) lower-ctx
 	cf.return-type, cf.range, match import_.type
@@ -264,29 +320,6 @@ do lower-and-expr-ctx
 	as weak-ref-get then weak-ref-get
 	as weak-ref-new then weak-ref-new
 	as wrap-convert-integral then wrap-convert-integral
-
--to low-builtin-binary(a builtin-binary)
-	match a
-	as array-get then array-get
-	as bitwise-and then bitwise-and
-	as bitwise-or then bitwise-or
-	as bitwise-xor then bitwise-xor
-	as call-lambda then call-lambda
-	as compare then compare
-	as equal-exact then equal-exact
-	as equal-float-ieee then equal-float-ieee
-	as less-float-ieee then less-float-ieee
-	as unsafe-bit-shift-left then unsafe-bit-shift-left
-	as unsafe-bit-shift-right then unsafe-bit-shift-right
-	as unsafe-add-float then unsafe-add-float
-	as unsafe-div then unsafe-div
-	as unsafe-mod-float64 then unsafe-mod-float64
-	as unsafe-mod-nat64 then unsafe-mod-nat64
-	as unsafe-mul-float then unsafe-mul-float
-	as unsafe-sub-float then unsafe-sub-float
-	as wrap-add then wrap-add
-	as wrap-mul then wrap-mul
-	as wrap-sub then wrap-sub
 
 -to low-builtin-ternary(a builtin-ternary)
 	match a

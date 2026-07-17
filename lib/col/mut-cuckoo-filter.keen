@@ -1,4 +1,6 @@
 import
+	../number: unsafe-mod
+	./buffer: array-get, array-set
 	keen/bits
 	keen/random/random
 	keen/random/xoshiro
@@ -45,8 +47,13 @@ import
 | In other words, a response of {false} means the key is certainly not in the filter,
 | but a response of {true} is uncertain.
 +probably-contains bool(a mut-cuckoo-filter, hash nat32)
-	i0, i1, fp = get-indices-and-fingerprint hash, a.bucket-index-mask
-	contains a.buckets[i0], fp, a.version or contains a.buckets[i1], fp, a.version
+	i0 = hash & a.bucket-index-mask
+	fp = get-fingerprint hash
+	if contains (trusted array-get a.buckets, i0), fp, a.version
+		true
+	else
+		i1 = alternative-index fp, i0, a.bucket-index-mask
+		contains (trusted array-get a.buckets, i1), fp, a.version
 
 +try-add-result enum
 	already-contained
@@ -58,32 +65,39 @@ import
 | If there are too many conflics this will return {failed-to-add}. In that case the call has no effect.
 +try-add try-add-result(a mut-cuckoo-filter, hash nat32)
 	the random = a.random
-	i0, i1, fp = get-indices-and-fingerprint hash, a.bucket-index-mask
-	if contains a.buckets[i0], fp, a.version or contains a.buckets[i1], fp, a.version
+	do trusted
+	i0 = hash & a.bucket-index-mask
+	fp = get-fingerprint hash
+	if contains (array-get a.buckets, i0), fp, a.version
 		already-contained
-	elif try-add-at a, i0, fp or try-add-at a, i1, fp or reinsert a, (i0, i1)::(nat32, nat32).random, fp
-		a.size_ +:= 1
-		added
 	else
-		failed-to-add
+		i1 = alternative-index fp, i0, a.bucket-index-mask
+		if contains (array-get a.buckets, i1), fp, a.version
+			already-contained
+		elif try-add-at a, i0, fp or try-add-at a, i1, fp or reinsert a, (i0, i1)::(nat32, nat32).random, fp
+			a.size_ +:= 1
+			added
+		else
+			failed-to-add
 
--try-add-at bool(a mut-cuckoo-filter, index nat32, fingerprint fingerprint)
-	if new-bucket = insert-fingerprint a.buckets[index], fingerprint, a.version
-		a.buckets[index] := new-bucket
+-try-add-at bool(a mut-cuckoo-filter, index nat32, fingerprint fingerprint) unsafe
+	if new-bucket = insert-fingerprint (array-get a.buckets, index), fingerprint, a.version
+		array-set a.buckets, index, new-bucket
 		true
 
 -reinsert bool(a mut-cuckoo-filter, initial-index nat32, initial-fingerprint fingerprint)
 	the random = a.random
+	do trusted
 	fingerprint mut = initial-fingerprint
 	index mut = initial-index
 	attempt mut nat32 = 0
 	undo (nat32, bucket) mut[] = ()
 	until
 		which-fingerprint bool = random
-		bucket = a.buckets[index]
+		bucket = array-get a.buckets, index
 		temp = if which-fingerprint then fingerprint1 bucket else fingerprint0 bucket
 		undo ~= index, bucket
-		a.buckets[index] := if which-fingerprint
+		array-set a.buckets, index, if which-fingerprint
 			with-fingerprint1 bucket, fingerprint
 		else
 			with-fingerprint0 bucket, fingerprint
@@ -95,7 +109,7 @@ import
 			attempt +:= 1
 			if attempt == max-reinsert-attempts
 				for index2, value in reverse undo
-					a.buckets[index2] := value
+					array-set a.buckets, index2, value
 				false
 -max-reinsert-attempts nat32() = 16
 
@@ -134,23 +148,20 @@ import
 -contains bool(a bucket, f fingerprint, version nat8)
 	a.get-version == version and (a.fingerprint0 == f or a.fingerprint1 == f)
 
--get-indices-and-fingerprint (nat32, nat32, fingerprint)(hash nat32, bucket-index-mask nat32)
-	index0 = hash & bucket-index-mask
-	fingerprint nat16 = to hash % (max-fingerprint - 1) + 1
-	- index0
-	- alternative-index fingerprint, index0, bucket-index-mask
-	- fingerprint
+-get-fingerprint fingerprint(hash nat32)
+	n = trusted unsafe-mod hash, wrap-sub max-fingerprint, 1
+	n.wrap-to::fingerprint 'wrap-add 1
 -alternative-index nat32(fingerprint fingerprint, index0 nat32, bucket-index-mask nat32)
-	(index0 ^ fingerprint.metro-hash.wrap-to) & bucket-index-mask
+	(index0 ^ metro-hash fingerprint) & bucket-index-mask
 
-~metro-hash nat64(a nat64)
-	k0 = 0xd6d018f5
-	k1 = 0xa2aa033b
-	k2 = 0x62992fc1
-	k3 = 0x30bc5b29
-	seed = 1337
-	h mut = (seed +  k2) * k0
-	h +:= a * k3
+~metro-hash nat32(a nat32)
+	k0 nat32 = 0xd6d018f5
+	k1 nat32 = 0xa2aa033b
+	k2 nat32 = 0x62992fc1
+	k3 nat32 = 0x30bc5b29
+	seed nat32 = 1337
+	h mut nat32 = seed 'wrap-add k2 'wrap-mul k0
+	h wrap-add:= wrap-mul a, k3
 	h ^:= wrap-mul k1, rotate-right h, 55
 	h ^:= wrap-mul k2, rotate-right h, 33
 	h ^:= wrap-mul k0, rotate-right h, 29

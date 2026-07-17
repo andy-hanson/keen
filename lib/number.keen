@@ -62,17 +62,17 @@ export
 +float-less bool(a float32, b float32)
 +float-less bool(a float64, b float64)
 
-# ~unsafe-mod int64(a int64, b int64) unsafe # TODO ------------------------------------------------------------------
--unsafe-mod nat64(a nat64, b nat64) unsafe
+~unsafe-mod nat8(a nat8, b nat8) unsafe
+~unsafe-mod nat16(a nat16, b nat16) unsafe
+~unsafe-mod nat32(a nat32, b nat32) unsafe
+~unsafe-mod nat64(a nat64, b nat64) unsafe
 
 # The public versions of these functions are defined in bits.keen
 -wrap-to int8(a int64)
--wrap-to int16(a int32)
 -wrap-to int16(a int64)
 -wrap-to int32(a int64)
 -wrap-to int64(a nat64)
 -wrap-to nat8(a nat64)
--wrap-to nat16(a nat32)
 -wrap-to nat16(a nat64)
 -wrap-to nat32(a nat64)
 -wrap-to nat64(a int64)
@@ -219,9 +219,30 @@ region arithmetic
 	assert res <= max-value::nat16 else arithmetic-error "*::nat16", a, b
 	res.wrap-to
 + * nat32(a nat32, b nat32)
-	res = wrap-mul a::nat64, b::nat64
-	assert res <= max-value::nat32 else arithmetic-error "*::nat32", a, b
-	res.wrap-to
+	if trusted java
+		res = wrap-mul a::nat64, b::nat64
+		assert res <= max-value::nat32 else arithmetic-error "*::nat32", a, b
+		res.wrap-to
+	elif trusted js
+		# JS 64-bit arithmetic is slow, so multiply 16-bit parts
+		a0 = low-part a
+		a1 = high-part a
+		b0 = low-part b
+		b1 = high-part b
+		low = wrap-mul a0, b0
+		if a1 == 0 and b1 == 0
+			# Common case
+			low
+		else
+			cross = wrap-add (wrap-mul a0, b1), wrap-mul a1, b0
+			assert (a1 == 0 or b1 == 0) and cross.high-part == 0 else arithmetic-error "*::nat32", a, b
+			wrap-add low, trusted unsafe-bit-shift-left cross, 16
+	else
+		throw todo
+-high-part nat32(a nat32)
+	trusted unsafe-bit-shift-right a, 16
+-low-part nat32(a nat32)
+	a & 0xffff
 + * nat64(a nat64, b nat64)
 	if a <= max-value::nat32 and b <= max-value::nat32
 		# Fast path: Multiplying small numbers always works
@@ -280,7 +301,7 @@ region arithmetic
 	else
 		a.to::nat64 % b
 
--unsafe-mod float64(a float64, b float64)
+~unsafe-mod float64(a float64, b float64)
 
 + % float32(a float32, b float32)
 	a::float64 % b::float64 'to
@@ -741,7 +762,10 @@ region Spec impls for range
 	trusted hash a.bits-of, state
 
 # The public version will be defined in bits.keen
+- & nat32(a nat32, b nat32)
 - ^ nat64(a nat64, b nat64)
+-unsafe-bit-shift-left nat32(a nat32, b nat32) unsafe
+-unsafe-bit-shift-right nat32(a nat32, b nat32) unsafe
 
 +saturating-add nat8(a nat8, b nat8)
 	res = wrap-add a, b
