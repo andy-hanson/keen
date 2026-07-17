@@ -10,7 +10,7 @@
 			documentation: "foos the thing"
 		-
 			label: "bar"
-			detail: "bar nat64(a r, b nat64) (from test:/completion/after-dot.keen line 10)"
+			detail: "bar nat32(a r, b nat32) (from test:/completion/after-dot.keen line 10)"
 			documentation: ""
 		-
 			label: "s"
@@ -18,5 +18,5 @@
 			documentation: ""
 		-
 			label: "n"
-			detail: "n nat64(a r) (from test:/completion/after-dot.keen line 4)"
+			detail: "n nat32(a r) (from test:/completion/after-dot.keen line 4)"
 			documentation: ""

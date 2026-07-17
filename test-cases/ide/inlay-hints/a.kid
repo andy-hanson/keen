@@ -33,11 +33,11 @@
 	paddingLeft: false
 -
 	position: line: 11, character: 43
-	label: "nat64"
+	label: "nat32"
 	kind: "Type"
 	paddingLeft: true
 -
 	position: line: 13, character: 6
-	label: "nat64"
+	label: "nat32"
 	kind: "Type"
 	paddingLeft: true
