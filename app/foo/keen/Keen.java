@@ -296,4 +296,27 @@ public class Keen {
 	public static Object weakRefGet(java.lang.ref.WeakReference<?> a) {
 		return a == null ? null : a.get();
 	}
+
+	public static byte rotateLeftNat8(byte a, byte b) {
+		int n = b & 0b111;
+		return (byte) (((a & 0xff) << n) | ((a & 0xff) >>> (8 - n)));
+	}
+	public static short rotateLeftNat16(short a, short b) {
+		int n = b & 0b1111;
+		return (short) (((a & 0xffff) << n) | ((a & 0xffff) >>> (16 - n)));
+	}
+	public static long rotateLeftNat64(long a, long b) {
+		return Long.rotateLeft(a, (int) b);
+	}
+	public static byte rotateRightNat8(byte a, byte b) {
+		int n = b & 0b111;
+		return (byte) (((a & 0xff) >>> n) | ((a & 0xff) << (8 - n)));
+	}
+	public static short rotateRightNat16(short a, short b) {
+		int n = b & 0b1111;
+		return (short) (((a & 0xffff) >>> n) | ((a & 0xffff) << (16 - n)));
+	}
+	public static long rotateRightNat64(long a, long b) {
+		return Long.rotateRight(a, (int) b);
+	}
 }
