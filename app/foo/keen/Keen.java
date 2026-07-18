@@ -286,8 +286,11 @@ public class Keen {
 		return ((long) Integer.MIN_VALUE) <= l && l <= ((long) Integer.MAX_VALUE);
 	}
 
+	public static float float32FromNat64(long a) {
+		return a < 0 ? (float) (a & Long.MAX_VALUE) + 0x1p63f : (float) a;
+	}
 	public static double float64FromNat64(long a) {
-		return a < 0 ? (double) a + Math.pow(2, 64) : (double) a;
+		return a < 0 ? (double) (a & Long.MAX_VALUE) + 0x1p63 : (double) a;
 	}
 
 	public static java.lang.ref.WeakReference<?> newWeakRef(Object a) {
