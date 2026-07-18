@@ -101,15 +101,14 @@ import
 | Returns an empty option if {key} is not in the map.
 +subscript[k, v] v?(a v mut[k], key k) k key
 	if index = get-index a.entries, key
-		a.entries[index]!.b
+		b trusted unsafe-at! a.entries, index
 
 | Sets the key to the given value, so that `{a}[{key}]` will return {value}.
 | If the key was already in the map, this overwrites the previous value.
 +set-subscript[k, v] void(a v mut[k], key k, value v) k key
 	forbid write-locked a else was-locked
 	if index = get-index a.entries, key
-		# TODO:PERF this needlessly overwrites the key with an equivalent one -----------------------------------------
-		a.entries[index] := key, value
+		trusted unsafe-set-at a.entries, index, (key, value)
 	else
 		must-add a, key, value
 
@@ -134,16 +133,17 @@ import
 +remove[k, v] v?(a v mut[k], key k) k key
 	forbid write-locked a else was-locked
 	do if index = get-index a.entries, key
-	value = a.entries[index]!.b
-	remove-at-index a, index
+	value = b trusted unsafe-at! a.entries, index
+	trusted remove-at-index a, index
 	value
 
--remove-at-index[k, v] void(a v mut[k], index nat32) k key
+| Assumes the index is valid
+-remove-at-index[k, v] void(a v mut[k], index nat32) k key, unsafe
 	# When there is a hole, move values closer to where they should be.
 	hole mut = index
-	a.entries[hole] := ()
+	unsafe-set-at a.entries, hole, ()
 	from mut = next-index index, a.entries
-	while key, _ = a.entries[from]
+	while key, _ = unsafe-at a.entries, from
 		key-desired-index = (wrap-to::nat32 trusted seeded-hash key) % a.entries.size
 		if (walk-distance a.entries, key-desired-index, hole) < (walk-distance a.entries, key-desired-index, from)
 			swap-at a.entries, hole, from
@@ -157,7 +157,7 @@ import
 +ensure[k, v] v(a v mut[k], key k, get-value v mut()) k key
 	forbid write-locked a else was-locked
 	res = if index = get-index a.entries, key
-		a.entries[index]!.b
+		b trusted unsafe-at! a.entries, index
 	else
 		value =
 			a.write-locked := true
@@ -181,17 +181,17 @@ import
 	value mut = initial-value
 	index mut = ideal-index key, entries.size
 	my-cost mut nat64 = 0
-	while existing-key, existing-value = entries[index]
+	while existing-key, existing-value = trusted unsafe-at entries, index
 		forbid existing-key == key
 		its-cost = cost entries, existing-key, index
 		if my-cost > its-cost
-			entries[index] := key, value
+			trusted unsafe-set-at entries, index, (key, value)
 			key := existing-key
 			value := existing-value
 			my-cost := its-cost
 		index next-index:= entries
 		my-cost +:= 1
-	entries[index] := key, value
+	trusted unsafe-set-at entries, index, (key, value)
 
 -cost[k, v] nat64(entries (k, v)? buffer, key k, actual-index nat32) k key
 	walk-distance entries, (ideal-index key, entries.size), actual-index
@@ -213,7 +213,7 @@ import
 	start-i = ideal-index key, entries.size
 	i mut = start-i
 	do until
-	do if k, _ = entries[i] else ()::nat32?
+	do if k, _ = trusted unsafe-at entries, i else ()::nat32?
 	if key == k
 		i
 	else
@@ -259,8 +259,8 @@ import
 	finally a.write-locked := false
 	for key in a.keys
 		index = get-index! a.entries, key
-		unless f[a.entries[index]!]
-			remove-at-index a, index
+		unless f[trusted unsafe-at! a.entries, index]
+			trusted remove-at-index a, index
 
 | Calls {f} on every key and value, and replaces the value with the new value returned by {f}.
 | Does not modify keys.
@@ -270,7 +270,7 @@ import
 	finally a.write-locked := false
 	for index, entry in with-index a.entries
 		if key, value = entry
-			a.entries[index] := key, f[key, value]
+			trusted unsafe-set-at a.entries, index, (key, f[key, value])
 
 +keys[k, v] k[](a v mut[k]) k key
 	sort with out in build a.size
@@ -309,7 +309,7 @@ import
 	if i == entries.size
 		false
 	else
-		entry = entries[i]
+		entry = unsafe-at entries, i
 		if entry and f[entry]
 			true
 		else

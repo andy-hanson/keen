@@ -1,6 +1,7 @@
 import
+	../bits: unsafe-bit-shift-left, unsafe-bit-shift-right
 	../number: unsafe-mod
-	./buffer: array-get, array-set
+	./buffer: unsafe-at, unsafe-set-at
 	keen/bits
 	keen/random/random
 	keen/random/xoshiro
@@ -40,7 +41,7 @@ import
 		fill a.buckets, 0
 		a.version := 0
 	else
-		a.version +:= 1
+		a.version wrap-add:= 1
 
 | If {hash} has been inserted, this will definitely return {true}.
 | If {hash} was never inserted, this will probably return {false}.
@@ -49,11 +50,11 @@ import
 +probably-contains bool(a mut-cuckoo-filter, hash nat32)
 	i0 = hash & a.bucket-index-mask
 	fp = get-fingerprint hash
-	if contains (trusted array-get a.buckets, i0), fp, a.version
+	if contains (trusted unsafe-at a.buckets, i0), fp, a.version
 		true
 	else
 		i1 = alternative-index fp, i0, a.bucket-index-mask
-		contains (trusted array-get a.buckets, i1), fp, a.version
+		contains (trusted unsafe-at a.buckets, i1), fp, a.version
 
 +try-add-result enum
 	already-contained
@@ -68,21 +69,21 @@ import
 	do trusted
 	i0 = hash & a.bucket-index-mask
 	fp = get-fingerprint hash
-	if contains (array-get a.buckets, i0), fp, a.version
+	if contains (unsafe-at a.buckets, i0), fp, a.version
 		already-contained
 	else
 		i1 = alternative-index fp, i0, a.bucket-index-mask
-		if contains (array-get a.buckets, i1), fp, a.version
+		if contains (unsafe-at a.buckets, i1), fp, a.version
 			already-contained
 		elif try-add-at a, i0, fp or try-add-at a, i1, fp or reinsert a, (i0, i1)::(nat32, nat32).random, fp
-			a.size_ +:= 1
+			a.size_ wrap-add:= 1
 			added
 		else
 			failed-to-add
 
 -try-add-at bool(a mut-cuckoo-filter, index nat32, fingerprint fingerprint) unsafe
-	if new-bucket = insert-fingerprint (array-get a.buckets, index), fingerprint, a.version
-		array-set a.buckets, index, new-bucket
+	if new-bucket = insert-fingerprint (unsafe-at a.buckets, index), fingerprint, a.version
+		unsafe-set-at a.buckets, index, new-bucket
 		true
 
 -reinsert bool(a mut-cuckoo-filter, initial-index nat32, initial-fingerprint fingerprint)
@@ -94,10 +95,10 @@ import
 	undo (nat32, bucket) mut[] = ()
 	until
 		which-fingerprint bool = random
-		bucket = array-get a.buckets, index
+		bucket = unsafe-at a.buckets, index
 		temp = if which-fingerprint then fingerprint1 bucket else fingerprint0 bucket
 		undo ~= index, bucket
-		array-set a.buckets, index, if which-fingerprint
+		unsafe-set-at a.buckets, index, if which-fingerprint
 			with-fingerprint1 bucket, fingerprint
 		else
 			with-fingerprint0 bucket, fingerprint
@@ -106,10 +107,10 @@ import
 		if try-add-at a, index, fingerprint
 			true
 		else
-			attempt +:= 1
+			attempt wrap-add:= 1
 			if attempt == max-reinsert-attempts
 				for index2, value in reverse undo
-					array-set a.buckets, index2, value
+					unsafe-set-at a.buckets, index2, value
 				false
 -max-reinsert-attempts nat32() = 16
 
@@ -124,25 +125,26 @@ import
 -max-fingerprint nat32() = 0x3fff
 
 -get-version nat8(a bucket)
-	wrap-to a >> 28
+	wrap-to (trusted unsafe-bit-shift-right a, 28)
 -version-tag bucket(version nat8)
-	version::nat32 << 28
+	trusted unsafe-bit-shift-left version::nat32, 28
 | Remember to check the version first!
 -fingerprint0 nat16(a bucket)
 	wrap-to a & max-fingerprint
 -fingerprint1 nat16(a bucket)
-	wrap-to (a >> fingerprint-size-bits) & max-fingerprint
+	wrap-to (trusted unsafe-bit-shift-right a, fingerprint-size-bits) & max-fingerprint
 | Remember to check the version first!
 -with-fingerprint0 bucket(a bucket, f fingerprint)
 	a & ~max-fingerprint | f
 -with-fingerprint1 bucket(a bucket, f fingerprint)
-	a & ~(max-fingerprint << fingerprint-size-bits) | (f::bucket << fingerprint-size-bits)
+	cleared = a & ~(trusted unsafe-bit-shift-left max-fingerprint, fingerprint-size-bits)
+	cleared | (trusted unsafe-bit-shift-left f::bucket, fingerprint-size-bits)
 -insert-fingerprint bucket?(a bucket, f fingerprint, version nat8)
 	if a.get-version == version
 		if a.fingerprint0 == 0
 			a | f
 		elif a.fingerprint1 == 0
-			a | (f::bucket << fingerprint-size-bits)
+			a | (trusted unsafe-bit-shift-left f::bucket, fingerprint-size-bits)
 	else
 		version.version-tag | f
 -contains bool(a bucket, f fingerprint, version nat8)
@@ -165,7 +167,6 @@ import
 	h ^:= wrap-mul k1, rotate-right h, 55
 	h ^:= wrap-mul k2, rotate-right h, 33
 	h ^:= wrap-mul k0, rotate-right h, 29
-	h ^:= h >> 32
 	h wrap-mul:= k0
-	h ^:= h >> 29
+	h ^:= trusted unsafe-bit-shift-right h, 29
 	h
