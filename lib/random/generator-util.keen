@@ -2,11 +2,46 @@
 no-std
 import
 	../bits
+	../bool
 	../compare
 	../misc
 	../number
 	../option
 	./random
+
+| Interface for generating random {nat32}s.
+| This is more low-level and you probably want {random} instead.
++random32 interface mut
+	next32 nat32()
+
+| Interface for generating random {nat64}s.
+| This is more low-level and you probably want {random} instead.
++random64 interface mut
+	next64 nat64()
+
+| Adapts a {random32} to a {random}
++random-from-32 record mut, random case
+	-bits mut nat32
+	-count-bits mut nat32
+	-inner random32
++random-from-32 random-from-32(inner random32) = 0, 0, inner
++next-bit bool(a random-from-32)
+	if a.count-bits == 0
+		a.bits := next32 a
+		a.count-bits := 32
+	bit = not is-even a.bits
+	trusted
+		a.bits unsafe-bit-shift-right:= 1
+	a.count-bits wrap-sub:= 1
+	bit
++next nat32(a random-from-32, n nat32)
+	fast-dice-roller32 n, {next-bit a}
++next nat64(a random-from-32, n nat64)
+	fast-dice-roller64 n, {next-bit a}
++next32 nat32(a random-from-32)
+	next32 a.inner
++next64 nat64(a random-from-32)
+	(trusted a.next32 'unsafe-bit-shift-left 32) | a.next32
 
 | Adapts a {random64} to a {random}
 +random-from-64 record mut, random case
@@ -14,37 +49,53 @@ import
 	-count-bits mut nat32
 	-inner random64
 +random-from-64 random-from-64(inner random64) = 0, 0, inner
++next-bit bool(a random-from-64)
+	if a.count-bits == 0
+		a.bits := next64 a
+		a.count-bits := 64
+	bit = not is-even a.bits
+	trusted a.bits unsafe-bit-shift-right:= 1
+	a.count-bits wrap-sub:= 1
+	bit
 +next nat32(a random-from-64, n nat32)
+	fast-dice-roller32 n, {next-bit a}
++next nat64(a random-from-64, n nat64)
+	fast-dice-roller64 n, {next-bit a}
++next32 nat32(a random-from-64)
+	if a.count-bits >= 32
+		res nat32 = wrap-to a.bits
+		a.count-bits wrap-sub:= 32
+		res
+	else
+		remaining nat32 = 32 'wrap-sub a.count-bits
+		res nat32 = trusted a.bits.wrap-to 'unsafe-bit-shift-left remaining
+		fetch-next-64 a
+		trusted a.bits unsafe-bit-shift-right:= remaining
+		a.count-bits wrap-sub:= remaining
+		res | (a.bits.wrap-to & low-n-bits remaining)
++next64 nat64(a random-from-64)
+	next64 a.inner
+
+-fast-dice-roller32 nat32(n nat32, next-bit bool mut())
 	forbid n == 0
-	# Fast dice roller algorithm
 	v mut nat32 = 1
 	c mut nat32 = 0
-	bits mut nat32 = wrap-to a.bits
-	count-bits mut nat32 = a.count-bits
 	until
 		if v >= n
 			if c < n
-				a.bits >>:= a.count-bits - count-bits
-				a.count-bits := count-bits
 				c
 			else
-				v -:= n
-				c -:= n
+				v wrap-sub:= n
+				c wrap-sub:= n
 				()
 		else
-			if count-bits == 0
-				fetch-next-64 a
-				bits := wrap-to a.bits
-				count-bits := a.count-bits
-			v *:= 2
-			c *:= 2
-			c |:= bits & 1
-			bits >>:= 1
-			count-bits -:= 1
+			trusted v unsafe-bit-shift-left:= 1
+			trusted c unsafe-bit-shift-left:= 1
+			c |:= next-bit[].to
 			()
-+next nat64(a random-from-64, n nat64)
+
+-fast-dice-roller64 nat64(n nat64, next-bit bool mut())
 	forbid n == 0
-	# Fast dice roller algorithm
 	v mut nat64 = 1
 	c mut nat64 = 0
 	until
@@ -52,32 +103,14 @@ import
 			if c < n
 				c
 			else
-				v -:= n
-				c -:= n
+				v wrap-sub:= n
+				c wrap-sub:= n
 				()
 		else
-			if a.count-bits == 0
-				fetch-next-64 a
-			v *:= 2
-			c *:= 2
-			c |:= a.bits & 1
-			a.bits >>:= 1
-			a.count-bits -:= 1
+			trusted v unsafe-bit-shift-left:= 1
+			trusted c unsafe-bit-shift-left:= 1
+			c |:= next-bit[].to
 			()
-+next32 nat32(a random-from-64)
-	if a.count-bits >= 32
-		res nat32 = wrap-to a.bits
-		a.count-bits -:= 32
-		res
-	else
-		remaining nat32 = 32 - a.count-bits
-		res nat32 = a.bits.wrap-to << remaining
-		fetch-next-64 a
-		a.bits >>:= remaining
-		a.count-bits -:= remaining
-		res | (a.bits.wrap-to & low-n-bits remaining)
-+next64 nat64(a random-from-64)
-	next64 a.inner
 
 -fetch-next-64 void(a random-from-64)
 	a.bits := next64 a.inner
