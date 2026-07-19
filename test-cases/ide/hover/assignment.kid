@@ -51,10 +51,10 @@
 	definition:
 		-
 			range:
-				end: character: 3, line: 192
-				start: character: 2, line: 192
+				end: character: 3, line: 132
+				start: character: 2, line: 132
 			uri: "test:///keen/lib/number.keen"
-	hover: "Calls '+ nat64(a nat64, b nat64)' (from keen/number.keen line 193).\nExpression type is: 'nat64'"
+	hover: "Calls '+ nat64(a nat64, b nat64)' (from keen/number.keen line 133).\nExpression type is: 'nat64'"
 	range:
 		end: character: 6, line: 2
 		start: character: 3, line: 2
@@ -95,10 +95,10 @@
 	definition:
 		-
 			range:
-				end: character: 3, line: 188
-				start: character: 2, line: 188
+				end: character: 3, line: 128
+				start: character: 2, line: 128
 			uri: "test:///keen/lib/number.keen"
-	hover: "Calls '+ nat32(a nat32, b nat32)' (from keen/number.keen line 189).\nExpression type is: 'void'"
+	hover: "Calls '+ nat32(a nat32, b nat32)' (from keen/number.keen line 129).\nExpression type is: 'void'"
 	range:
 		end: character: 4, line: 5
 		start: character: 3, line: 5
@@ -188,8 +188,8 @@
 	definition:
 		-
 			range:
-				end: character: 4, line: 15
-				start: character: 1, line: 15
+				end: character: 4, line: 16
+				start: character: 1, line: 16
 			uri: "test:///keen/lib/number.keen"
 	hover: "Alias for 'nat32'"
 	range:

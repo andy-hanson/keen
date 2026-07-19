@@ -1,12 +1,13 @@
 | See also 'keen/math/math'
 no-std
 import
+	./bits
 	./bool
 	./compare
-	./exception: todo
+	./exception: arithmetic-error, todo
 	./js
 	./misc
-	./private/bootstrap: array, exception, hash-state, json, set-state, state, string
+	./private/bootstrap: hash-state, set-state, state, string
 	./private/java-math
 export
 	./private/bootstrap: float32, float64, int8, int16, int32, int64, nat8, nat16, nat32, nat64
@@ -67,48 +68,6 @@ export
 ~unsafe-mod nat32(a nat32, b nat32) unsafe
 ~unsafe-mod nat64(a nat64, b nat64) unsafe
 
-# The public versions of these functions are defined in bits.keen
--wrap-to int8(a int64)
--wrap-to int16(a int64)
--wrap-to int32(a int64)
--wrap-to int64(a nat64)
--wrap-to nat8(a nat64)
--wrap-to nat16(a nat64)
--wrap-to nat32(a nat64)
--wrap-to nat64(a int64)
-
--wrap-to nat8(a int8)
--wrap-to nat16(a int16)
--wrap-to nat32(a int32)
-
--wrap-add nat8(a nat8, b nat8)
--wrap-add nat16(a nat16, b nat16)
--wrap-add nat32(a nat32, b nat32)
--wrap-add nat64(a nat64, b nat64)
-
--wrap-add int8(a int8, b int8)
--wrap-add int16(a int16, b int16)
--wrap-add int32(a int32, b int32)
--wrap-add int64(a int64, b int64)
-
--wrap-sub nat8(a nat8, b nat8)
--wrap-sub nat16(a nat16, b nat16)
--wrap-sub nat32(a nat32, b nat32)
--wrap-sub nat64(a nat64, b nat64)
-
--wrap-sub int8(a int8, b int8)
--wrap-sub int16(a int16, b int16)
--wrap-sub int32(a int32, b int32)
--wrap-sub int64(a int64, b int64)
-
--wrap-mul nat32(a nat32, b nat32)
--wrap-mul nat64(a nat64, b nat64)
-
--wrap-mul int8(a int8, b int8)
--wrap-mul int16(a int16, b int16)
--wrap-mul int32(a int32, b int32)
--wrap-mul int64(a int64, b int64)
-
 ~unsafe-div nat8(a nat8, b nat8) unsafe
 ~unsafe-div nat16(a nat16, b nat16) unsafe
 ~unsafe-div nat32(a nat32, b nat32) unsafe
@@ -156,25 +115,6 @@ region constants
 
 region arithmetic
 
-| Used to store inputs for {arithmetic-error}
-+number union(nat64, int64, float64)
-+to json(a number)
-	match a
-	as nat64 then a
-	as int64 then a
-	as float64 then a
-+to number(a json)
-	match a
-	as nat64 then a
-	as int64 then a
-	as float64 then a
-	else then throw todo
-+arithmetic-error record(operation string, inputs number[]) exception case
-+arithmetic-error arithmetic-error(operation string, input number) = operation, (input,)
-+arithmetic-error arithmetic-error(operation string, a number, b number) = operation, (a, b)
--list-new[t] t[](a t[]) = a
-+show string(_ arithmetic-error) = "Arithmetic operation can't return a correct value for the given inputs."
-
 | Throws if the result would overflow.
 |
 | "Overflow" means: be greater than the maximum possible value.
@@ -211,16 +151,16 @@ region arithmetic
 
 | Throws if the result would overflow.
 + * nat8(a nat8, b nat8)
-	res = wrap-mul a::nat32, b::nat32
+	res = wrap-mul::nat32 a, b
 	assert res <= max-value::nat8 else arithmetic-error "*::nat8", a, b
 	res.wrap-to
 + * nat16(a nat16, b nat16)
-	res = wrap-mul a::nat32, b::nat32
+	res = wrap-mul::nat32 a, b
 	assert res <= max-value::nat16 else arithmetic-error "*::nat16", a, b
 	res.wrap-to
 + * nat32(a nat32, b nat32)
 	if trusted java
-		res = wrap-mul a::nat64, b::nat64
+		res = wrap-mul::nat64 a, b
 		assert res <= max-value::nat32 else arithmetic-error "*::nat32", a, b
 		res.wrap-to
 	elif trusted js
@@ -278,13 +218,13 @@ region arithmetic
 | Throws if {b} == 0.
 + % nat8(a nat8, b nat8)
 	b isnt 0 else arithmetic-error "%", a, b
-	trusted unsafe-mod a, b 'wrap-to
+	trusted unsafe-mod a, b
 + % nat16(a nat16, b nat16)
 	b isnt 0 else arithmetic-error "%", a, b
-	trusted unsafe-mod a, b 'wrap-to
+	trusted unsafe-mod a, b
 + % nat32(a nat32, b nat32)
 	b isnt 0 else arithmetic-error "%", a, b
-	trusted unsafe-mod a, b 'wrap-to
+	trusted unsafe-mod a, b
 + % nat32(a nat64, b nat32)
 	to a % b::nat64
 + % nat64(a nat64, b nat64)
@@ -329,12 +269,19 @@ region arithmetic
 + + int16(a int16, b int16)
 	wrap-add::int32 a, b 'to
 + + int32(a int32, b int32)
-	wrap-add::int64 a, b 'to
-+ + int64(a int64, b int64)
-	overflow = if b > 0
-		a > (wrap-sub max-value::int64, b)
+	res = wrap-add a, b
+	overflow = if a < 0
+		b < 0 and res >= 0
 	else
-		a < (wrap-sub min-value::int64, b)
+		b > 0 and res < 0
+	forbid overflow else arithmetic-error "+::int32", a, b
+	res
++ + int64(a int64, b int64)
+	res = wrap-add a, b
+	overflow = if a < 0
+		b < 0 and res >= 0
+	else
+		b > 0 and res < 0
 	forbid overflow else arithmetic-error "+::int64", a, b
 	wrap-add a, b
 
@@ -343,14 +290,21 @@ region arithmetic
 + - int16(a int16, b int16)
 	wrap-sub::int32 a, b 'to
 + - int32(a int32, b int32)
-	wrap-sub::int64 a, b 'to
-+ - int64(a int64, b int64)
-	overflow = if b > 0
-		a < (wrap-add min-value::int64, b)
+	res = wrap-sub a, b
+	overflow = if a < 0
+		b > 0 and res >= 0
 	else
-		a > (wrap-add max-value::int64, b)
+		b < 0 and res < 0
+	forbid overflow else arithmetic-error "-::int32", a, b
+	res
++ - int64(a int64, b int64)
+	res = wrap-sub a, b
+	overflow = if a < 0
+		b > 0 and res >= 0
+	else
+		b < 0 and res < 0
 	forbid overflow else arithmetic-error "-::int64", a, b
-	wrap-sub a, b
+	res
 
 + * int8(a int8, b int8)
 	wrap-mul::int32 a, b 'to
@@ -595,7 +549,7 @@ region conversion
 	a.to::int64.to
 
 +to int64(a nat64)
-	assert a <= max-value::int64.to else arithmetic-error "to::int64", a
+	assert a <= max-value::int64.wrap-to else arithmetic-error "to::int64", a
 	a.wrap-to
 
 # This is not strictly necessary since it could just implicitly convert to int64 first, but this is faster
@@ -605,12 +559,18 @@ region conversion
 +to nat8(a int64)
 	assert a >= 0 else arithmetic-error "to::nat8", a
 	to wrap-to::nat64 a
++to int8(a nat8)
+	assert a < max-value::int8.wrap-to else arithmetic-error "to::int8", a
+	wrap-to a
 +to int8(a nat64)
-	assert a <= max-value::int8.to else arithmetic-error "to::int8", a
+	assert a <= max-value::int8.wrap-to else arithmetic-error "to::int8", a
 	to wrap-to::int64 a
++to int8(a int32)
+	assert a >= min-value::int8 and a <= max-value::int8 else arithmetic-error "to::int8", a
+	wrap-to a
 +to int8(a int64)
 	assert a >= min-value::int8 and a <= max-value::int8 else arithmetic-error "to::int8", a
-	a.wrap-to
+	wrap-to a
 
 # This is not strictly necessary since it could just implicitly convert to int64 first, but this is faster
 +to nat16(a int16)
@@ -619,8 +579,14 @@ region conversion
 +to nat16(a int64)
 	assert a >= 0 else arithmetic-error "to::nat16", a
 	to wrap-to::nat64 a
++to int16(a nat16)
+	assert a <= max-value::int16.wrap-to else arithmetic-error "to::int16", a
+	wrap-to a
++to int16(a nat32)
+	assert a <= max-value::int16::int32.wrap-to else arithmetic-error "to::int16", a
+	wrap-to a
 +to int16(a nat64)
-	assert a <= max-value::int16.to else arithmetic-error "to::int16", a
+	assert a <= max-value::int16.wrap-to else arithmetic-error "to::int16", a
 	to wrap-to::int64 a
 +to int16(a int32)
 	assert a >= min-value::int16 and a <= max-value::int16 else arithmetic-error "to::int16", a
@@ -638,6 +604,9 @@ region conversion
 | Convert an int to 32 bits. Fail if the result would overflow.
 +to int32(a int64)
 	assert a >= min-value::int32 and a <= max-value::int32 else arithmetic-error "to::int32", a
+	wrap-to a
++to int32(a nat32)
+	assert a <= max-value::int32.wrap-to else arithmetic-error "to::int32", a
 	wrap-to a
 +to int32(a nat64)
 	a.to::int64.to
@@ -658,20 +627,29 @@ region conversion
 	if a <= max-value::nat16 then wrap-to a else max-value
 +clamp-to nat32(a nat64)
 	if a <= max-value::nat32 then wrap-to a else max-value
-+clamp-to nat64(a int64)
++clamp-to nat32(a int32)
 	if a >= 0 then wrap-to a
 +clamp-to nat32(a float64)
 	clamp-to clamp-to::nat64 a
+
++clamp-to nat64(a int64)
+	if a >= 0 then wrap-to a
 +clamp-to nat64(a float64)
 	clamp-to to::int64 a
 
 | Throws if the result would not have the same value as the input (due to overflow or underflow).
 +to nat64(a int64)
 	assert a >= 0 else arithmetic-error "to::nat64", a
-	a.wrap-to
+	wrap-to a
++to nat8(a nat16)
+	assert a <= max-value::nat8 else arithmetic-error "to::nat8", a
+	wrap-to a
++to nat8(a nat32)
+	assert a <= max-value::nat8 else arithmetic-error "to::nat8", a
+	wrap-to a
 +to nat8(a nat64)
 	assert a <= max-value::nat8 else arithmetic-error "to::nat8", a
-	a.wrap-to
+	wrap-to a
 +to nat16(a nat32)
 	assert a <= max-value::nat16 else arithmetic-error "to::nat16", a
 	wrap-to a
@@ -769,12 +747,6 @@ region Spec impls for range
 	trusted hash a.bits-of, state
 +hash void(a float64, state hash-state)
 	trusted hash a.bits-of, state
-
-# The public version will be defined in bits.keen
-- & nat32(a nat32, b nat32)
-- ^ nat64(a nat64, b nat64)
--unsafe-bit-shift-left nat32(a nat32, b nat32) unsafe
--unsafe-bit-shift-right nat32(a nat32, b nat32) unsafe
 
 +saturating-add nat8(a nat8, b nat8)
 	res = wrap-add a, b
