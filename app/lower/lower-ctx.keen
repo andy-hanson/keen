@@ -187,20 +187,20 @@ low-sum-type-case union mut
 	low-sum-type-case-record-field-lens
 do
 	case-type low-type()
-	method-impls low-fun? buffer()
+	method-impls low-expr? buffer() # TODO: COuld this be non-optional ???????????????????????????????????????????????????????
 low-sum-type-case-regular record mut
 	case-type low-type
 	type-args-scope low-type[]
 	model-method-impls fun-inst?[]
 	| Uses the same order of methods as on the sum-type.
 	| These will be filled in when the method is used.
-	method-impls low-fun? buffer
+	method-impls low-expr? buffer
 low-sum-type-case-new-interface record mut
 	case-type low-type
-	method-impls low-fun? buffer
+	method-impls low-expr? buffer
 low-sum-type-case-record-field-lens record mut
 	case-type low-type
-	method-impls low-fun? buffer
+	method-impls low-expr? buffer
 
 finish-low-vars low-var[]() lower-context
 	res low-var[] = for _, v in the::lower-context.low-var-lookup then v
@@ -268,41 +268,27 @@ do lower-context, quick-fill-in-low-fun-body
 		quick-fill-in-low-fun-body the::lower-context, res
 	res
 
-low-fun-for-new-interface-method-impl low-fun(case-type low-type, method low-fun, method-index nat32) lower-context
+low-fun-for-new-interface-method-impl low-expr(case-type low-type, method low-fun, method-index nat32) lower-context
 	field = case-type.body.low-record!.fields[method-index]
 	return-type, lambda-param-type = only2! field.type.source.low-type-source-inst!.type-args
 	lambda-params = method.params[1 .. end]
-	params low-local[] =
-		- method-first-arg, case-type
-		-- lambda-params
-	res low-fun =
-		hash: take-next-id
-		source: low-fun-source-interface-or-lens-method-impl case-type
-		return-type: return-type
-		params: params
-		body:
-			range = case-type.source.range
-			get-record = local-get-low-expr range, params[0]
-			get-lambda = record-field-get-low-expr range, get-record, field
-			lambda-param low-expr = match lambda-params.size
-			as 0
-				lambda-param-type, range, constant-gc-safe-value
-			as 1
-				local-get-low-expr range, only! lambda-params
-			else
-				create-record-low-expr lambda-param-type, range, for p in params[1 .. end]
-					local-get-low-expr range, p
-			builtin-binary-low-expr return-type, range, call-lambda, get-lambda, lambda-param
-	add-low-fun res
-	res
-
-low-fun-for-record-field-lens-method-impl low-fun(case-type low-type, method low-fun, method-index nat) lower-context
-	field = case-type.source.low-type-source-record-field-lens!.field
-	params low-local[] =
-		- method-first-arg, case-type
-		-- method.params[1 .. end]
 	range = case-type.source.range
-	body low-expr = match method-index
+	get-record = union-assume-case-low-expr case-type, range, local-get-low-expr range, method.params[0]
+	get-lambda = record-field-get-low-expr range, get-record, field
+	lambda-param low-expr = match lambda-params.size
+	as 0
+		lambda-param-type, range, constant-gc-safe-value
+	as 1
+		local-get-low-expr range, only! lambda-params
+	else
+		create-record-low-expr lambda-param-type, range, for p in lambda-params
+			local-get-low-expr range, p
+	builtin-binary-low-expr return-type, range, call-lambda, get-lambda, lambda-param
+
+low-fun-for-record-field-lens-method-impl low-expr(case-type low-type, method low-fun, method-index nat) lower-context
+	field = case-type.source.low-type-source-record-field-lens!.field
+	range = case-type.source.range
+	match method-index
 	as 0 # get
 		_, value = only2! method.params
 		record-field-get-low-expr range, (local-get-low-expr range, value), field
@@ -317,14 +303,6 @@ low-fun-for-record-field-lens-method-impl low-fun(case-type low-type, method low
 				record-field-get-low-expr range, get-outer, f
 	else
 		throw unreachable
-	res low-fun =
-		hash: take-next-id
-		source: low-fun-source-interface-or-lens-method-impl case-type
-		return-type: method.return-type
-		params: params
-		body: body
-	add-low-fun res
-	res
 
 get-non-template-low-fun low-fun(inst fun-inst) lower-ctx, quick-fill-in-low-fun-body
 	forbid is-template inst.decl
@@ -389,13 +367,13 @@ low-type-for-record-field-lens (nat32, low-type)(lens low-type, field low-field)
 			low-fun-for-record-field-lens-method-impl res, method, method-index
 	case-index, res
 
--initial-method-impls low-fun? buffer
+-initial-method-impls low-expr? buffer
 	interface_ low-type
 	info low-sum-type-info
-	f low-fun mut(method low-fun, method-index nat32)
+	f low-expr mut(method low-fun, method-index nat32)
 do lower-context
 	n-methods = interface_.source.low-type-source-inst!.decl.body.sum-type!.methods.size
-	method-impls low-fun? buffer = n-of n-methods, ()
+	method-impls low-expr? buffer = n-of n-methods, ()
 	for method in info.methods-unsorted
 		method-index = method.body.low-fun-body-method!.method-index
 		method-impls[method-index] := f[method, method-index]
@@ -513,18 +491,25 @@ do lower-context, quick-fill-in-low-fun-body
 		do unless as-extern res and x.sum-type != exception
 		sum-type = get-low-type x.sum-type, type-args
 		info = the::lower-context.sum-types[sum-type]!
-		method-impls low-fun? buffer = n-of x.method-impls.size, ()
+		method-impls low-expr? buffer = n-of x.method-impls.size, ()
 		for method in info.methods-unsorted
 			method-index = method.body.low-fun-body-method!.method-index
 			if is-empty x.method-impls
 				assert as-extern res
 			elif impl = x.method-impls[method-index]
-				method-impls[method-index] := get-low-fun-from-called type-args, (), impl
+				method-impls[method-index] := call-method-impl method, inst.decl.range, get-low-fun-from-called type-args, (), impl
 		info.cases ~=
 			case-type: res
 			type-args-scope: type-args
 			model-method-impls: x.method-impls
 			method-impls: method-impls
+
+call-method-impl low-expr(method low-fun, range uri-and-range, method-impl low-fun?)
+	assert method-impl else todo # ----------------------------------------------------------------------------------------------
+	call-low-expr range, method-impl,
+		- union-assume-case-low-expr method-impl.params[0].type, range, local-get-low-expr range, method.params[0]
+		-- for param in method.params[1 .. end]
+			local-get-low-expr range, param
 
 -class-path path(a type-inst) = a.decl.source.type-decl-source-java!.class-path
 

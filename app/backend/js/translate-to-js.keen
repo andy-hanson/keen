@@ -1,5 +1,6 @@
 import
 	keen/format/base64
+	keen/unsafe
 	../../cli/command
 	../../frontend/show-model
 	../../model/low-model
@@ -86,7 +87,7 @@ do show-ctx
 
 -gen-var-no-getter js-var-decl(var low-var) to-js
 	# TODO: actually detect whether it needs to be async
-	the to-expr-ctx = async, var.source::var-decl.name
+	the to-expr-ctx = is-cur-fun-async: async, cur-fun-debug-name: var.source::var-decl.name
 	const: let
 	destructure: js-name var
 	initializer: to-js-expr var.initializer
@@ -261,18 +262,20 @@ do show-ctx
 			out ~= gen-constructor source, extends, names, of index, get
 				gen-type-assert source, get, r.fields[index].type
 		each-method-impl a, (union-info.type-to-interfaces[a] else ()), program, of method, impl
-			params js-destructure[] = map method.params[1 .. end], it.local-name-no-mangle
-			args js-expr[] =
-				- gen-this source
-				-- map params, of param
-					gen-identifier source, param.js-name!
-			body js-block-statement =
-				ref = to-ref source, impl!, if impl!.async-fun-kind == always-async then async else sync
-				statements:
-					- gen-return source,
-						gen-call-sync source, ref, args
-			out ~= source, mangled-names[method, sync],
-				js-class-method sync, params, body
+			out ~= to-method-body source, method, impl!
+
+-to-method-body js-class-member(source source, method low-fun, impl low-expr) to-js
+	source: source
+	name: mangled-names[method, sync]
+	kind:
+		the to-expr-ctx =
+			is-cur-fun-async: if method.async-fun-kind == always-async then async else sync
+			cur-fun-debug-name: debug-name method
+			this-local: method.params[0]
+		:: js-class-method
+		async: the::to-expr-ctx.is-cur-fun-async
+		params: map method.params[1 .. end], it.local-name
+		body: to-block-statement impl
 
 -class-for-union js-class-decl?(a low-type, extends js-name?) to-js
 	match union-representation a
@@ -379,6 +382,7 @@ do
 	top-declared-locals js-name mut[]
 	temp-local-indices nat mut[low-local]
 	next-generated-temp-index mut nat
+	this-local low-local?
 -is-cur-fun-async sync-or-async() to-expr-ctx
 	the::to-expr-ctx.is-cur-fun-async
 -cur-fun-debug-name symbol() to-expr-ctx
@@ -395,12 +399,15 @@ do
 		decl js-var-decl = let, for x in locals then x, ()
 		(source, decl) ~ block
 -new to-expr-ctx(is-cur-fun-async sync-or-async, cur-fun-debug-name symbol)
+	is-cur-fun-async, cur-fun-debug-name, ()
+-new to-expr-ctx(is-cur-fun-async sync-or-async, cur-fun-debug-name symbol, this-local low-local?)
 	is-cur-fun-async: is-cur-fun-async
 	cur-fun-debug-name: cur-fun-debug-name
 	cur-loop-label: ()
 	top-declared-locals: ()
 	temp-local-indices: ()
 	next-generated-temp-index: ()
+	this-local: this-local
 -finish-locals js-name[]() to-expr-ctx
 	the::to-expr-ctx.top-declared-locals.move-to
 -take-next-temp-index nat() to-expr-ctx
@@ -428,7 +435,7 @@ do
 -gen-var-getter js-fun-decl(a low-var) to-js
 	async = is-async-initializer a
 	name = var-getter-name a
-	the to-expr-ctx = async, a.source::var-decl.name
+	the to-expr-ctx = is-cur-fun-async: async, cur-fun-debug-name: a.source::var-decl.name
 	initializer = to-js-expr a.initializer
 	###
 	if (x === undefined) x = initializer
@@ -455,7 +462,7 @@ do
 	else
 		- to-js-function a, sync
 -to-js-function js-fun-decl(a low-fun, async sync-or-async) to-js
-	the to-expr-ctx = async, debug-name a
+	the to-expr-ctx = is-cur-fun-async: async, cur-fun-debug-name: a.debug-name
 	body = to-expr-or-block-statement a
 	locals = finish-locals
 	comment: show-low-fun-name a
@@ -472,7 +479,7 @@ do
 	match body = a.body
 	as low-expr
 		res = to-expr-or-block-statement body
-		type-asserts js-statement[] = unless the-sanity-checks == no-sanity-checks
+		type-asserts js-statement[] = unless the-sanity-checks == no-sanity-checks # TODO: time to remove this????????????????????
 			for* param in a.params
 				from-option gen-type-assert source, (get-local source, param), param.type
 		if is-empty type-asserts
@@ -1344,7 +1351,10 @@ do to-expr
 		a
 
 -get-local js-expr(source source, a low-local) to-expr
-	gen-identifier source, local-name a
+	if trusted the::to-expr-ctx.this-local 'reference-equal a # TODO:NEATER????????????????????????????????????????????????????????????
+		gen-this source
+	else
+		gen-identifier source, local-name a
 -local-name js-name(a low-local) to-expr-ctx
 	kind: local
 	keen-name: match source = a.source

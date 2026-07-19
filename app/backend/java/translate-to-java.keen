@@ -135,7 +135,7 @@ do show-ctx
 	cur-fun-for-debug low-fun?
 	closure field-reference[low-local]
 	stack low-type mut-stack
-	has-this bool
+	has-this bool # TODO: is this ever true?????????????????????????????????????????????????????????????????????????????????????????
 	| Does not include the 'this' param
 	locals local-entry mut-stack
 	loop-pos mut jump-target?
@@ -569,7 +569,7 @@ do java-expr-ctx
 		each-method-impl type, interface-types, program, of method, impl
 			kind = java-method-kind union-info, method
 			if is-instance kind
-				out ~= method-impl method, impl
+				out ~= method-impl this-class, method, impl
 		if is-exception-case
 			impls = program.method-impls[program.exception]!
 			# TODO:PERF have the index handy so we don't have to search for it again
@@ -577,7 +577,7 @@ do java-expr-ctx
 			# 'show' is not a Java method (since we don't control the Throwable type),
 			# but while we're here, define 'toString' in terms of it
 			if impl = only! impls.cases[case-index]
-				out ~= toString-method-impl impl
+				out ~= toString-method-impl impls.methods.only!, this-class, impl
 
 	class_ ClassFile? = match body = body type
 	as builtin-type
@@ -644,41 +644,72 @@ do java-expr-ctx
 	descriptor: instance-method-descriptor method
 	attributes: ()
 
-| Creates the instance method that implements an interface method by calling a static function
--method-impl method_info(method low-fun, impl low-fun?) java-names-and-refs
-	code = with out in build-code ()
-		assert impl else todo # TODO: generate code that will throw an error
-		java-param-index mut nat = 0
-		erased = erased-signature method
-		for index, param in with-index method.params
-			if index == 0
-				aload out, 0
-				unbox-if-necessary out, impl.params[0].type
-			else
-				xload out, param.type.as-runtime-type, java-param-index
-				if _, erased-param-types = erased
+| Creates the instance method that implements an interface method
+-method-impl method_info(this-class class-reference, method low-fun, impl low-expr?) java-ctx, java-refs
+	# TODO: share as much code as possible between these branches ....................................................................
+	if erased-return-type, erased-param-types = erased-signature method
+		# Implementing a Java method: Always uses a call.
+		# In this case we have to make sure to convert to erased types.
+		assert impl
+		assert call-low-expr impl
+		for index, arg in with-index impl.args
+			arg2 = if union-assume-case-low-expr arg then arg.arg else arg
+			assert local-get-low-expr arg2
+			assert arg2.local == method.params[index]
+		impl-fun = impl.called
+		code = with out in build-code ()
+			java-param-index mut nat = 0
+			for index, param in with-index method.params
+				if index == 0
+					aload out, 0
+					unbox-if-necessary out, impl-fun.params[0].type
+				else
+					xload out, param.type.as-runtime-type, java-param-index
 					if is-Object erased-param-types[index]
 						cast-and-unbox-if-necessary out, param.type
-			java-param-index +:= number-of-locals param.type
-		call-low-fun out, impl
-		if erased-return-type, _ = erased
+				java-param-index +:= number-of-locals param.type
+			call-low-fun out, impl-fun
 			if is-Object erased-return-type
 				box-no-refine out, method.return-type, erased-return-type
-		return out, method.return-type.as-runtime-type
-	access-flags: public | final
-	name: instance-method-name method
-	descriptor: instance-method-descriptor method
-	attributes: code,
+			return out, method.return-type.as-runtime-type
+		access-flags: public | final
+		name: instance-method-name method
+		descriptor: instance-method-descriptor method
+		attributes: code,
+	else
+		the expr-ctx = # TODO: there is a lot of repeated code when building these, share code ..............................................
+			this-class: this-class
+			cur-fun: ()
+			closure: ()
+			has-this: false # TODO: this is technically true. But 'this' is just parameter 0 .........................................................
+			params: filter method.params, it.type.is-empty-type.not
+		code = with out in build-code ()
+			assert impl else todo # TODO: generate code that will throw an error -----------------------------------------------
+			erased = erased-signature method
+			emit-expr out, return, impl
+		verify-expr-ctx-finished method.return-type, method.params
+		access-flags: public | final
+		name: instance-method-name method
+		descriptor: instance-method-descriptor method
+		attributes: code,
 
--toString-method-impl method_info(show low-fun) java-names-and-refs
+-toString-method-impl method_info(method low-fun, this-class class-reference, expr low-expr) java-ctx, java-refs
+	the expr-ctx = # TODO: there is a lot of repeated code when building these, share code ..............................................
+		this-class: this-class
+		cur-fun: ()
+		closure: ()
+		has-this: false # TODO: this is technically true. But 'this' is just parameter 0 ..........................................
+		params: filter method.params, it.type.is-empty-type.not # TODO: every call does this filter, just do it in the construtro??????
 	code = with out in build-code ()
 		makenew out, java-String
 		dup32 out
-		case-type = show.params.only!.type
-		unless is-empty-type case-type
-			aload out, 0
-			unbox-if-necessary out, case-type
-		call-low-fun out, show
+		for _ in 0 .. 2
+			pushed method.return-type # Not the right type, but it's not used by the code so any type will do
+		emit-expr out, continue_, expr
+		# At this point, the stack is: The String, the same String again, and the string (byte[])
+		for _ in 0 .. 2
+			must-pop method.return-type # Not the right type, but it's not used by the code so any type will do
+		verify-expr-ctx-finished method.return-type, method.params
 		invokespecial out, java-String-init-from-bytes
 		return out, reference-type
 	access-flags: public | final
@@ -1038,11 +1069,6 @@ do java-refs
 		cases = cases info
 		method-index = index-of! info.methods, fun
 		return-type = return-type fun
-		load-rest-params = of::void
-			local-index mut nat = 1
-			for param in fun.params[1 .. end]
-				xload out, param.type.as-runtime-type, local-index
-				local-index +:= number-of-locals param.type
 		match union-representation union_
 		as exception
 			jump mut deferred-jump? = ()
@@ -1055,9 +1081,8 @@ do java-refs
 				jump := ifeq out
 				aload out, 0
 				cast-and-unbox-if-necessary out, case-type
-				load-rest-params[]
-				call-low-fun out, case-impl
-				return out, return-type.as-runtime-type
+				emit-expr out, return, case-impl
+				must-pop return-type
 			jumps-to-here jump!, out, cur-stack-frame
 			# To 'show' Java exceptions, call 'toString' and convert
 			aload out, 0
@@ -1076,10 +1101,9 @@ do java-refs
 				jumps-to-here jump-to-case[case-index], out, cur-stack-frame
 				aload out, 0
 				get-switchable-value out, union_, case-type
-				load-rest-params[]
 				case-impl = case-impls[method-index] else throw todo
-				call-low-fun out, case-impl
-				return out, return-type.as-runtime-type
+				emit-expr out, return, case-impl
+				must-pop return-type
 			jumps-to-here jump-to-default, out, cur-stack-frame
 			emit-unreachable out
 			pushed return-type
@@ -1090,15 +1114,11 @@ do java-refs
 			non-null-impl = non-null-case[method-index] else throw todo
 			aload out, 0
 			jump = ifnonnull out
-			load-rest-params[]
-			call-low-fun out, null-impl
-			return out, return-type.as-runtime-type
+			emit-expr out, return, null-impl
 			jumps-to-here jump, out, cur-stack-frame
 			aload out, 0
 			unbox-if-necessary out, non-null-type
-			load-rest-params[]
-			call-low-fun out, non-null-impl
-			return out, return-type.as-runtime-type
+			emit-expr out, return, non-null-impl
 			pushed return-type
 	as low-fun-body-deferred
 		throw unreachable
