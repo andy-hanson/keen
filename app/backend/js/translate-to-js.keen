@@ -16,17 +16,12 @@ import
 	./union-representation
 	./write-js-ast
 
-translate-to-js js-and-map
-	program low-program
-	sanity-checks sanity-checks
-	source-map-name string?
-do show-ctx
+translate-to-js js-and-map(program low-program, source-map-name string?) show-ctx
 	start = perf-now
 	finally end-translate-to-js start
 	the low-common-types = program.common-types
 	the to-js-ctx =
 		program: program
-		sanity-checks: sanity-checks
 		union-info: plan-unions program
 		mangled-names: build-mangled-names program
 		constant-names: gen-constant-names program
@@ -79,7 +74,7 @@ do show-ctx
 		statements:
 			- to::js-statement gen-call-main program.common-funs.low-common-funs-js!.main
 	module-paths = module-paths program.model-program
-	write-js-ast file-content-getters, module-paths, ast, sanity-checks, source-map-name
+	write-js-ast file-content-getters, module-paths, ast, source-map-name
 
 # Emit vars with simple initializers before symbols (this happens to be the only kind of constants that requires)
 -has-simple-initializer bool(a low-var)
@@ -148,13 +143,6 @@ do show-ctx
 		()
 	as low-type-body-deferred
 		throw unreachable
-
--gen-type-assert js-statement?(source source, get js-expr, a low-type) to-js
-	do if the-sanity-checks == all-sanity-checks
-	do if is-type = gen-is-type source, get, a
-	# Allow 'gc-safe-value'
-	is-type-or-null = gen-or source, is-type, gen-eq-eq-eq source, get, source.gen-null
-	gen-call-sync source, (gen-identifier source, "_assert".no-prefix), (is-type-or-null,) 'to
 
 -gen-is-builtin-type js-expr?(source source, get js-expr, type low-type, kind builtin-type)
 	instanceof = of x string
@@ -259,8 +247,7 @@ do show-ctx
 		source source = source a
 		do with out in build
 		unless is-empty r.fields
-			out ~= gen-constructor source, extends, names, of index, get
-				gen-type-assert source, get, r.fields[index].type
+			out ~= gen-constructor source, extends, names
 		each-method-impl a, (union-info.type-to-interfaces[a] else ()), program, of method, impl
 			out ~= to-method-body source, method, impl!
 
@@ -311,14 +298,9 @@ do show-ctx
 		name: js-name a
 		extends: extends
 		members:
-			- gen-constructor a.source, extends, ("index", "value"), {}
+			- gen-constructor a.source, extends, ("index", "value")
 
--gen-constructor js-class-member
-	source source
-	call-super bool
-	names string[]
-	check-field js-statement? mut(index nat32, value js-expr)
-do
+-gen-constructor js-class-member(source source, call-super bool, names string[])
 	params js-destructure[] = map names, it.no-prefix
 	this = gen-this source
 	identifiers js-expr[] = for name in names
@@ -326,8 +308,6 @@ do
 	statements js-statement[] =
 		-- if call-super
 			- gen-call-sync source, (gen-global source, "super"), () 'to
-		-- for* index, value in with-index identifiers
-			from-option check-field[index, value]
 		-- for name, identifier in zip names, identifiers
 			this_x = gen-property-access source, this, name
 			gen-assign source, this_x, identifier
@@ -351,12 +331,9 @@ do
 -to-js spec show-ctx, low-common-types, to-js-ctx
 -to-js-ctx record
 	program low-program
-	sanity-checks sanity-checks
 	union-info union-info
 	mangled-names js-mangled-names
 	constant-names nat constant-names
--the-sanity-checks sanity-checks() to-js-ctx
-	the::to-js-ctx.sanity-checks
 -program low-program() to-js-ctx
 	the::to-js-ctx.program
 -union-info union-info() to-js-ctx
@@ -474,18 +451,9 @@ do
 
 -to-expr-or-block-statement js-expr-or-block-statement(a low-fun) to-expr
 	source source = source a
-	get-params = of::js-expr[]
-		map a.params, {get-local source, it}
 	match body = a.body
 	as low-expr
-		res = to-expr-or-block-statement body
-		type-asserts js-statement[] = unless the-sanity-checks == no-sanity-checks # TODO: time to remove this????????????????????
-			for* param in a.params
-				from-option gen-type-assert source, (get-local source, param), param.type
-		if is-empty type-asserts
-			res
-		else
-			(type-asserts,) ~~ (to-block-statement res, a.return-type)
+		to-expr-or-block-statement body
 	as low-fun-body-extern-java
 		throw unreachable
 	as low-fun-body-method
@@ -495,10 +463,6 @@ do
 		throw unreachable
 	as low-fun-body-always-inline
 		throw unreachable
-	as java-fun
-		throw todo
-	as js-fun
-		throw todo
 
 -gen-call-Number js-expr(source source, arg js-expr)
 	gen-call-sync source, (gen-global source, "Number"), (arg,)
