@@ -129,24 +129,19 @@ do show-ctx
 -build-code build-code() java-expr-ctx
 	constants, cur-stack-frame
 
--ctx-source union(low-fun, low-var, static-constants)
--static-constants record
-
 -java-expr-ctx spec java-ctx, java-refs, expr-ctx
 -expr-ctx record mut
 	this-class class-reference
-	source ctx-source # TODO: This is actually completely unused. Was only used to name lambdas, but they have a global index -----------------------------
-	closure field-reference[low-local]
+	closure field-reference[low-local]?
 	stack low-type-or-uninitialized mut-stack
-	has-this bool # TODO: is this ever true?????????????????????????????????????????????????????????????????????????????????????????
 	| Does not include the 'this' param
 	locals local-entry mut-stack
 	loop-pos mut jump-target?
 -low-type-or-uninitialized union(low-type, Uninitialized_variable_info)
 -the-stack low-type-or-uninitialized mut-stack() expr-ctx
 	the::expr-ctx.stack
--has-this bool() expr-ctx
-	the::expr-ctx.has-this
+-has-unused-this-parameter bool() expr-ctx
+	the::expr-ctx.closure
 -the-locals local-entry mut-stack() expr-ctx
 	the::expr-ctx.locals
 -loop-pos jump-target?() expr-ctx
@@ -161,23 +156,18 @@ do show-ctx
 		a.type
 	as low-type
 		a
--new expr-ctx
-	this-class class-reference
-	cur-fun ctx-source
-	closure field-reference[low-local]
-	has-this bool
-	params low-local[]
-do
+-new expr-ctx(this-class class-reference, params low-local[]) = this-class, (), params
+-new expr-ctx(this-class class-reference, closure field-reference[low-local]?, params low-local[])
 	locals local-entry mut-stack = ()
 	for x in params
-		forbid is-empty-type x.type
-		locals ~= x
-	this-class, cur-fun, closure, (), has-this, locals, ()
+		unless is-empty-type x.type
+			locals ~= x
+	this-class, closure, (), locals, ()
 | Index of a local, or reference to a closure field
 -local-or-closure union(nat, field-reference)
 -explain-local local-or-closure(local low-local) expr-ctx
-	the::expr-ctx.closure[local] else
-		res mut nat = has-this.to
+	the::expr-ctx.closure?[local] else
+		res mut nat = has-unused-this-parameter.to
 		assert some the-locals, of x
 			found = x == local
 			unless found
@@ -185,13 +175,13 @@ do
 			found
 		res
 -next-local-index nat() expr-ctx
-	res mut nat = has-this.to
+	res mut nat = has-unused-this-parameter.to
 	for x in the-locals
 		res +:= number-of-locals x.type
 	res
 -cur-stack-frame stack-frame() java-expr-ctx
 	locals: with out in build
-		if has-this
+		if has-unused-this-parameter
 			out ~= Object_variable_info the::expr-ctx.this-class
 		for x in the-locals
 			out ~= verification-type x.type
@@ -287,7 +277,7 @@ do
 	this-class class-reference
 	constants any-allocated-constant[]
 do java-ctx, java-refs
-	the expr-ctx = this-class, static-constants, (), (), ()
+	the expr-ctx = this-class, (), ()
 	for constant in constants
 		forbid is-empty-type constant.type or as-wrapper constant.type
 		init-constant out, constant
@@ -655,18 +645,17 @@ do java-expr-ctx
 
 | Creates the instance method that implements an interface method
 -method-impl method_info(this-class class-reference, method low-fun, impl low-expr?) java-ctx, java-refs
-	# TODO: share as much code as possible between these branches ....................................................................
-	if erased-return-type, erased-param-types = erased-signature method
+	assert impl else todo
+	code = if erased-return-type, erased-param-types = erased-signature method
 		# Implementing a Java method: Always uses a call.
 		# In this case we have to make sure to convert to erased types.
-		assert impl
 		assert call-low-expr impl
 		for index, arg in with-index impl.args
 			arg2 = if union-assume-case-low-expr arg then arg.arg else arg
 			assert local-get-low-expr arg2
 			assert arg2.local == method.params[index]
 		impl-fun = impl.called
-		code = with out in build-code ()
+		with out in build-code ()
 			java-param-index mut nat = 0
 			for index, param in with-index method.params
 				if index == 0
@@ -681,34 +670,18 @@ do java-expr-ctx
 			if is-Object erased-return-type
 				box-no-refine out, method.return-type, erased-return-type
 			return out, method.return-type.as-runtime-type
-		access-flags: public | final
-		name: instance-method-name method
-		descriptor: instance-method-descriptor method
-		attributes: code,
 	else
-		the expr-ctx = # TODO: there is a lot of repeated code when building these, share code ..............................................
-			this-class: this-class
-			cur-fun: method
-			closure: ()
-			has-this: false # TODO: this is technically true. But 'this' is just parameter 0 .........................................................
-			params: filter method.params, it.type.is-empty-type.not
-		code = with out in build-code ()
-			assert impl else todo # TODO: generate code that will throw an error -----------------------------------------------
-			erased = erased-signature method
+		the expr-ctx = this-class, method.params
+		with out in build-code ()
 			emit-expr out, return, impl
-		verify-expr-ctx-finished method.return-type, method.params
-		access-flags: public | final
-		name: instance-method-name method
-		descriptor: instance-method-descriptor method
-		attributes: code,
+			verify-expr-ctx-finished method.return-type, method.params
+	access-flags: public | final
+	name: instance-method-name method
+	descriptor: instance-method-descriptor method
+	attributes: code,
 
 -toString-method-impl method_info(method low-fun, this-class class-reference, expr low-expr) java-ctx, java-refs
-	the expr-ctx = # TODO: there is a lot of repeated code when building these, share code ..............................................
-		this-class: this-class
-		cur-fun: method
-		closure: ()
-		has-this: false # TODO: this is technically true. But 'this' is just parameter 0 ..........................................
-		params: filter method.params, it.type.is-empty-type.not # TODO: every call does this filter, just do it in the construtro??????
+	the expr-ctx = this-class, method.params
 	code = with out in build-code ()
 		makenew out, java-String
 		dup32 out
@@ -1024,12 +997,7 @@ do java-refs
 		methods: methods
 		attributes: source,
 -method-for-fun method_info(this-class class-reference, fun low-fun) java-ctx, java-refs
-	the expr-ctx =
-		this-class: this-class
-		cur-fun: fun
-		closure: ()
-		has-this: false
-		params: filter fun.params, it.type.is-empty-type.not
+	the expr-ctx = this-class, fun.params
 	code = with out in build-code
 		emit-fun-body out, fun
 	verify-expr-ctx-finished fun.return-type, fun.params
@@ -1039,12 +1007,7 @@ do java-refs
 	attributes: code,
 
 -init-vars method_info(this-class class-reference, vars low-var[]) java-ctx, java-refs
-	the expr-ctx =
-		this-class: this-class
-		cur-fun: ()
-		closure: ()
-		has-this: false
-		params: ()
+	the expr-ctx = this-class, ()
 	code = with out in build-code
 		for var in vars
 			match var.kind
@@ -1312,7 +1275,7 @@ do java-refs
 		emit-and-continue out, a.value
 		emit-with-local out, a.local, pos, a.then_
 	as lambda-low-expr
-		class-name = create-lambda-implementation-class a.uri, the::expr-ctx.source, type, a
+		class-name = create-lambda-implementation-class a.uri, type, a
 		class_ = class_ out.constants, class-name
 		# All we do here is call 'new' or 'instance'
 		if is-empty a.closure
@@ -1958,12 +1921,7 @@ do java-expr-ctx
 		aload out, 0
 		getfield out, x
 
--create-lambda-implementation-class symbol
-	uri uri
-	ctx-source ctx-source
-	lambda-type low-type
-	a lambda-low-expr
-do java-ctx
+-create-lambda-implementation-class symbol(uri uri, lambda-type low-type, a lambda-low-expr) java-ctx
 	the java-refs = start-new-class names
 	this-class-name = lambda-impl-class-name the::to-java-ctx.next-lambda-index
 	the::to-java-ctx.next-lambda-index +:= 1
@@ -1988,7 +1946,7 @@ do java-ctx
 		methods-out ~= record-initializer super-class, field-refs, lambda-init-descriptor a
 		if is-empty a.closure
 			methods-out ~= clinit-for-instance-field this-class-name, this-class
-		methods-out ~= lambda-run-method this-class, ctx-source, closure, lambda-type, a
+		methods-out ~= lambda-run-method this-class, closure, lambda-type, a
 	add-class this-class-name,
 		source SourceFile_attribute = SourceFile, constants[uri.to]
 		constant-pool: finish constants
@@ -2002,13 +1960,14 @@ do java-ctx
 	this-class-name
 -lambda-run-method method_info
 	this-class class-reference
-	containing-fun ctx-source
 	closure field-reference[low-local]
 	lambda-type low-type
 	a lambda-low-expr
 do java-ctx, java-refs
-	the expr-ctx = this-class, containing-fun, closure, true,
-		unless is-empty-type a.param.type
+	the expr-ctx =
+		this-class: this-class
+		closure: closure
+		params: unless is-empty-type a.param.type
 			- a.param
 	code = with out in build-code
 		emit-expr out, return, a.body
