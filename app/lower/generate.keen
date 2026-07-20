@@ -30,12 +30,9 @@ gen-do-and-continue low-expr(type low-type, range uri-and-range, a low-expr)
 		seq-low-expr range,
 			-- as-seq a
 			- loop-continue-low-expr type, range
-gen-drop-then low-expr(range uri-and-range, a low-expr, b low-expr) lower-ctx
-	seq-low-expr range,
-		- builtin-unary-low-expr void, range, drop, a
-		- b
 
-gen-call low-expr(range uri-and-range, fun low-fun, args low-expr[])
+# TODO: most of these branches will be dead code, replaced by low-fun-body-always-inline! -------------------------------------------
+gen-call low-expr(range uri-and-range, fun low-fun, args low-expr[]) lower-ctx
 	match body = fun.body
 	as low-expr
 		if body.constant-low-expr
@@ -49,15 +46,7 @@ gen-call low-expr(range uri-and-range, fun low-fun, args low-expr[])
 	as low-fun-body-deferred
 		call-low-expr range, fun, args
 	as low-fun-body-always-inline
-		throw unreachable
-	as low-builtin-unary
-		builtin-unary-low-expr fun.return-type, range, body, only! args
-	as low-builtin-binary
-		arg0, arg1 = only2! args
-		builtin-binary-low-expr fun.return-type, range, body, arg0, arg1
-	as low-builtin-ternary
-		arg0, arg1, arg2 = only3! args
-		builtin-ternary-low-expr fun.return-type, range, body, arg0, arg1, arg2
+		lower-inline-call-not-array-op fun, range, args
 	as java-fun
 		match body
 		as instanceof
@@ -84,10 +73,6 @@ constant-none constant(option-type low-type) lower-ctx
 
 gen-void constant-low-expr(range uri-and-range) lower-ctx
 	void, range, constant-gc-safe-value
-
-get-low-field low-field(record-type low-type, field record-field)
-	index = index-of! record-type.source.low-type-source-inst!.decl.body.record_!.fields, field
-	record-type.body.low-record!.fields[index]
 
 # TODO:PERF I think this whole thing should be its own kind of low-expr, so the java version can be optimized
 gen-union-member-get low-fun-body(fun low-fun, case-index nat32) lower-ctx
@@ -212,24 +197,6 @@ do lower-ctx, quick-fill-in-low-fun-body
 	call-low-expr range, concat,
 		- gen-create-array concat.params[0].type, range, array-views[concat.params[0].type.as-array!]
 
-gen-create-record low-expr(type low-type, range uri-and-range, args low-expr[]) lower-ctx
-	if not prevent-constant type.body.low-record! and x = as-constants args
-		type, range, get-constant-record all-constants, type, x
-	else
-		create-record-low-expr type, range, args
-
-as-constants constant[]?(exprs low-expr[])
-	map-every exprs, it.constant-low-expr.?value
-
-gen-record-field-get low-expr
-	range uri-and-range
-	arg low-expr
-	field low-field
-do lower-ctx
-	if is-empty-type field.type
-		gen-drop-then range, arg, constant-low-expr field.type, range, constant-gc-safe-value
-	else
-		record-field-get-low-expr range, arg, field
 gen-and low-expr(range uri-and-range, a low-expr, b low-expr) lower-ctx
 	if-low-expr range, a, b, gen-false range
 gen-or low-expr(range uri-and-range, a low-expr, b low-expr) lower-ctx

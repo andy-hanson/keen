@@ -129,17 +129,21 @@ do show-ctx
 -build-code build-code() java-expr-ctx
 	constants, cur-stack-frame
 
+-ctx-source union(low-fun, low-var, static-constants)
+-static-constants record
+
 -java-expr-ctx spec java-ctx, java-refs, expr-ctx
 -expr-ctx record mut
 	this-class class-reference
-	cur-fun-for-debug low-fun?
+	source ctx-source # TODO: This is actually completely unused. Was only used to name lambdas, but they have a global index -----------------------------
 	closure field-reference[low-local]
-	stack low-type mut-stack
+	stack low-type-or-uninitialized mut-stack
 	has-this bool # TODO: is this ever true?????????????????????????????????????????????????????????????????????????????????????????
 	| Does not include the 'this' param
 	locals local-entry mut-stack
 	loop-pos mut jump-target?
--the-stack low-type mut-stack() expr-ctx
+-low-type-or-uninitialized union(low-type, Uninitialized_variable_info)
+-the-stack low-type-or-uninitialized mut-stack() expr-ctx
 	the::expr-ctx.stack
 -has-this bool() expr-ctx
 	the::expr-ctx.has-this
@@ -159,7 +163,7 @@ do show-ctx
 		a
 -new expr-ctx
 	this-class class-reference
-	cur-fun low-fun?
+	cur-fun ctx-source
 	closure field-reference[low-local]
 	has-this bool
 	params low-local[]
@@ -193,25 +197,29 @@ do
 			out ~= verification-type x.type
 	stack: map the-stack, it.verification-type
 
--verification-type verification_type_info(a low-type) java-expr-ctx
-	match rt = as-runtime-type a
-	as void
-		throw unreachable
-	as java-primitive-type
-		match rt
-		as T_BOOLEAN then integer
-		as T_CHAR then integer
-		as T_FLOAT then float
-		as T_DOUBLE then double
-		as T_BYTE then integer
-		as T_SHORT then integer
-		as T_INT then integer
-		as T_LONG then long
-	as reference-type
-		if f = as-wrapper a
-			verification-type f.type
-		else
-			Object_variable_info class_ a
+-verification-type verification_type_info(a low-type-or-uninitialized) java-expr-ctx
+	match a
+	as low-type
+		match rt = as-runtime-type a
+		as void
+			throw unreachable
+		as java-primitive-type
+			match rt
+			as T_BOOLEAN then integer
+			as T_CHAR then integer
+			as T_FLOAT then float
+			as T_DOUBLE then double
+			as T_BYTE then integer
+			as T_SHORT then integer
+			as T_INT then integer
+			as T_LONG then long
+		as reference-type
+			if f = as-wrapper a
+				verification-type f.type
+			else
+				Object_variable_info class_ a
+	as Uninitialized_variable_info
+		a
 
 -translate-constants void() java-ctx
 	add-class names.constant-symbols-class-name, constant-symbols-class
@@ -279,7 +287,7 @@ do
 	this-class class-reference
 	constants any-allocated-constant[]
 do java-ctx, java-refs
-	the expr-ctx = this-class, (), (), (), ()
+	the expr-ctx = this-class, static-constants, (), (), ()
 	for constant in constants
 		forbid is-empty-type constant.type or as-wrapper constant.type
 		init-constant out, constant
@@ -330,18 +338,19 @@ do java-expr-ctx
 		emit-arg[0, field]
 		must-refine field.type, record-type
 	else
+		uninitialized = Uninitialized_variable_info next-index out
 		makenew out, class_ record-type
-		pushed record-type
+		pushed uninitialized
 		dup32 out
-		pushed record-type
+		pushed uninitialized
 		for i, field in with-index fields
 			emit-arg[i, field]
 			must-peek field.type
 		invokespecial out, record-init-reference record-type
 		for field in reverse fields
 			must-pop field.type
-		must-pop record-type
-		must-peek record-type
+		must-pop uninitialized
+		must-refine uninitialized, record-type
 
 -make-array void
 	out code-builder
@@ -679,7 +688,7 @@ do java-expr-ctx
 	else
 		the expr-ctx = # TODO: there is a lot of repeated code when building these, share code ..............................................
 			this-class: this-class
-			cur-fun: ()
+			cur-fun: method
 			closure: ()
 			has-this: false # TODO: this is technically true. But 'this' is just parameter 0 .........................................................
 			params: filter method.params, it.type.is-empty-type.not
@@ -696,7 +705,7 @@ do java-expr-ctx
 -toString-method-impl method_info(method low-fun, this-class class-reference, expr low-expr) java-ctx, java-refs
 	the expr-ctx = # TODO: there is a lot of repeated code when building these, share code ..............................................
 		this-class: this-class
-		cur-fun: ()
+		cur-fun: method
 		closure: ()
 		has-this: false # TODO: this is technically true. But 'this' is just parameter 0 ..........................................
 		params: filter method.params, it.type.is-empty-type.not # TODO: every call does this filter, just do it in the construtro??????
@@ -1124,24 +1133,6 @@ do java-refs
 		throw unreachable
 	as low-fun-body-always-inline
 		throw unreachable
-	as low-builtin-unary
-		param = only! fun.params
-		get-local out, param
-		translate-builtin-unary out, body, fun.return-type, param.type
-		pushed fun.return-type
-		return out, fun.return-type.as-runtime-type
-	as low-builtin-binary
-		for param in fun.params
-			get-local out, param
-		translate-builtin-binary out, body, fun.return-type, fun.params[0].type
-		pushed fun.return-type
-		return out, fun.return-type.as-runtime-type
-	as low-builtin-ternary
-		args low-expr[] = for param in fun.params
-			local-get-low-expr fun.range, param
-		translate-builtin-ternary out, body, only3! args
-		pushed fun.return-type
-		return out, fun.return-type.as-runtime-type
 	as java-fun
 		throw todo
 	as js-fun
@@ -1325,7 +1316,7 @@ do java-refs
 		emit-and-continue out, a.value
 		emit-with-local out, a.local, pos, a.then_
 	as lambda-low-expr
-		class-name = create-lambda-implementation-class a.uri, the::expr-ctx.cur-fun-for-debug!, type, a
+		class-name = create-lambda-implementation-class a.uri, the::expr-ctx.source, type, a
 		class_ = class_ out.constants, class-name
 		# All we do here is call 'new' or 'instance'
 		if is-empty a.closure
@@ -1973,12 +1964,12 @@ do java-expr-ctx
 
 -create-lambda-implementation-class symbol
 	uri uri
-	containing-fun low-fun
+	ctx-source ctx-source
 	lambda-type low-type
 	a lambda-low-expr
 do java-ctx
 	the java-refs = start-new-class names
-	this-class-name = lambda-impl-class-name containing-fun, the::to-java-ctx.next-lambda-index
+	this-class-name = lambda-impl-class-name the::to-java-ctx.next-lambda-index
 	the::to-java-ctx.next-lambda-index +:= 1
 	this-class = class_ constants, this-class-name
 	closure field-reference[low-local] = for x in a.closure
@@ -2001,7 +1992,7 @@ do java-ctx
 		methods-out ~= record-initializer super-class, field-refs, lambda-init-descriptor a
 		if is-empty a.closure
 			methods-out ~= clinit-for-instance-field this-class-name, this-class
-		methods-out ~= lambda-run-method this-class, containing-fun, closure, lambda-type, a
+		methods-out ~= lambda-run-method this-class, ctx-source, closure, lambda-type, a
 	add-class this-class-name,
 		source SourceFile_attribute = SourceFile, constants[uri.to]
 		constant-pool: finish constants
@@ -2015,7 +2006,7 @@ do java-ctx
 	this-class-name
 -lambda-run-method method_info
 	this-class class-reference
-	containing-fun low-fun
+	containing-fun ctx-source
 	closure field-reference[low-local]
 	lambda-type low-type
 	a lambda-low-expr
@@ -2110,18 +2101,18 @@ do java-expr-ctx
 -popped-args void(args low-expr[]) low-common-types, expr-ctx
 	for arg in reverse args
 		must-pop arg.type
--pushed void(type low-type) expr-ctx
-	unless is-empty-type type
+-pushed void(type low-type-or-uninitialized) expr-ctx
+	unless low-type type and is-empty-type type
 		the-stack ~= type
--must-pop void(type low-type) expr-ctx
-	unless is-empty-type type
+-must-pop void(type low-type-or-uninitialized) expr-ctx
+	unless low-type type and is-empty-type type
 		the-stack.pop! is type
 -must-peek void(type low-type) expr-ctx
 	unless is-empty-type type
 		the-stack.peek! is type
 | Can use this for an up or down cast
--must-refine void(old-type low-type, new-type low-type) expr-ctx
-	unless is-empty-type old-type
+-must-refine void(old-type low-type-or-uninitialized, new-type low-type) expr-ctx
+	unless low-type old-type and is-empty-type old-type
 		the-stack.pop! is old-type
 	unless is-empty-type new-type
 		the-stack ~= new-type
