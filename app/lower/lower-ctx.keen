@@ -1,7 +1,7 @@
 import
-	keen/bits
 	keen/col/enum-map
 	keen/random/basic-prng
+	keen/string/unicode
 	keen/unsafe
 	../../lib/col/experimental/object-memoizer
 	../frontend/show-model
@@ -19,14 +19,12 @@ type-args-scope alias
 type-args-scope-for-fun type-args-scope(a low-fun)
 	match x = a.source
 	as low-fun-source-regular then x.type-args
-	as low-fun-source-interface-or-lens-method-impl then throw unreachable
 	as low-fun-source-test then ()
 	as low-fun-source-test-all then throw unreachable
 
 specs-scope-for-fun low-fun[](a low-fun)
 	match x = a.source
 	as low-fun-source-regular then x.spec-impls
-	as low-fun-source-interface-or-lens-method-impl then throw unreachable
 	as low-fun-source-test then ()
 	as low-fun-source-test-all then throw unreachable
 
@@ -53,6 +51,11 @@ lower-context record mut
 	all-unprocessed-low-funs low-fun mut[]
 	| Maps a sum type to its cases
 	sum-types low-sum-type-info mut[low-type]
+	| The value is the case index
+	new-interface-types nat32 mut[low-type]
+	| The key is the lens type and field name
+	| The value is the case index
+	record-field-lens-types nat32 mut[(low-type, symbol)]
 	low-common-types mut low-common-types
 	-char8-array-type mut low-type
 	-deserialize-error-type mut low-type
@@ -67,7 +70,7 @@ new lower-context
 	show-ctx show-ctx
 	program program-with-main
 	target build-target
-do quick-fill-in-low-fun-body
+do lower-funs
 	res lower-context =
 		show-ctx: show-ctx
 		prng: ()
@@ -89,6 +92,8 @@ do quick-fill-in-low-fun-body
 		all-processed-low-funs: ()
 		all-unprocessed-low-funs: ()
 		sum-types: ()
+		new-interface-types: ()
+		record-field-lens-types: ()
 		low-common-types: trusted gc-safe-value
 		char8-array-type: trusted gc-safe-value
 		deserialize-error-type: trusted gc-safe-value
@@ -187,7 +192,7 @@ low-sum-type-case union mut
 	low-sum-type-case-record-field-lens
 do
 	case-type low-type()
-	method-impls low-expr? buffer() # TODO: COuld this be non-optional ???????????????????????????????????????????????????????
+	method-impls low-expr? buffer()
 low-sum-type-case-regular record mut
 	case-type low-type
 	type-args-scope low-type[]
@@ -242,14 +247,15 @@ get-referenced-type low-type(type low-type) lower-ctx
 constant-symbol constant(value symbol) lower-ctx
 	get-constant-symbol all-constants, value
 
-quick-fill-in-low-fun-body spec
+lower-funs spec
 	quick-fill-in-low-fun-body void(ctx lower-context, cf low-fun)
+	get-var low-var(context lower-context, decl var-decl)
 
 get-low-fun low-fun
 	decl fun-decl
 	type-args low-type[]
 	spec-impls low-fun[]
-do lower-context, quick-fill-in-low-fun-body
+do lower-context, lower-funs
 	key low-fun-source-regular = decl, type-args, spec-impls
 	did-add mut = false
 	res = trusted memoize the::lower-context.low-funs, key, of
@@ -305,14 +311,14 @@ low-fun-for-record-field-lens-method-impl low-expr(case-type low-type, method lo
 	else
 		throw unreachable
 
-get-non-template-low-fun low-fun(inst fun-inst) lower-ctx, quick-fill-in-low-fun-body
+get-non-template-low-fun low-fun(inst fun-inst) lower-ctx, lower-funs
 	forbid is-template inst.decl
 	get-low-fun inst.decl, (), ()
 
 get-low-type-for-type-inst low-type
 	inst type-inst
 	type-args-scope type-args-scope
-do lower-context, quick-fill-in-low-fun-body
+do lower-context, lower-funs
 	type-args = get-low-types inst.type-args, type-args-scope
 	key low-type-source-inst = inst.decl, type-args
 	did-add mut = false
@@ -329,44 +335,48 @@ do lower-context, quick-fill-in-low-fun-body
 	res
 
 low-type-for-new-interface (nat32, low-type)(interface_ low-type, params low-local[]) lower-context
-	fields low-field[] = for param in params
-		name: param.source.local!.name
-		is-mutable: false
-		type: param.type
-	res low-type =
-		id: take-next-id
-		source: low-type-source-new-interface interface_
-		body:
-			:: low-record
-			prevent-constant: false
-			fields: fields
-	the::lower-context.all-low-types ~= res
-	info = the::lower-context.sum-types[interface_]!
-	case-index = info.cases.size
-	info.cases ~=
-		:: low-sum-type-case-new-interface
-		case-type: res
-		method-impls: initial-method-impls interface_, info, of method, method-index
-			low-fun-for-new-interface-method-impl res, method, method-index
-	case-index, res
+	case-index = ensure the::lower-context.new-interface-types, interface_, of
+		fields low-field[] = for param in params
+			name: param.source.local!.name
+			is-mutable: false
+			type: param.type
+		case-type low-type =
+			id: take-next-id
+			source: low-type-source-new-interface interface_
+			body:
+				:: low-record
+				prevent-constant: false
+				fields: fields
+		the::lower-context.all-low-types ~= case-type
+		info = the::lower-context.sum-types[interface_]!
+		case-index = info.cases.size
+		info.cases ~=
+			:: low-sum-type-case-new-interface
+			case-type: case-type
+			method-impls: initial-method-impls interface_, info, of method, method-index
+				low-fun-for-new-interface-method-impl case-type, method, method-index
+		case-index
+	case-index, the::lower-context.sum-types[interface_]!.cases[case-index].case-type
 
 low-type-for-record-field-lens (nat32, low-type)(lens low-type, field low-field) lower-context
-	res low-type =
-		id: take-next-id
-		source: low-type-source-record-field-lens lens, field
-		body:
-			:: low-record
-			prevent-constant: false
-			fields: ()
-	the::lower-context.all-low-types ~= res
-	info = the::lower-context.sum-types[lens]!
-	case-index = info.cases.size
-	info.cases ~=
-		:: low-sum-type-case-record-field-lens
-		case-type: res
-		method-impls: initial-method-impls lens, info, of method, method-index
-			low-fun-for-record-field-lens-method-impl res, method, method-index
-	case-index, res
+	case-index = ensure the::lower-context.record-field-lens-types, (lens, field.name), of
+		res low-type =
+			id: take-next-id
+			source: low-type-source-record-field-lens lens, field
+			body:
+				:: low-record
+				prevent-constant: false
+				fields: ()
+		the::lower-context.all-low-types ~= res
+		info = the::lower-context.sum-types[lens]!
+		case-index = info.cases.size
+		info.cases ~=
+			:: low-sum-type-case-record-field-lens
+			case-type: res
+			method-impls: initial-method-impls lens, info, of method, method-index
+				low-fun-for-record-field-lens-method-impl res, method, method-index
+		case-index
+	case-index, the::lower-context.sum-types[lens]!.cases[case-index].case-type
 
 -initial-method-impls low-expr? buffer
 	interface_ low-type
@@ -380,7 +390,7 @@ do lower-context
 		method-impls[method-index] := f[method, method-index]
 	method-impls
 
-get-low-type low-type(type type, type-args-scope type-args-scope) lower-context, quick-fill-in-low-fun-body
+get-low-type low-type(type type, type-args-scope type-args-scope) lower-context, lower-funs
 	match type
 	as bogus-type
 		bogus-type
@@ -389,7 +399,7 @@ get-low-type low-type(type type, type-args-scope type-args-scope) lower-context,
 	as type-inst
 		get-low-type-for-type-inst type, type-args-scope
 
--get-low-types low-type[](types type-args, type-args-scope type-args-scope) lower-context, quick-fill-in-low-fun-body
+-get-low-types low-type[](types type-args, type-args-scope type-args-scope) lower-context, lower-funs
 	for t in types
 		get-low-type t, type-args-scope
 
@@ -397,7 +407,7 @@ get-low-fun-from-called low-fun?
 	type-scope type-args-scope
 	specs-scope low-fun[]
 	called called
-do lower-context, quick-fill-in-low-fun-body
+do lower-context, lower-funs
 	match called
 	as called-bogus
 		()
@@ -406,20 +416,11 @@ do lower-context, quick-fill-in-low-fun-body
 	as called-spec-sig
 		specs-scope[called.index-in-specs]
 
-fun-decl-from-called fun-decl?(called called, specs-scope low-fun[]) lower-context
-	match called
-	as called-bogus
-		()
-	as fun-inst
-		called.decl
-	as called-spec-sig
-		specs-scope[called.index-in-specs].source.low-fun-source-regular!.decl
-
 get-low-fun-from-fun-inst low-fun?
 	type-scope type-args-scope
 	specs-scope low-fun[]
 	fun-inst fun-inst
-do lower-context, quick-fill-in-low-fun-body
+do lower-context, lower-funs
 	do if spec-impls low-fun[] = map-every fun-inst.spec-impls, {get-low-fun-from-called type-scope, specs-scope, it}
 	type-args = get-low-types fun-inst.type-args, type-scope
 	get-low-fun fun-inst.decl, type-args, spec-impls
@@ -427,7 +428,7 @@ do lower-context, quick-fill-in-low-fun-body
 -lower-param-destructure low-local
 	a destructure
 	type-args-scope type-args-scope
-do lower-context, quick-fill-in-low-fun-body
+do lower-context, lower-funs
 	source: match a
 	as destructure-ignore
 		ignore::low-generated-local-kind
@@ -444,7 +445,7 @@ add-low-fun void(fun low-fun) lower-context
 	inst type-inst
 	res low-type
 	type-args low-type[]
-do lower-context, quick-fill-in-low-fun-body
+do lower-context, lower-funs
 	match body = inst.decl.body
 	as type-body-bogus
 		throw unreachable
@@ -507,15 +508,18 @@ do lower-context, quick-fill-in-low-fun-body
 			if is-empty x.method-impls
 				assert as-extern res
 			elif impl = x.method-impls[method-index]
-				method-impls[method-index] := call-method-impl method, inst.decl.range, get-low-fun-from-called type-args, (), impl
+				method-impls[method-index] :=
+					call-method-impl method, inst.decl.range, get-low-fun-from-called type-args, (), impl
 		info.cases ~=
 			case-type: res
 			type-args-scope: type-args
 			model-method-impls: x.method-impls
 			method-impls: method-impls
 
-call-method-impl low-expr(method low-fun, range uri-and-range, method-impl low-fun?) lower-context
-	assert method-impl else todo # ----------------------------------------------------------------------------------------------
+call-method-impl low-expr?(method low-fun, range uri-and-range, method-impl low-fun?) lower-context, lower-funs
+	the common-types = the::lower-context.common-types
+	the low-common-types = the::lower-context.low-common-types
+	do if method-impl else gen-bogus method.return-type, range
 	args low-expr[] =
 		- union-assume-case-low-expr method-impl.params[0].type, range, local-get-low-expr range, method.params[0]
 		-- for param in method.params[1 .. end]
@@ -525,7 +529,7 @@ call-method-impl low-expr(method low-fun, range uri-and-range, method-impl low-f
 	else
 		call-low-expr range, method-impl, args
 
-lower-inline-call-not-array-op low-expr(fun low-fun, range uri-and-range, args low-expr[]) lower-context
+lower-inline-call-not-array-op low-expr(fun low-fun, range uri-and-range, args low-expr[]) lower-context, lower-funs
 	type = fun.return-type
 	assert low-fun-body-always-inline fun.body
 	match body = fun.source.low-fun-source-regular!.decl.body
@@ -549,8 +553,12 @@ lower-inline-call-not-array-op low-expr(fun low-fun, range uri-and-range, args l
 		else
 			throw unreachable
 	as new-interface
-		type.body.low-union!.has-new-interface-members := true
-		new-interface-low-expr type, range, args
+		if is-js
+			type.body.low-union!.has-new-interface-members := true
+			new-interface-low-expr type, range, args
+		else
+			case-index, case-type = low-type-for-new-interface fun.return-type, fun.params
+			create-union-low-expr type, range, case-index, create-record-low-expr case-type, fun.range, args
 	as new-record
 		if is-empty args and not prevent-constant type.body.low-record!
 			constant-low-expr type, range, get-constant-record all-constants, type, ()
@@ -560,6 +568,13 @@ lower-inline-call-not-array-op low-expr(fun low-fun, range uri-and-range, args l
 		record_ = only! args
 		the low-common-types = the::lower-context.low-common-types
 		gen-record-field-get range, record_, get-low-field record_.type, body.field
+	as record-field-lens
+		assert is-empty args
+		record-type, _ = only2! type.source.low-type-source-inst!.type-args
+		case-index, case-type = low-type-for-record-field-lens type, get-low-field record-type, body.field
+		constant-low-expr type, range,
+			get-constant-union all-constants, type, case-index,
+				get-constant-record all-constants, case-type, ()
 	as record-field-set
 		record_, value = only2! args
 		:: record-field-set-low-expr
@@ -567,6 +582,11 @@ lower-inline-call-not-array-op low-expr(fun low-fun, range uri-and-range, args l
 		record_: record_
 		field: get-low-field fun.params[0].type, body.field
 		value: value
+	as var-get
+		assert is-empty args
+		var-get-low-expr range, get-var the::lower-context, body.var
+	as var-set
+		var-set-low-expr range, (get-var the::lower-context, body.var), only! args
 	else
 		throw unreachable
 -to low-builtin-unary(a builtin-unary)
@@ -636,3 +656,29 @@ finish-sum-type-cases void(sum-type low-type, cases low-sum-type-case mut[])
 
 fun-body-decl fun-body(fun low-fun)
 	fun.source.low-fun-source-regular!.decl.body
+
+gen-bogus low-expr(type low-type, range uri-and-range) lower-ctx
+	gen-throw-string type, range, "Reached compile error"
+gen-error low-expr(range uri-and-range, message string) lower-ctx
+	# Avoid using a constant so it will have a stack trace
+	error = gen-create-record error-type, range,
+		- gen-string-literal range, message
+	member-index = sum-type-case-index exception, error-type
+	create-union-low-expr exception, range, member-index, error
+gen-throw-string low-expr(type low-type, range uri-and-range, message string) lower-ctx
+	throw-low-expr type, range, gen-error range, message
+
+gen-symbol-literal constant-low-expr(range uri-and-range, value symbol) lower-ctx
+	symbol, range, constant-symbol value
+gen-string-literal constant-low-expr(range uri-and-range, value string) lower-ctx
+	string, range, constant-string value
+constant-string constant(value string) lower-ctx
+	get-constant-record all-constants, string,
+		- constant-of-bytes char8-array-type, value.to
+constant-char8-array constant(type low-type, value string) lower-ctx
+	constant-of-bytes type, value.to
+constant-of-bytes constant(array-type low-type, bytes nat8 array-view) lower-ctx
+	# TODO:PERF creating a Constant per byte is expensive
+	get-constant-array all-constants, array-type, map bytes, it.to::scalar-value
+constant-char32-array constant(type low-type, value string) lower-ctx
+	get-constant-array all-constants, type, map value.to::char32[], it.to::scalar-value
