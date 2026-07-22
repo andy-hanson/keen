@@ -73,10 +73,9 @@ import
 +randoms-with-replacement[col, elem] elem[](choices col, n nat32) random, (col, elem) array-like
 	map 0 .. n, {random choices}
 
-| Returns an empty option if {f} rejected every choice.
 | This is equivalent to but more efficient than than calling {random-where} in a loop.
-| This minimizes calls to {f} and avoid calling it until we are about to return a choice.
-| It also avoids calling {f} twice on the same element.
+| If {f} rejects every choice, this returns an empty option. Otherwise the result size will be {n}.
+| This avoids calling {f} twice on the same element.
 +randoms-with-replacement-where[col, elem] elem[]?
 	choices col
 	n nat32
@@ -96,16 +95,58 @@ do random, (col, elem) array-like
 	if res.size == n
 		move-to res
 	else
-		remaining nat32 mut[] = shuffle filter::nat32[] 0 .. choices.size, {not rejected[it]}
+		remaining nat random-bag = filter 0 .. choices.size, {not rejected[it]}
 		until res.size == n or is-empty remaining
-			i nat = random remaining.size
-			elem = choices[remaining[i]]
-			if f[elem]
-				res ~= elem
-			else
-				_ = remove-at remaining, i
-		unless is-empty remaining
+			_ = take-and-maybe-replace remaining, of i
+				elem = choices[i]
+				if f[elem]
+					res ~= elem
+					true
+		is-empty remaining is is-empty res
+		unless is-empty res
 			move-to res
+
+| Bag of elements that can be taken out at random. Supports replacing or not replacing the values.
+| For most use cases, using {randoms-with-replacement} or {randoms-without-replacement} is simpler.
++random-bag[t] record mut
+	is-shuffled mut bool
+	values t mut[]
++list-new[t] t random-bag(values t[])
+	is-shuffled: false
+	values: values.to
++is-empty[t] bool(a t random-bag)
+	is-empty a.values
++size[t] nat(a t random-bag)
+	a.values.size
++ ~=[t] void(a t random-bag, value t) random
+	a.values ~= value
+	if a.is-shuffled
+		swap-last-randomly a
+| Gets a random value and removes it from the bag
++ take-random[t] t?(a t random-bag) random
+	ensure-shuffled a
+	pop a.values
+| This does not remove the value.
++ get-random[t] t?(a t random-bag) random
+	unless is-empty a.values
+		random a.values
+| If {replace} returns true, this will act like {get-random}, otherwise it will act like {take-random}.
++ take-and-maybe-replace[t] t?(a t random-bag, replace bool mut(x t)) random
+	ensure-shuffled a
+	do if value = peek a.values
+	if replace[value]
+		swap-last-randomly a
+	else
+		_ = pop! a.values
+	value
+-ensure-shuffled[t] void(a t random-bag) random
+	unless a.is-shuffled
+		shuffle a.values
+		a.is-shuffled := true
+-swap-last-randomly[t] void(a t random-bag) random
+	assert a.is-shuffled
+	index = random a.size
+	swap-at a.values, index, a.size - 1
 
 | This may return less than {n} elements if {choices} is not big enough.
 +randoms-without-replacement[col, elem] elem[](choices col, n nat32) random, (col, elem) array-like
@@ -138,7 +179,8 @@ do random, (col, elem) array-like
 		if try-add tried-indices, index and f[choices[index]]
 			res ~= index
 	unless res.size == n
-		remaining nat32[] = shuffle filter::nat32[] 0 .. choices.size, {not tried-indices[it]}
+		remaining nat32 buffer = filter 0 .. choices.size, {not tried-indices[it]}
+		shuffle remaining
 		i mut nat32 = 0
 		until res.size == n or i == remaining.size
 			if f[choices[remaining[i]]]
